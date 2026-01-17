@@ -1,0 +1,58 @@
+appId: com.guazai.changdu-electron
+productName: 常读素材管理工具
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.*'
+  - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+  - '**/*.node'
+  - '**/node_modules/.pnpm/**'
+win:
+  executableName: changdu-electron
+  # icon: resources/icon.ico  # 暂时注释掉，使用默认图标
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  allowElevation: true
+  runAfterFinish: false
+  deleteAppDataOnUninstall: false
+  differentialPackage: false
+mac:
+  # entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    - NSCameraUsageDescription: 需要访问摄像头
+    - NSMicrophoneUsageDescription: 需要访问麦克风
+    - NSDocumentsFolderUsageDescription: 需要访问文档文件夹
+  notarize: false
+  # icon: resources/icon.icns  # 暂时注释掉，使用默认图标
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: guazai
+  category: Utility
+  # icon: resources/icon.png  # 暂时注释掉，使用默认图标
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates

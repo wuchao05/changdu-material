@@ -1,0 +1,325 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, watch, h, KeepAlive } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import {
+  NLayout,
+  NLayoutSider,
+  NLayoutContent,
+  NMenu,
+  NIcon,
+  NButton,
+  useMessage,
+} from "naive-ui";
+import {
+  CloudUploadOutline,
+  CloudDownloadOutline,
+  SettingsOutline,
+  LogOutOutline,
+} from "@vicons/ionicons5";
+import { useAuthStore } from "./stores/auth";
+import { useDarenStore } from "./stores/daren";
+
+const router = useRouter();
+const route = useRoute();
+const message = useMessage();
+const authStore = useAuthStore();
+const darenStore = useDarenStore();
+
+const collapsed = ref(false);
+const activeKey = ref("upload");
+
+// 根据权限动态生成菜单选项
+const menuOptions = computed(() => {
+  const options: Array<{
+    label: string;
+    key: string;
+    icon: () => ReturnType<typeof h>;
+  }> = [];
+
+  // 管理员可以看到所有菜单
+  const isAdmin = authStore.isAdmin;
+
+  // 素材上传 - 管理员或有上传权限的达人可见
+  if (isAdmin || darenStore.canUpload) {
+    options.push({
+      label: "素材上传",
+      key: "upload",
+      icon: () => h(NIcon, null, { default: () => h(CloudUploadOutline) }),
+    });
+  }
+
+  // 素材下载 - 管理员或有下载权限的达人可见
+  if (isAdmin || darenStore.canDownload) {
+    options.push({
+      label: "素材下载",
+      key: "download",
+      icon: () => h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
+    });
+  }
+
+  // 系统设置 - 仅管理员可见
+  if (isAdmin) {
+    options.push({
+      label: "系统设置",
+      key: "settings",
+      icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
+    });
+  }
+
+  return options;
+});
+
+// 获取默认路由
+const defaultRoute = computed(() => {
+  if (authStore.isAdmin) return "/upload";
+  if (darenStore.canUpload) return "/upload";
+  if (darenStore.canDownload) return "/download";
+  return "/login";
+});
+
+// 处理菜单选择
+function handleMenuSelect(key: string) {
+  activeKey.value = key;
+  router.push(`/${key}`);
+}
+
+// 监听路由变化
+watch(
+  () => route.path,
+  (path) => {
+    const key = path.slice(1) || "upload";
+    // 检查当前路由是否在可用菜单中
+    const availableKeys = menuOptions.value.map((opt) => opt.key);
+    if (availableKeys.includes(key)) {
+      activeKey.value = key;
+    }
+  },
+  { immediate: true }
+);
+
+// 退出登录
+async function handleLogout() {
+  authStore.logout();
+  message.success("已退出登录");
+  router.push("/login");
+}
+
+// 最小化窗口
+function handleMinimize() {
+  window.api.minimize();
+}
+
+// 最大化窗口
+function handleMaximize() {
+  window.api.maximize();
+}
+
+// 关闭窗口（隐藏到托盘）
+function handleClose() {
+  window.api.close();
+}
+
+// 初始化
+onMounted(async () => {
+  // 检查登录状态
+  if (!authStore.isLoggedIn) {
+    router.push("/login");
+    return;
+  }
+
+  // 同步远程配置（刷新页面时也会执行）
+  try {
+    console.log("[AppContent] 同步远程配置...");
+    const syncResult = await window.api.syncRemoteConfig();
+    if (syncResult.synced) {
+      console.log("[AppContent] ✓ 远程配置同步成功，版本:", syncResult.version);
+    } else {
+      console.log(
+        "[AppContent] 远程配置同步跳过:",
+        syncResult.error || "无更新"
+      );
+    }
+  } catch (error) {
+    console.warn("[AppContent] 远程配置同步失败:", error);
+  }
+
+  // 加载达人配置（强制刷新，避免缓存导致新达人不可见）
+  await darenStore.loadFromServer(true);
+
+  // 如果当前路由没有权限，重定向到默认路由
+  const currentKey = route.path.slice(1);
+  const availableKeys = menuOptions.value.map((opt) => opt.key);
+  if (
+    currentKey &&
+    !availableKeys.includes(currentKey) &&
+    currentKey !== "login"
+  ) {
+    router.push(defaultRoute.value);
+  }
+});
+</script>
+
+<template>
+  <div class="app-container">
+    <!-- 自定义标题栏 -->
+    <div class="title-bar" style="-webkit-app-region: drag">
+      <div class="title-bar-text">
+        <span class="app-icon">📺</span>
+        <span>常读素材管理工具</span>
+        <span v-if="authStore.currentUser" class="user-info">
+          - {{ authStore.currentUser.label || authStore.currentUser.id }}
+        </span>
+      </div>
+      <div class="title-bar-buttons" style="-webkit-app-region: no-drag">
+        <NButton quaternary size="small" @click="handleMinimize">
+          <template #icon>─</template>
+        </NButton>
+        <NButton quaternary size="small" @click="handleMaximize">
+          <template #icon>□</template>
+        </NButton>
+        <NButton quaternary size="small" @click="handleClose">
+          <template #icon>✕</template>
+        </NButton>
+      </div>
+    </div>
+
+    <!-- 登录页面 -->
+    <template v-if="route.path === '/login'">
+      <router-view />
+    </template>
+
+    <!-- 主布局 -->
+    <template v-else>
+      <NLayout has-sider class="main-layout">
+        <NLayoutSider
+          bordered
+          collapse-mode="width"
+          :collapsed-width="64"
+          :width="200"
+          :collapsed="collapsed"
+          show-trigger
+          @collapse="collapsed = true"
+          @expand="collapsed = false"
+        >
+          <div class="sider-header">
+            <span v-if="!collapsed" class="logo-text">素材管理</span>
+            <span v-else>📺</span>
+          </div>
+          <NMenu
+            :collapsed="collapsed"
+            :collapsed-width="64"
+            :collapsed-icon-size="22"
+            :options="menuOptions"
+            :value="activeKey"
+            @update:value="handleMenuSelect"
+          />
+          <div class="sider-footer">
+            <NButton v-if="!collapsed" quaternary block @click="handleLogout">
+              <template #icon>
+                <NIcon><LogOutOutline /></NIcon>
+              </template>
+              退出登录
+            </NButton>
+            <NButton v-else quaternary @click="handleLogout">
+              <template #icon>
+                <NIcon><LogOutOutline /></NIcon>
+              </template>
+            </NButton>
+          </div>
+        </NLayoutSider>
+        <NLayoutContent class="main-content">
+          <router-view v-slot="{ Component }">
+            <KeepAlive include="Upload,Download">
+              <component :is="Component" />
+            </KeepAlive>
+          </router-view>
+        </NLayoutContent>
+      </NLayout>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+.app-container {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f5f7fa;
+}
+
+.title-bar {
+  height: 36px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  color: white;
+}
+
+.title-bar-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.app-icon {
+  font-size: 18px;
+}
+
+.user-info {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.title-bar-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.title-bar-buttons :deep(.n-button) {
+  color: white;
+  padding: 0 8px;
+}
+
+.title-bar-buttons :deep(.n-button:hover) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.main-layout {
+  flex: 1;
+  overflow: hidden;
+}
+
+.sider-header {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.logo-text {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.sider-footer {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+}
+
+.main-content {
+  padding: 20px;
+  overflow: auto;
+  background: #f5f7fa;
+}
+</style>

@@ -1,0 +1,17 @@
+{
+  "darenList": [
+    {
+      "id": "示例用户ID",
+      "label": "示例达人名称",
+      "shortName": "示例简称",
+      "douyinAccounts": ["示例抖音号1", "示例抖音号2"],
+      "feishuDramaStatusTableId": "示例飞书剧集状态表ID",
+      "feishuDramaListTableId": "示例飞书剧集清单表ID",
+      "feishuAccountTableId": "示例飞书账户表ID",
+      "enableDramaClipEntry": false,
+      "enableAutoUpload": false,
+      "enableAutoDownload": false,
+      "videoBasePath": "D:\\短剧剪辑\\"
+    }
+  ]
+}
