@@ -295,20 +295,44 @@ export class DownloadService {
           return;
         }
 
-        // 真正的错误才删除文件
-        if (fs.existsSync(savePath)) {
-          fs.unlinkSync(savePath);
-        }
+        // 关闭文件流
+        file.close();
+        this.activeDownloads.delete(dramaName);
 
         // 提供更友好的错误信息
         const errorCode = (err as any).code;
         let errorMessage = err.message;
+        const isNetworkError =
+          errorCode === "ECONNRESET" ||
+          errorCode === "ETIMEDOUT" ||
+          errorCode === "ENOTFOUND" ||
+          errorCode === "ECONNREFUSED";
+
         if (errorCode === "ECONNRESET") {
-          errorMessage = "网络连接中断，请检查网络后重试";
+          errorMessage = "网络连接中断";
         } else if (errorCode === "ETIMEDOUT") {
-          errorMessage = "下载超时，请重试";
+          errorMessage = "下载超时";
         } else if (errorCode === "HPE_JS_EXCEPTION") {
-          errorMessage = "数据传输异常，可能是网络不稳定";
+          errorMessage = "数据传输异常";
+        }
+
+        // 如果是网络错误且已下载部分内容，保存断点状态供续传
+        if (isNetworkError && downloadedBytes > 0) {
+          console.log(
+            `[DownloadService] 网络错误，保留已下载内容用于断点续传: ${downloadedBytes} bytes`
+          );
+          const state = this.downloadStates.get(dramaName);
+          if (state) {
+            state.downloadedBytes = downloadedBytes;
+            state.paused = false; // 不是用户主动暂停
+          }
+          // 不删除部分下载的文件，保留用于断点续传
+        } else {
+          // 其他错误或没有下载内容时才删除文件
+          if (fs.existsSync(savePath)) {
+            fs.unlinkSync(savePath);
+          }
+          this.downloadStates.delete(dramaName);
         }
 
         reject(new Error(errorMessage));

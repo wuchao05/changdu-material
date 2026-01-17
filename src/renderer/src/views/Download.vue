@@ -514,7 +514,6 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     const isUserAction =
       errorMessage.includes("已取消") ||
       errorMessage.includes("已暂停") ||
-      errorMessage.includes("中断") ||
       errorMessage.includes("aborted") ||
       task.status === "paused" ||
       task.status === "cancelled";
@@ -522,35 +521,76 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     // 检查是否是停滞错误
     const isStallError = errorMessage.includes("下载停滞");
 
+    // 检查是否是网络错误（可以断点续传）
+    const isNetworkError =
+      errorMessage.includes("网络连接中断") ||
+      errorMessage.includes("下载超时") ||
+      errorMessage.includes("数据传输异常") ||
+      errorMessage.includes("ECONNRESET") ||
+      errorMessage.includes("ETIMEDOUT");
+
     if (!isUserAction) {
       const duration = ((Date.now() - taskStartTime) / 1000).toFixed(1);
       console.error(
         `[Download] ${task.dramaName} 失败，耗时 ${duration}秒，错误: ${errorMessage}`
       );
 
-      // 如果是停滞错误且还有重试次数，重新排队到末尾
-      if (isStallError && task.retryCount! < MAX_RETRIES) {
+      // 如果是网络错误或停滞错误且还有重试次数，尝试断点续传
+      if ((isNetworkError || isStallError) && task.retryCount! < MAX_RETRIES) {
         task.retryCount!++;
+        
+        // 如果是网络错误且有进度，尝试断点续传
+        if (isNetworkError && task.progress > 0) {
+          console.log(
+            `[Download] ${task.dramaName} 网络错误，尝试断点续传，当前进度: ${task.progress.toFixed(1)}%，重试次数: ${task.retryCount}/${MAX_RETRIES}`
+          );
+          message.warning(
+            `${task.dramaName} 网络中断 (${task.progress.toFixed(1)}%)，正在尝试断点续传 (${task.retryCount}/${MAX_RETRIES})`
+          );
+          
+          // 等待3秒后尝试续传
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+          try {
+            task.status = "downloading";
+            const result = await window.api.resumeDownload(task.dramaName);
+            
+            if (result.success) {
+              task.progress = 100;
+              const extractResult = await window.api.extractZip(result.filePath, undefined, true);
+              
+              if (extractResult.success) {
+                task.status = "success";
+                task.localPath = extractResult.extractedPath;
+                await updateFeishuStatus(task, "待剪辑");
+                message.success(`${task.dramaName} 断点续传成功`);
+                return; // 成功，直接返回
+              }
+            }
+          } catch (resumeError) {
+            console.error(`[Download] ${task.dramaName} 断点续传失败:`, resumeError);
+          }
+        }
+        
+        // 断点续传失败或是停滞错误，重新排队
         task.status = "pending";
         task.progress = 0;
         task.error = undefined;
 
-        // 如果有队列引用，加入队列末尾（在本轮稍后重试）
         if (queue) {
           queue.push(task);
           console.log(
-            `[Download] ${task.dramaName} 停滞后加入队列末尾，重试次数: ${task.retryCount}/${MAX_RETRIES}，当前队列长度: ${queue.length}`
+            `[Download] ${task.dramaName} 加入队列末尾重试，重试次数: ${task.retryCount}/${MAX_RETRIES}，当前队列长度: ${queue.length}`
           );
           message.warning(
-            `${task.dramaName} 下载停滞，已加入队列末尾等待重试 (${task.retryCount}/${MAX_RETRIES})`
+            `${task.dramaName} 重新排队等待重试 (${task.retryCount}/${MAX_RETRIES})`
           );
         } else {
-          // 没有队列引用（单独重试），等待下一轮
           console.log(
-            `[Download] ${task.dramaName} 停滞后标记为pending，等待下一轮重试: ${task.retryCount}/${MAX_RETRIES}`
+            `[Download] ${task.dramaName} 标记为pending等待重试: ${task.retryCount}/${MAX_RETRIES}`
           );
           message.warning(
-            `${task.dramaName} 下载停滞，已重新排队 (重试 ${task.retryCount}/${MAX_RETRIES})`
+            `${task.dramaName} 已重新排队 (重试 ${task.retryCount}/${MAX_RETRIES})`
           );
         }
         return; // 返回，不标记为失败
