@@ -377,7 +377,7 @@ app.isQuitting = false;
 // initialization and is ready to create browser windows.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId("com.guazai.changdu-electron");
+  electronApp.setAppUserModelId("com.guazai.changdu-material");
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.

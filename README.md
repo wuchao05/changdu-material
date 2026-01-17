@@ -52,7 +52,7 @@ pnpm build:mac
 ## 项目结构
 
 ```
-changdu-electron/
+changdu-material/
 ├── src/
 │   ├── main/                    # Electron 主进程
 │   │   ├── index.ts            # 主进程入口
