@@ -1302,14 +1302,18 @@ const columns: DataTableColumns<DownloadTask> = [
       }
       // 失败或已取消：显示重试按钮
       if (row.status === "error" || row.status === "cancelled") {
+        // 如果当前下载数已达到并发上限，禁用"重新下载"按钮
+        const isMaxConcurrency =
+          downloadingCount.value >= concurrentDownloads.value;
         return h(
           NButton,
           {
             size: "small",
             type: row.status === "error" ? "warning" : "primary",
+            disabled: isMaxConcurrency,
             onClick: () => retryDownload(row),
           },
-          { default: () => "重新下载" }
+          { default: () => isMaxConcurrency ? "等待空位" : "重新下载" }
         );
       }
       // 成功：显示打开目录按钮
