@@ -1269,6 +1269,9 @@ const columns: DataTableColumns<DownloadTask> = [
       }
       // 已暂停：显示继续和取消按钮
       if (row.status === "paused") {
+        // 如果当前下载数已达到并发上限，禁用"继续"按钮
+        const isMaxConcurrency =
+          downloadingCount.value >= concurrentDownloads.value;
         return h(
           NSpace,
           { size: "small" },
@@ -1279,9 +1282,10 @@ const columns: DataTableColumns<DownloadTask> = [
                 {
                   size: "small",
                   type: "success",
+                  disabled: isMaxConcurrency,
                   onClick: () => resumeDownload(row),
                 },
-                { default: () => "继续" }
+                { default: () => isMaxConcurrency ? "等待空位" : "继续" }
               ),
               h(
                 NButton,
