@@ -1,4 +1,4 @@
-appId: com.guazai.changdu-electron
+appId: com.guazai.changdu-material
 productName: 常读素材管理工具
 directories:
   buildResources: build
@@ -12,9 +12,8 @@ files:
 asarUnpack:
   - resources/**
   - '**/*.node'
-  - '**/node_modules/.pnpm/**'
 win:
-  executableName: changdu-electron
+  executableName: changdu-material
   # icon: resources/icon.ico  # 暂时注释掉，使用默认图标
   target:
     - target: nsis

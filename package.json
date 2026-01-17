@@ -1,5 +1,5 @@
 {
-  "name": "changdu-electron",
+  "name": "changdu-material",
   "version": "1.0.0",
   "description": "常读短剧素材上传下载管理工具",
   "main": "./out/main/index.js",
