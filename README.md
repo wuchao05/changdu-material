@@ -36,6 +36,16 @@ pnpm install
 pnpm dev
 ```
 
+**Windows 用户注意**：如果遇到中文乱码问题，使用以下方式启动：
+
+```powershell
+# PowerShell
+.\dev.ps1
+
+# 或 CMD
+dev.bat
+```
+
 ### 构建
 
 ```bash
@@ -145,6 +155,44 @@ API 配置存储在应用数据目录下的 `api-config.json` 文件中：
 2. 设置保存路径
 3. 点击"开始下载"按钮
 4. 可开启"自动下载"进行轮询下载
+
+## 常见问题
+
+### Windows exFAT 文件系统安装失败
+
+如果在 Windows 的 exFAT 磁盘上运行 `pnpm install` 遇到符号链接错误，项目已配置 `node-linker=hoisted` 解决此问题。如果仍有问题：
+
+```powershell
+# 设置环境变量
+$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+
+# 删除 node_modules 重装
+Remove-Item -Recurse -Force node_modules
+pnpm install
+
+# 手动安装 Electron
+node node_modules/electron/install.js
+```
+
+### Windows 控制台中文乱码
+
+使用项目提供的启动脚本：
+
+```powershell
+# PowerShell
+.\dev.ps1
+
+# 或 CMD
+dev.bat
+```
+
+或手动设置编码后再运行：
+
+```powershell
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001
+pnpm dev
+```
 
 ## License
 
