@@ -95,6 +95,25 @@ export class FileService {
   async getVideoInfo(filePath: string, maxRetry = 3): Promise<VideoInfo> {
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
       try {
+        // Windows 上使用短路径名避免中文路径问题
+        let actualPath = filePath;
+        if (process.platform === 'win32') {
+          try {
+            // 尝试获取短路径名（8.3 格式）
+            const { stdout: shortPath } = await execFileAsync(
+              'cmd',
+              ['/c', 'for', '%I', 'in', `("${filePath}")`, 'do', '@echo', '%~sI'],
+              { encoding: 'utf8', timeout: 5000 }
+            );
+            if (shortPath && shortPath.trim()) {
+              actualPath = shortPath.trim();
+              console.log(`[FileService] 使用短路径: ${actualPath}`);
+            }
+          } catch (pathError) {
+            console.warn(`[FileService] 无法获取短路径，使用原路径:`, pathError);
+          }
+        }
+
         // 使用 ffprobe 获取视频信息，设置 UTF-8 编码环境
         const { stdout } = await execFileAsync(
           "ffprobe",
@@ -105,7 +124,7 @@ export class FileService {
             "json",
             "-show_format",
             "-show_streams",
-            filePath,
+            actualPath,
           ],
           {
             encoding: "utf8",
