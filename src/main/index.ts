@@ -1,12 +1,53 @@
 // Windows 控制台编码修复：在所有导入之前设置
 if (process.platform === "win32") {
-  // 强制 stdout 和 stderr 使用 UTF-8 编码
-  if (process.stdout && process.stdout.setDefaultEncoding) {
+  // 方法1：强制 stdout 和 stderr 使用 UTF-8 编码
+  if (process.stdout && typeof process.stdout.setDefaultEncoding === 'function') {
     process.stdout.setDefaultEncoding("utf8");
   }
-  if (process.stderr && process.stderr.setDefaultEncoding) {
+  if (process.stderr && typeof process.stderr.setDefaultEncoding === 'function') {
     process.stderr.setDefaultEncoding("utf8");
   }
+  
+  // 方法2：重写 console.log 以确保使用 UTF-8
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  
+  console.log = function(...args) {
+    const message = args.map(arg => 
+      typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
+    ).join(' ');
+    
+    if (process.stdout.write) {
+      process.stdout.write(message + '\n', 'utf8');
+    } else {
+      originalLog.apply(console, args);
+    }
+  };
+  
+  console.error = function(...args) {
+    const message = args.map(arg => 
+      typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
+    ).join(' ');
+    
+    if (process.stderr.write) {
+      process.stderr.write(message + '\n', 'utf8');
+    } else {
+      originalError.apply(console, args);
+    }
+  };
+  
+  console.warn = function(...args) {
+    const message = args.map(arg => 
+      typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
+    ).join(' ');
+    
+    if (process.stderr.write) {
+      process.stderr.write(message + '\n', 'utf8');
+    } else {
+      originalWarn.apply(console, args);
+    }
+  };
 }
 
 import {

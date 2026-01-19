@@ -6,7 +6,7 @@
   "author": "GuaZai",
   "license": "MIT",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev.js",
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "install:electron": "node scripts/install-electron.js",
@@ -44,6 +44,7 @@
     "@vitejs/plugin-vue": "^5.0.5",
     "@vue/eslint-config-prettier": "^9.0.0",
     "@vue/eslint-config-typescript": "^13.0.0",
+    "cross-env": "^10.1.0",
     "electron": "31.7.7",
     "electron-builder": "^24.13.3",
     "electron-vite": "^2.3.0",
