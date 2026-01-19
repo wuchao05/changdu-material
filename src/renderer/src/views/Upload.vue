@@ -1053,7 +1053,7 @@ onMounted(() => {
   });
 
   // 监听上传完成
-  unsubscribeComplete = window.api.onTosUploadComplete((result) => {
+  unsubscribeComplete = window.api.onTosUploadComplete(async (result) => {
     const video = videoMaterials.value.find(
       (v) => v.fileName === result.fileName
     );
