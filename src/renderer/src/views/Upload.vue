@@ -585,46 +585,6 @@ async function submitToMaterialLibrary() {
     });
 
     message.success(`成功提交 ${materials.length} 个素材到素材库`);
-
-    // 提交完成后，删除已上传完成的剧的本地目录
-    const completedDramas = new Set(
-      successVideos
-        .filter((v) => selectedVideos.value.has(v.fileName))
-        .map((v) => v.dramaName)
-    );
-
-    for (const dramaName of completedDramas) {
-      const dramaVideos = videoMaterials.value.filter(
-        (v) => v.dramaName === dramaName && selectedVideos.value.has(v.fileName)
-      );
-      
-      // 检查该剧是否所有选中的视频都上传成功
-      const allSuccess = dramaVideos.every((v) => v.status === "success");
-      
-      if (allSuccess && dramaVideos.length > 0) {
-        const firstVideo = dramaVideos[0];
-        const dramaFolderPath = firstVideo.filePath.substring(
-          0,
-          firstVideo.filePath.lastIndexOf(
-            firstVideo.filePath.includes("\\") ? "\\" : "/"
-          )
-        );
-
-        console.log(`[Upload] 开始删除剧《${dramaName}》的本地目录: ${dramaFolderPath}`);
-
-        try {
-          const result = await window.api.deleteFolder(dramaFolderPath);
-          if (result.success) {
-            console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
-            message.success(`剧《${dramaName}》本地素材已清理`);
-          } else {
-            console.error(`[Upload] ✗ 删除目录失败: ${dramaFolderPath}`, result.error);
-          }
-        } catch (error) {
-          console.error(`[Upload] 删除目录异常:`, error);
-        }
-      }
-    }
   } catch (error) {
     message.error("素材库提交失败");
     console.error(error);
@@ -1053,7 +1013,7 @@ onMounted(() => {
   });
 
   // 监听上传完成
-  unsubscribeComplete = window.api.onTosUploadComplete(async (result) => {
+  unsubscribeComplete = window.api.onTosUploadComplete((result) => {
     const video = videoMaterials.value.find(
       (v) => v.fileName === result.fileName
     );
@@ -1091,11 +1051,60 @@ onMounted(() => {
             )
           );
 
-          // 将删除任务添加到待删除列表，等待素材库提交完成后统一删除
-          // （避免在获取视频信息时删除文件，导致 ffprobe 失败）
+          // 剧上传完成后，立即获取视频信息、提交到素材库，然后删除目录
           console.log(
-            `[Upload] 剧《${dramaName}》上传完成，等待素材库提交后再删除`
+            `[Upload] 剧《${dramaName}》上传完成，开始获取视频信息并提交到素材库`
           );
+
+          // 异步处理：获取视频信息 → 提交素材库 → 删除目录
+          (async () => {
+            try {
+              // 1. 获取该剧所有视频的信息
+              const materials = await Promise.all(
+                selectedDramaVideos.map(async (v) => {
+                  let videoInfo = { width: 1280, height: 720, duration: 60 };
+                  try {
+                    videoInfo = await window.api.getVideoInfo(v.filePath);
+                  } catch (e) {
+                    console.warn(`获取视频信息失败，使用默认值: ${v.fileName}`);
+                  }
+
+                  return {
+                    name: v.fileName,
+                    url: v.url!,
+                    type: 0,
+                    width: videoInfo.width,
+                    height: videoInfo.height,
+                    duration: Math.round(videoInfo.duration),
+                    size: Math.ceil((v.size / 1024 / 1024) * 1000),
+                  };
+                })
+              );
+
+              // 2. 提交到素材库
+              await window.api.submitMaterial(materials);
+              
+              // 标记为已提交
+              selectedDramaVideos.forEach((v) => {
+                v.isSubmitted = true;
+              });
+
+              console.log(`[Upload] 剧《${dramaName}》已提交到素材库，开始删除目录`);
+
+              // 3. 删除本地目录
+              const result = await window.api.deleteFolder(dramaFolderPath);
+              if (result.success) {
+                console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
+                message.success(`剧《${dramaName}》已完成，本地素材已清理`);
+              } else {
+                console.error(`[Upload] ✗ 删除目录失败: ${dramaFolderPath}`, result.error);
+                message.warning(`剧《${dramaName}》已完成，但本地素材清理失败`);
+              }
+            } catch (error) {
+              console.error(`[Upload] 剧《${dramaName}》处理失败:`, error);
+              message.error(`剧《${dramaName}》素材库提交失败`);
+            }
+          })();
         }
       }
 
@@ -1121,8 +1130,8 @@ onMounted(() => {
           message.success(`上传完成，${successCount} 个文件全部成功`);
         }
 
-        // 自动提交到素材库（等待完成后再删除目录）
-        await submitToMaterialLibrary();
+        // 注意：每部剧上传完成后已自动提交到素材库并删除目录
+        // 这里不需要再次调用 submitToMaterialLibrary()
 
         // 如果自动上传已开启，上传完成后立即查询新任务
         if (autoUploadEnabled.value) {
