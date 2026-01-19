@@ -585,6 +585,46 @@ async function submitToMaterialLibrary() {
     });
 
     message.success(`成功提交 ${materials.length} 个素材到素材库`);
+
+    // 提交完成后，删除已上传完成的剧的本地目录
+    const completedDramas = new Set(
+      successVideos
+        .filter((v) => selectedVideos.value.has(v.fileName))
+        .map((v) => v.dramaName)
+    );
+
+    for (const dramaName of completedDramas) {
+      const dramaVideos = videoMaterials.value.filter(
+        (v) => v.dramaName === dramaName && selectedVideos.value.has(v.fileName)
+      );
+      
+      // 检查该剧是否所有选中的视频都上传成功
+      const allSuccess = dramaVideos.every((v) => v.status === "success");
+      
+      if (allSuccess && dramaVideos.length > 0) {
+        const firstVideo = dramaVideos[0];
+        const dramaFolderPath = firstVideo.filePath.substring(
+          0,
+          firstVideo.filePath.lastIndexOf(
+            firstVideo.filePath.includes("\\") ? "\\" : "/"
+          )
+        );
+
+        console.log(`[Upload] 开始删除剧《${dramaName}》的本地目录: ${dramaFolderPath}`);
+
+        try {
+          const result = await window.api.deleteFolder(dramaFolderPath);
+          if (result.success) {
+            console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
+            message.success(`剧《${dramaName}》本地素材已清理`);
+          } else {
+            console.error(`[Upload] ✗ 删除目录失败: ${dramaFolderPath}`, result.error);
+          }
+        } catch (error) {
+          console.error(`[Upload] 删除目录异常:`, error);
+        }
+      }
+    }
   } catch (error) {
     message.error("素材库提交失败");
     console.error(error);
@@ -1051,45 +1091,11 @@ onMounted(() => {
             )
           );
 
+          // 将删除任务添加到待删除列表，等待素材库提交完成后统一删除
+          // （避免在获取视频信息时删除文件，导致 ffprobe 失败）
           console.log(
-            `[Upload] 剧《${dramaName}》上传完成，获取视频信息后再删除目录`
+            `[Upload] 剧《${dramaName}》上传完成，等待素材库提交后再删除`
           );
-
-          // 先获取所有视频信息，然后再删除目录（避免 ffprobe 和删除操作冲突）
-          Promise.all(
-            selectedDramaVideos.map(async (v) => {
-              try {
-                await window.api.getVideoInfo(v.filePath);
-              } catch (e) {
-                // 忽略错误，使用默认值
-              }
-            })
-          ).then(() => {
-            console.log(
-              `[Upload] 视频信息已获取，开始删除目录: ${dramaFolderPath}`
-            );
-            
-            // 现在安全地删除目录
-            window.api
-              .deleteFolder(dramaFolderPath)
-              .then((result) => {
-                if (result.success) {
-                  console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
-                  message.success(`剧《${dramaName}》已上传完成，本地素材已清理`);
-                } else {
-                  console.error(
-                    `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
-                    result.error
-                  );
-                  message.warning(
-                    `剧《${dramaName}》已上传完成，但本地素材清理失败`
-                  );
-                }
-              })
-              .catch((error) => {
-                console.error(`[Upload] 删除目录异常:`, error);
-              });
-          });
         }
       }
 
