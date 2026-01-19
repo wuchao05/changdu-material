@@ -93,6 +93,8 @@ export class FileService {
   }
 
   async getVideoInfo(filePath: string, maxRetry = 3): Promise<VideoInfo> {
+    let isEmptyJsonError = false;
+    
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
       try {
         // 使用 ffprobe 获取视频信息，设置 UTF-8 编码环境
@@ -120,14 +122,15 @@ export class FileService {
 
         // 检查输出是否为空
         if (!stdout || stdout.trim() === "" || stdout.trim() === "{}") {
-          throw new Error("ffprobe 返回空数据，可能文件损坏或被占用");
+          isEmptyJsonError = true;
+          throw new Error("ffprobe 返回空数据");
         }
 
         const videoData = JSON.parse(stdout);
 
         // 检查是否有有效的流数据
         if (!videoData.streams || videoData.streams.length === 0) {
-          throw new Error("ffprobe 无法解析视频流，可能文件格式不支持");
+          throw new Error("ffprobe 无法解析视频流");
         }
 
         const videoStream = videoData.streams.find(
@@ -145,11 +148,23 @@ export class FileService {
 
         return { width: 1280, height: 720, duration: 0 };
       } catch (error) {
-        console.error(
-          `[FileService] 获取视频信息失败 (尝试 ${attempt}/${maxRetry}):`,
-          error
-        );
-        console.error(`[FileService] 文件路径: ${filePath}`);
+        // 如果是空 JSON 错误，只在第一次打印简短日志
+        if (isEmptyJsonError && attempt === 1) {
+          console.warn(
+            `[FileService] ⚠️ 文件可能被占用或路径有问题，将使用默认值: ${filePath}`
+          );
+          // 空 JSON 错误不重试，直接返回默认值
+          return { width: 1280, height: 720, duration: 0 };
+        }
+        
+        // 其他错误只在第一次和最后一次打印详细日志
+        if (attempt === 1 || attempt === maxRetry) {
+          console.error(
+            `[FileService] 获取视频信息失败 (尝试 ${attempt}/${maxRetry}):`,
+            error
+          );
+          console.error(`[FileService] 文件路径: ${filePath}`);
+        }
 
         if (attempt === maxRetry) {
           // 检查文件是否存在

@@ -1052,29 +1052,44 @@ onMounted(() => {
           );
 
           console.log(
-            `[Upload] 剧《${dramaName}》上传完成，准备删除本地目录: ${dramaFolderPath}`
+            `[Upload] 剧《${dramaName}》上传完成，获取视频信息后再删除目录`
           );
 
-          // 异步删除目录
-          window.api
-            .deleteFolder(dramaFolderPath)
-            .then((result) => {
-              if (result.success) {
-                console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
-                message.success(`剧《${dramaName}》已上传完成，本地素材已清理`);
-              } else {
-                console.error(
-                  `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
-                  result.error
-                );
-                message.warning(
-                  `剧《${dramaName}》已上传完成，但本地素材清理失败`
-                );
+          // 先获取所有视频信息，然后再删除目录（避免 ffprobe 和删除操作冲突）
+          Promise.all(
+            selectedDramaVideos.map(async (v) => {
+              try {
+                await window.api.getVideoInfo(v.filePath);
+              } catch (e) {
+                // 忽略错误，使用默认值
               }
             })
-            .catch((error) => {
-              console.error(`[Upload] 删除目录异常:`, error);
-            });
+          ).then(() => {
+            console.log(
+              `[Upload] 视频信息已获取，开始删除目录: ${dramaFolderPath}`
+            );
+            
+            // 现在安全地删除目录
+            window.api
+              .deleteFolder(dramaFolderPath)
+              .then((result) => {
+                if (result.success) {
+                  console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
+                  message.success(`剧《${dramaName}》已上传完成，本地素材已清理`);
+                } else {
+                  console.error(
+                    `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
+                    result.error
+                  );
+                  message.warning(
+                    `剧《${dramaName}》已上传完成，但本地素材清理失败`
+                  );
+                }
+              })
+              .catch((error) => {
+                console.error(`[Upload] 删除目录异常:`, error);
+              });
+          });
         }
       }
 
@@ -1100,8 +1115,8 @@ onMounted(() => {
           message.success(`上传完成，${successCount} 个文件全部成功`);
         }
 
-        // 自动提交到素材库
-        submitToMaterialLibrary();
+        // 自动提交到素材库（等待完成后再删除目录）
+        await submitToMaterialLibrary();
 
         // 如果自动上传已开启，上传完成后立即查询新任务
         if (autoUploadEnabled.value) {
