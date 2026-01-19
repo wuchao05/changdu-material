@@ -1,3 +1,14 @@
+// Windows 控制台编码修复：在所有导入之前设置
+if (process.platform === "win32") {
+  // 强制 stdout 和 stderr 使用 UTF-8 编码
+  if (process.stdout && process.stdout.setDefaultEncoding) {
+    process.stdout.setDefaultEncoding("utf8");
+  }
+  if (process.stderr && process.stderr.setDefaultEncoding) {
+    process.stderr.setDefaultEncoding("utf8");
+  }
+}
+
 import {
   app,
   shell,
