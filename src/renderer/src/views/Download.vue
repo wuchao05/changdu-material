@@ -599,13 +599,18 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         return; // 返回，不标记为失败
       }
 
-      // 其他错误或重试次数用尽，标记为失败
-      task.status = "error";
+      // 其他错误或重试次数用尽，恢复为待下载（留待下次轮询继续尝试）
+      task.status = "pending";
+      task.progress = 0;
       task.error = errorMessage;
+      task.retryCount = 0; // 重置重试次数，下次轮询重新开始
 
-      // 更新飞书状态为"下载失败"
-      await updateFeishuStatus(task, "下载失败");
-      message.error(`${task.dramaName} 下载失败: ${errorMessage}`);
+      // 更新飞书状态为"待下载"（下次轮询会继续尝试）
+      await updateFeishuStatus(task, "待下载");
+      console.log(
+        `[Download] ${task.dramaName} 本轮重试次数用尽，恢复为待下载状态，下次轮询将继续尝试`
+      );
+      message.warning(`${task.dramaName} 本轮下载失败，已恢复为待下载`);
     } else {
       console.log(`[Download] ${task.dramaName} 被用户取消或暂停`);
     }
@@ -671,6 +676,27 @@ async function startDownload() {
               `[Download] Worker ${workerId} 处理任务 ${task.dramaName} 异常:`,
               error
             );
+            
+            // 如果任务异常且状态不是已取消/已暂停，恢复为待下载（留待下次轮询）
+            if (task.status !== "cancelled" && task.status !== "paused") {
+              task.status = "pending";
+              task.progress = 0;
+              task.error = error instanceof Error ? error.message : "下载失败";
+              task.retryCount = 0; // 重置重试次数
+              
+              // 更新飞书状态为"待下载"（下次轮询会继续尝试）
+              try {
+                await updateFeishuStatus(task, "待下载");
+                console.log(
+                  `[Download] Worker ${workerId} ${task.dramaName} 异常，已恢复为待下载状态`
+                );
+              } catch (updateError) {
+                console.error(
+                  `[Download] Worker ${workerId} 更新飞书状态失败:`,
+                  updateError
+                );
+              }
+            }
           }
         }
       }
