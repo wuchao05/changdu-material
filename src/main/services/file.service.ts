@@ -245,17 +245,20 @@ export class FileService {
         `[FileService] zip 文件大小: ${stats.size} bytes (${(stats.size / 1024 / 1024).toFixed(2)} MB)`
       );
 
-      // 验证是否为有效的 zip 文件（检查文件头）
-      const fileBuffer = await fs.promises.readFile(zipPath);
+      // 验证是否为有效的 zip 文件（检查文件头，只读取前 4 个字节）
+      const fileHandle = await fs.promises.open(zipPath, "r");
+      const headerBuffer = Buffer.alloc(4);
+      await fileHandle.read(headerBuffer, 0, 4, 0);
+      await fileHandle.close();
+
       const isPKZip =
-        fileBuffer.length > 4 &&
-        fileBuffer[0] === 0x50 &&
-        fileBuffer[1] === 0x4b &&
-        (fileBuffer[2] === 0x03 || fileBuffer[2] === 0x05 || fileBuffer[2] === 0x07);
+        headerBuffer[0] === 0x50 &&
+        headerBuffer[1] === 0x4b &&
+        (headerBuffer[2] === 0x03 || headerBuffer[2] === 0x05 || headerBuffer[2] === 0x07);
 
       if (!isPKZip) {
         throw new Error(
-          `文件不是有效的 zip 格式（文件头: ${fileBuffer.slice(0, 4).toString("hex")}）`
+          `文件不是有效的 zip 格式（文件头: ${headerBuffer.toString("hex")}）`
         );
       }
 
