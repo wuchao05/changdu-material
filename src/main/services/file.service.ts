@@ -27,6 +27,16 @@ export interface VideoInfo {
 
 export class FileService {
   private defaultBasePath = "D:\\短剧剪辑\\";
+  
+  // 解压队列控制
+  private extractQueue: Array<{
+    zipPath: string;
+    targetDir?: string;
+    deleteAfterExtract: boolean;
+    resolve: (value: { success: boolean; error?: string; extractedPath: string }) => void;
+    reject: (reason?: any) => void;
+  }> = [];
+  private isExtracting = false;
 
   async scanVideos(basePath: string): Promise<VideoMaterial[]> {
     const materials: VideoMaterial[] = [];
@@ -221,12 +231,71 @@ export class FileService {
   }
 
   /**
-   * 解压 zip 文件（跨平台，使用 extract-zip 库）
+   * 解压 zip 文件（跨平台，使用 extract-zip 库，带队列控制）
    * @param zipPath zip 文件路径
    * @param targetDir 解压目标目录（如果不指定，则解压到 zip 文件所在目录）
    * @param deleteAfterExtract 解压后是否删除原 zip 文件
    */
   async extractZip(
+    zipPath: string,
+    targetDir?: string,
+    deleteAfterExtract = true
+  ): Promise<{ success: boolean; error?: string; extractedPath: string }> {
+    // 添加到队列
+    return new Promise((resolve, reject) => {
+      this.extractQueue.push({
+        zipPath,
+        targetDir,
+        deleteAfterExtract,
+        resolve,
+        reject,
+      });
+
+      console.log(
+        `[FileService] 解压任务已加入队列，当前队列长度: ${this.extractQueue.length}`
+      );
+
+      // 尝试处理队列
+      this.processExtractQueue();
+    });
+  }
+
+  /**
+   * 处理解压队列（确保一次只解压一个文件）
+   */
+  private async processExtractQueue(): Promise<void> {
+    // 如果正在解压或队列为空，直接返回
+    if (this.isExtracting || this.extractQueue.length === 0) {
+      return;
+    }
+
+    this.isExtracting = true;
+    const task = this.extractQueue.shift()!;
+
+    console.log(
+      `[FileService] 开始处理解压任务，剩余队列: ${this.extractQueue.length}`
+    );
+
+    try {
+      const result = await this.extractZipInternal(
+        task.zipPath,
+        task.targetDir,
+        task.deleteAfterExtract
+      );
+      task.resolve(result);
+    } catch (error) {
+      task.reject(error);
+    } finally {
+      this.isExtracting = false;
+      // 继续处理队列中的下一个任务
+      this.processExtractQueue();
+    }
+  }
+
+  /**
+   * 实际的解压实现（内部方法）
+   */
+  private async extractZipInternal(
     zipPath: string,
     targetDir?: string,
     deleteAfterExtract = true
