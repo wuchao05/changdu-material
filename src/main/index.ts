@@ -248,14 +248,25 @@ function registerIpcHandlers(): void {
 
   // ==================== 下载 ====================
   ipcMain.handle("download:video", async (event, url, savePath, dramaName) => {
-    return await downloadService.downloadFile(
-      url,
-      savePath,
-      dramaName,
-      (progress) => {
-        event.sender.send("download:progress", progress);
-      }
-    );
+    try {
+      return await downloadService.downloadFile(
+        url,
+        savePath,
+        dramaName,
+        (progress) => {
+          event.sender.send("download:progress", progress);
+        }
+      );
+    } catch (error) {
+      // 确保错误能正确传递到渲染进程
+      console.error("[IPC] download:video 错误:", error);
+      // 返回一个包含错误信息的对象，而不是抛出异常
+      return {
+        success: false,
+        filePath: savePath,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   ipcMain.handle("download:cancel", async (_event, dramaName) => {
@@ -267,9 +278,19 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("download:resume", async (event, dramaName) => {
-    return downloadService.resumeDownload(dramaName, (progress) => {
-      event.sender.send("download:progress", progress);
-    });
+    try {
+      return await downloadService.resumeDownload(dramaName, (progress) => {
+        event.sender.send("download:progress", progress);
+      });
+    } catch (error) {
+      // 确保错误能正确传递到渲染进程
+      console.error("[IPC] download:resume 错误:", error);
+      return {
+        success: false,
+        filePath: "",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   ipcMain.handle("download:isPaused", async (_event, dramaName) => {

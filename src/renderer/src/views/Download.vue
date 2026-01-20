@@ -500,7 +500,8 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         );
       }
     } else {
-      throw new Error("下载失败");
+      // 下载失败，使用返回的错误信息
+      throw new Error(result.error || "下载失败");
     }
   } catch (error) {
     // 清理停滞检测定时器
