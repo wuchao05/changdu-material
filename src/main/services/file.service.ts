@@ -3,6 +3,7 @@ import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import crypto from "crypto";
+import extract from "extract-zip";
 import type { ConfigService } from "./config.service";
 
 const execFileAsync = promisify(execFile);
@@ -220,7 +221,7 @@ export class FileService {
   }
 
   /**
-   * 解压 zip 文件（跨平台）
+   * 解压 zip 文件（跨平台，使用 extract-zip 库）
    * @param zipPath zip 文件路径
    * @param targetDir 解压目标目录（如果不指定，则解压到 zip 文件所在目录）
    * @param deleteAfterExtract 解压后是否删除原 zip 文件
@@ -238,6 +239,26 @@ export class FileService {
         throw new Error(`zip 文件不存在: ${zipPath}`);
       }
 
+      // 获取文件大小用于验证
+      const stats = await fs.promises.stat(zipPath);
+      console.log(
+        `[FileService] zip 文件大小: ${stats.size} bytes (${(stats.size / 1024 / 1024).toFixed(2)} MB)`
+      );
+
+      // 验证是否为有效的 zip 文件（检查文件头）
+      const fileBuffer = await fs.promises.readFile(zipPath);
+      const isPKZip =
+        fileBuffer.length > 4 &&
+        fileBuffer[0] === 0x50 &&
+        fileBuffer[1] === 0x4b &&
+        (fileBuffer[2] === 0x03 || fileBuffer[2] === 0x05 || fileBuffer[2] === 0x07);
+
+      if (!isPKZip) {
+        throw new Error(
+          `文件不是有效的 zip 格式（文件头: ${fileBuffer.slice(0, 4).toString("hex")}）`
+        );
+      }
+
       // 确定解压目标目录
       const extractDir = targetDir || path.dirname(zipPath);
 
@@ -248,22 +269,26 @@ export class FileService {
 
       console.log("[FileService] 解压目标目录:", extractDir);
 
-      // 根据操作系统选择解压命令
-      const platform = process.platform;
-
-      if (platform === "win32") {
-        // Windows: 使用 PowerShell 的 Expand-Archive
-        await execFileAsync("powershell", [
-          "-NoProfile",
-          "-Command",
-          `Expand-Archive -Path "${zipPath}" -DestinationPath "${extractDir}" -Force`,
-        ]);
-      } else {
-        // macOS/Linux: 使用 unzip 命令
-        await execFileAsync("unzip", ["-o", "-q", zipPath, "-d", extractDir]);
-      }
+      // 使用 extract-zip 库解压（跨平台，纯 Node.js 实现）
+      await extract(zipPath, { dir: path.resolve(extractDir) });
 
       console.log("[FileService] ✓ 解压成功");
+
+      // 验证解压结果：检查目标目录中是否有文件
+      const extractedFiles = await fs.promises.readdir(extractDir);
+      const videoFiles = extractedFiles.filter((file) =>
+        /\.(mp4|mov|avi|mkv|flv|wmv|webm)$/i.test(file)
+      );
+
+      console.log(
+        `[FileService] 解压后文件统计: 总计 ${extractedFiles.length} 个文件/目录, 其中视频文件 ${videoFiles.length} 个`
+      );
+
+      if (videoFiles.length > 0) {
+        console.log(
+          `[FileService] 视频文件列表: ${videoFiles.slice(0, 5).join(", ")}${videoFiles.length > 5 ? "..." : ""}`
+        );
+      }
 
       // 删除原 zip 文件
       if (deleteAfterExtract) {
@@ -284,6 +309,7 @@ export class FileService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.error("[FileService] 解压失败:", errorMessage);
+      console.error("[FileService] 完整错误信息:", error);
       return {
         success: false,
         error: errorMessage,
@@ -325,8 +351,70 @@ export class FileService {
             retryDelay: 1000,
           });
 
-          console.log(`[FileService] ✓ 目录删除成功: ${folderPath}`);
-          return { success: true };
+          // 验证删除是否成功
+          if (fs.existsSync(folderPath)) {
+            const remainingFiles = this.listFilesInDirectory(folderPath);
+            console.warn(
+              `[FileService] ⚠️ 目录仍然存在，有 ${remainingFiles.length} 个文件未被删除:`
+            );
+            remainingFiles.forEach((file) => {
+              console.warn(`  - ${file}`);
+            });
+
+            // 如果还有剩余文件，尝试逐个删除
+            if (remainingFiles.length > 0 && attempt < maxRetry) {
+              console.log(
+                `[FileService] 尝试逐个删除剩余文件 (尝试 ${attempt + 1}/${maxRetry})...`
+              );
+
+              for (const file of remainingFiles) {
+                try {
+                  const fullPath = path.join(folderPath, file);
+                  const stat = await fs.promises.stat(fullPath);
+
+                  if (stat.isDirectory()) {
+                    await fs.promises.rm(fullPath, {
+                      recursive: true,
+                      force: true,
+                    });
+                  } else {
+                    // 先尝试修改文件权限（Windows）
+                    try {
+                      await fs.promises.chmod(fullPath, 0o666);
+                    } catch (chmodError) {
+                      // 权限修改失败不影响继续
+                    }
+                    await fs.promises.unlink(fullPath);
+                  }
+                  console.log(`[FileService] ✓ 已删除: ${file}`);
+                } catch (fileError) {
+                  console.error(`[FileService] ✗ 无法删除: ${file}`, fileError);
+                }
+              }
+
+              // 再次检查
+              if (!fs.existsSync(folderPath)) {
+                console.log(`[FileService] ✓ 目录删除成功: ${folderPath}`);
+                return { success: true };
+              }
+
+              // 等待后再试
+              const waitTime = 2000 * attempt;
+              console.log(`[FileService] 等待 ${waitTime}ms 后重试...`);
+              await new Promise((resolve) => setTimeout(resolve, waitTime));
+              continue;
+            }
+
+            // 最后一次尝试还有剩余文件
+            if (attempt === maxRetry) {
+              throw new Error(
+                `无法完全删除目录，还有 ${remainingFiles.length} 个文件`
+              );
+            }
+          } else {
+            console.log(`[FileService] ✓ 目录删除成功: ${folderPath}`);
+            return { success: true };
+          }
         } catch (error) {
           console.error(
             `[FileService] 删除目录失败 (尝试 ${attempt}/${maxRetry}):`,
@@ -348,7 +436,7 @@ export class FileService {
           }
 
           // 等待后重试，每次等待时间递增
-          const waitTime = 1000 * attempt;
+          const waitTime = 2000 * attempt;
           console.log(`[FileService] 等待 ${waitTime}ms 后重试...`);
           await new Promise((resolve) => setTimeout(resolve, waitTime));
         }

@@ -577,6 +577,9 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         task.progress = 0;
         task.error = undefined;
 
+        // 更新飞书状态为"待下载"（恢复原状态）
+        await updateFeishuStatus(task, "待下载");
+
         if (queue) {
           queue.push(task);
           console.log(
