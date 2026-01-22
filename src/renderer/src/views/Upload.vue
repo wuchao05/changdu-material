@@ -337,7 +337,11 @@ async function scanFromFeishu() {
 }
 
 // 更新飞书“当前状态”（只更新字段：当前状态）
-async function updateFeishuDramaStatus(dramaName: string, status: string) {
+async function updateFeishuDramaStatus(
+  dramaName: string,
+  status: string,
+  remark?: string
+) {
   try {
     if (!apiConfigStore.loaded) {
       await apiConfigStore.loadConfig();
@@ -365,13 +369,20 @@ async function updateFeishuDramaStatus(dramaName: string, status: string) {
     console.log("[Upload] 更新飞书状态:", {
       dramaName,
       status,
+      remark: remark || "(无备注)",
       tableId,
       recordId,
     });
 
+    // 构建更新字段
+    const fields: Record<string, string> = { 当前状态: status };
+    if (remark !== undefined) {
+      fields["备注"] = remark;
+    }
+
     const result = (await window.api.feishuRequest(
       `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`,
-      { fields: { 当前状态: status } },
+      { fields },
       "PUT"
     )) as { code?: number; msg?: string };
 
@@ -1038,74 +1049,121 @@ onMounted(() => {
         selectedDramaVideos.every((v) => v.status === "success");
       if (dramaAllSuccess && !feishuBuiltPendingSet.value.has(dramaName)) {
         feishuBuiltPendingSet.value.add(dramaName);
-        updateFeishuDramaStatus(dramaName, "待搭建");
 
-        // 删除该剧的本地素材导出目录
+        // 获取该剧的本地素材目录
         const dramaVideo = selectedDramaVideos[0];
-        if (dramaVideo?.filePath) {
-          // 从文件路径提取出剧的目录（父目录）
-          const dramaFolderPath = dramaVideo.filePath.substring(
-            0,
-            dramaVideo.filePath.lastIndexOf(
-              dramaVideo.filePath.includes("\\") ? "\\" : "/"
+        const dramaFolderPath = dramaVideo?.filePath
+          ? dramaVideo.filePath.substring(
+              0,
+              dramaVideo.filePath.lastIndexOf(
+                dramaVideo.filePath.includes("\\") ? "\\" : "/"
+              )
             )
+          : null;
+
+        // 剧上传完成后，立即获取视频信息、提交到素材库
+        console.log(
+          `[Upload] 剧《${dramaName}》上传完成，开始获取视频信息并提交到素材库`
+        );
+
+        // 异步处理：获取视频信息 → 提交素材库（带重试）→ 更新飞书 → 删除目录
+        (async () => {
+          // 1. 获取该剧所有视频的信息
+          const materials = await Promise.all(
+            selectedDramaVideos.map(async (v) => {
+              let videoInfo = { width: 1280, height: 720, duration: 60 };
+              try {
+                videoInfo = await window.api.getVideoInfo(v.filePath);
+              } catch (e) {
+                console.warn(`获取视频信息失败，使用默认值: ${v.fileName}`);
+              }
+
+              return {
+                name: v.fileName,
+                url: v.url!,
+                type: 0,
+                width: videoInfo.width,
+                height: videoInfo.height,
+                duration: Math.round(videoInfo.duration),
+                size: Math.ceil((v.size / 1024 / 1024) * 1000),
+              };
+            })
           );
 
-          // 剧上传完成后，立即获取视频信息、提交到素材库，然后删除目录
-          console.log(
-            `[Upload] 剧《${dramaName}》上传完成，开始获取视频信息并提交到素材库`
-          );
+          // 2. 提交到素材库（带重试机制，最多3次）
+          const maxRetry = 3;
+          let submitSuccess = false;
+          let lastError: Error | null = null;
 
-          // 异步处理：获取视频信息 → 提交素材库 → 删除目录
-          (async () => {
+          for (let attempt = 1; attempt <= maxRetry; attempt++) {
             try {
-              // 1. 获取该剧所有视频的信息
-              const materials = await Promise.all(
-                selectedDramaVideos.map(async (v) => {
-                  let videoInfo = { width: 1280, height: 720, duration: 60 };
-                  try {
-                    videoInfo = await window.api.getVideoInfo(v.filePath);
-                  } catch (e) {
-                    console.warn(`获取视频信息失败，使用默认值: ${v.fileName}`);
-                  }
-
-                  return {
-                    name: v.fileName,
-                    url: v.url!,
-                    type: 0,
-                    width: videoInfo.width,
-                    height: videoInfo.height,
-                    duration: Math.round(videoInfo.duration),
-                    size: Math.ceil((v.size / 1024 / 1024) * 1000),
-                  };
-                })
+              console.log(
+                `[Upload] 剧《${dramaName}》提交素材库，第 ${attempt}/${maxRetry} 次尝试`
               );
-
-              // 2. 提交到素材库
               await window.api.submitMaterial(materials);
-              
-              // 标记为已提交
-              selectedDramaVideos.forEach((v) => {
-                v.isSubmitted = true;
-              });
+              submitSuccess = true;
+              console.log(`[Upload] ✓ 剧《${dramaName}》素材库提交成功`);
+              break;
+            } catch (error) {
+              lastError = error instanceof Error ? error : new Error(String(error));
+              console.error(
+                `[Upload] 剧《${dramaName}》素材库提交失败 (${attempt}/${maxRetry}):`,
+                lastError.message
+              );
+              if (attempt < maxRetry) {
+                // 等待2秒后重试
+                await new Promise((resolve) => setTimeout(resolve, 2000));
+              }
+            }
+          }
 
-              console.log(`[Upload] 剧《${dramaName}》已提交到素材库，开始删除目录`);
+          if (submitSuccess) {
+            // 提交成功：标记为已提交
+            selectedDramaVideos.forEach((v) => {
+              v.isSubmitted = true;
+            });
 
-              // 3. 删除本地目录
-              const result = await window.api.deleteFolder(dramaFolderPath);
-              if (result.success) {
+            // 3. 更新飞书状态为"待搭建"
+            console.log(`[Upload] 剧《${dramaName}》更新飞书状态为"待搭建"`);
+            await updateFeishuDramaStatus(dramaName, "待搭建");
+
+            // 4. 删除本地目录
+            if (dramaFolderPath) {
+              console.log(`[Upload] 剧《${dramaName}》开始删除本地目录`);
+              const deleteResult = await window.api.deleteFolder(dramaFolderPath);
+              if (deleteResult.success) {
                 console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
                 message.success(`剧《${dramaName}》已完成，本地素材已清理`);
               } else {
-                console.error(`[Upload] ✗ 删除目录失败: ${dramaFolderPath}`, result.error);
+                console.error(
+                  `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
+                  deleteResult.error
+                );
                 message.warning(`剧《${dramaName}》已完成，但本地素材清理失败`);
               }
-            } catch (error) {
-              console.error(`[Upload] 剧《${dramaName}》处理失败:`, error);
-              message.error(`剧《${dramaName}》素材库提交失败`);
+            } else {
+              message.success(`剧《${dramaName}》已完成`);
             }
-          })();
-        }
+          } else {
+            // 提交失败：更新飞书状态为"上传失败"，备注说明原因，不删除本地素材
+            console.error(
+              `[Upload] ✗ 剧《${dramaName}》素材库提交失败，${maxRetry}次重试均失败`
+            );
+            message.error(
+              `剧《${dramaName}》素材库提交失败，已标记为上传失败，请重新上传`
+            );
+
+            // 更新飞书状态为"上传失败"，并添加备注
+            await updateFeishuDramaStatus(
+              dramaName,
+              "上传失败",
+              "提交到素材库失败，请重新上传"
+            );
+
+            // 从已处理集合中移除，以便下次可以重新上传
+            feishuBuiltPendingSet.value.delete(dramaName);
+          }
+        })();
       }
 
       // 检查是否所有文件都上传完成

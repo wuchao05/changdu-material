@@ -388,25 +388,32 @@ export class ApiService {
       throw new Error('请先配置 XT Token')
     }
 
+    console.log(`[ApiService] 开始提交素材到素材库，共 ${materials.length} 个素材`)
+
+    const requestData = {
+      category_id: 36243,
+      content_type: 0,
+      list: materials.map(m => ({
+        name: m.name,
+        content_name: m.contentName || '',
+        editor: m.editor || '',
+        url: m.url,
+        type: m.type,
+        width: m.width,
+        height: m.height,
+        duration: Math.round(m.duration),
+        size: Math.ceil(m.size / 1024 / 1024), // 转为 MB 并取整
+        remark: m.remark || '',
+        from: 0
+      }))
+    }
+
+    console.log(`[ApiService] 素材库请求 URL: https://splay-admin.lnkaishi.cn/material/add?team_id=500039`)
+    console.log(`[ApiService] 提交素材列表:`, materials.map(m => m.name).join(', '))
+
     const response = await axios.post(
       'https://splay-admin.lnkaishi.cn/material/add',
-      {
-        category_id: 36243,
-        content_type: 0,
-        list: materials.map(m => ({
-          name: m.name,
-          content_name: m.contentName || '',
-          editor: m.editor || '',
-          url: m.url,
-          type: m.type,
-          width: m.width,
-          height: m.height,
-          duration: Math.round(m.duration),
-          size: Math.ceil(m.size / 1024 / 1024), // 转为 MB 并取整
-          remark: m.remark || '',
-          from: 0
-        }))
-      },
+      requestData,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -418,6 +425,15 @@ export class ApiService {
         timeout: 10000
       }
     )
+
+    console.log(`[ApiService] 素材库响应状态: ${response.status}`)
+    console.log(`[ApiService] 素材库响应数据:`, JSON.stringify(response.data, null, 2))
+
+    if (response.data.code !== 0) {
+      throw new Error(`素材库提交失败: ${response.data.msg || '未知错误'}`)
+    }
+
+    console.log(`[ApiService] ✓ 素材库提交成功`)
 
     return response.data
   }

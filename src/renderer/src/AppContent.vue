@@ -15,6 +15,7 @@ import {
   CloudDownloadOutline,
   SettingsOutline,
   LogOutOutline,
+  RefreshOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -27,6 +28,7 @@ const darenStore = useDarenStore();
 
 const collapsed = ref(false);
 const activeKey = ref("upload");
+const refreshing = ref(false);
 
 // 根据权限动态生成菜单选项
 const menuOptions = computed(() => {
@@ -119,6 +121,36 @@ function handleClose() {
   window.api.close();
 }
 
+// 刷新页面和配置
+async function handleRefresh() {
+  if (refreshing.value) return;
+  
+  refreshing.value = true;
+  
+  try {
+    console.log("[AppContent] 开始刷新...");
+    
+    // 1. 同步远程配置
+    const syncResult = await window.api.syncRemoteConfig();
+    if (syncResult.synced) {
+      console.log("[AppContent] ✓ 远程配置同步成功，版本:", syncResult.version);
+      message.info("配置已更新");
+    }
+    
+    // 2. 重新加载达人配置（强制刷新）
+    await darenStore.loadFromServer(true);
+    console.log("[AppContent] ✓ 达人配置已刷新");
+    
+    // 3. 重新加载当前页面（使用浏览器原生刷新）
+    window.location.reload();
+    
+  } catch (error) {
+    console.error("[AppContent] 刷新失败:", error);
+    message.error("刷新失败");
+    refreshing.value = false;
+  }
+}
+
 // 初始化
 onMounted(async () => {
   // 检查登录状态
@@ -169,6 +201,21 @@ onMounted(async () => {
         <span v-if="authStore.currentUser" class="user-info">
           - {{ authStore.currentUser.label || authStore.currentUser.id }}
         </span>
+      </div>
+      <div class="title-bar-actions" style="-webkit-app-region: no-drag">
+        <NButton
+          v-if="authStore.isLoggedIn"
+          quaternary
+          size="small"
+          :loading="refreshing"
+          :disabled="refreshing"
+          @click="handleRefresh"
+          title="刷新页面和配置"
+        >
+          <template #icon>
+            <NIcon><RefreshOutline /></NIcon>
+          </template>
+        </NButton>
       </div>
       <div class="title-bar-buttons" style="-webkit-app-region: no-drag">
         <NButton quaternary size="small" @click="handleMinimize">
@@ -255,6 +302,7 @@ onMounted(async () => {
   align-items: center;
   padding: 0 12px;
   color: white;
+  gap: 12px;
 }
 
 .title-bar-text {
@@ -263,6 +311,22 @@ onMounted(async () => {
   gap: 8px;
   font-size: 14px;
   font-weight: 500;
+  flex: 1;
+}
+
+.title-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.title-bar-actions :deep(.n-button) {
+  color: white;
+  padding: 0 8px;
+}
+
+.title-bar-actions :deep(.n-button:hover) {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .app-icon {
