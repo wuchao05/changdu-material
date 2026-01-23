@@ -116,12 +116,17 @@ export class DownloadService {
     onProgress: (progress: DownloadProgress) => void,
     retryCount: number
   ): Promise<DownloadResult> {
+    console.log(`[DownloadService] downloadWithRetry 开始，重试次数: ${retryCount}，起始字节: ${startByte}`);
+    
     try {
       const result = await this.downloadFileInternal(url, savePath, dramaName, startByte, onProgress);
+      console.log(`[DownloadService] downloadFileInternal 完成，结果:`, result.success ? '成功' : `失败: ${result.error}`);
       return result;
     } catch (error) {
+      console.log(`[DownloadService] downloadWithRetry 捕获到错误:`, error);
       const errorCode = (error as any).code;
       const errorMessage = error instanceof Error ? error.message : String(error);
+      console.log(`[DownloadService] 错误代码: ${errorCode}, 错误信息: ${errorMessage}`);
       
       // 检查是否被用户取消
       if (this.cancelledDownloads.has(dramaName)) {
@@ -149,11 +154,18 @@ export class DownloadService {
 
       // 获取当前已下载的字节数（从文件大小）
       let currentDownloadedBytes = startByte;
-      if (fs.existsSync(savePath)) {
-        const stats = fs.statSync(savePath);
-        currentDownloadedBytes = stats.size;
+      try {
+        if (fs.existsSync(savePath)) {
+          const stats = fs.statSync(savePath);
+          currentDownloadedBytes = stats.size;
+        }
+      } catch (fsError) {
+        console.error("[DownloadService] 获取文件大小失败:", fsError);
+        // 继续使用 startByte 作为已下载字节数
       }
 
+      console.log(`[DownloadService] 是否可重试: ${isRetryableError}, 当前重试次数: ${retryCount}, 最大重试次数: ${AUTO_RETRY_MAX}`);
+      
       if (isRetryableError && retryCount < AUTO_RETRY_MAX) {
         const nextRetry = retryCount + 1;
         console.log(
