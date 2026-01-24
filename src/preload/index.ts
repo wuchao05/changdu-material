@@ -100,8 +100,8 @@ const api = {
     ipcRenderer.invoke("api:feishuPendingUpload", tableId),
   feishuGetPendingUploadByDate: (tableId: string | undefined, dateTimestamp: number) =>
     ipcRenderer.invoke("api:feishuPendingUploadByDate", tableId, dateTimestamp),
-  changduRequest: (endpoint: string, params: unknown, headers?: unknown) =>
-    ipcRenderer.invoke("api:changdu", endpoint, params, headers),
+  changduRequest: (endpoint: string, params: unknown, headers?: unknown, configType?: 'sanrou' | 'meiri') =>
+    ipcRenderer.invoke("api:changdu", endpoint, params, headers, configType),
   uploadToTos: (filePath: string, options: unknown) =>
     ipcRenderer.invoke("api:upload", filePath, options),
   submitMaterial: (materials: unknown) =>
@@ -149,6 +149,11 @@ const api = {
   quit: () => ipcRenderer.invoke("app:quit"),
   openExternal: (url: string) => ipcRenderer.invoke("app:openExternal", url),
   showInFolder: (path: string) => ipcRenderer.invoke("app:showInFolder", path),
+
+  // ==================== 窗口控制 ====================
+  hideWindow: () => ipcRenderer.invoke("window:hide"),
+  showWindow: () => ipcRenderer.invoke("window:show"),
+  minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

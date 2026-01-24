@@ -62,6 +62,13 @@ import {
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 
+// 扩展 Electron App 类型以支持 isQuitting 属性
+declare module "electron" {
+  interface App {
+    isQuitting?: boolean;
+  }
+}
+
 // Windows 网络优化：禁用代理，避免代理检测导致的延迟
 app.commandLine.appendSwitch("no-proxy-server");
 // 禁用自动代理检测
@@ -180,6 +187,22 @@ function createTray(): void {
 
 // 注册 IPC 处理程序
 function registerIpcHandlers(): void {
+  // ==================== 窗口控制 ====================
+  ipcMain.handle("window:hide", async () => {
+    mainWindow?.hide();
+    return { success: true };
+  });
+
+  ipcMain.handle("window:show", async () => {
+    mainWindow?.show();
+    return { success: true };
+  });
+
+  ipcMain.handle("window:minimize", async () => {
+    mainWindow?.minimize();
+    return { success: true };
+  });
+
   // ==================== 配置管理 ====================
   ipcMain.handle("config:getDaren", async () => {
     return await configService.getDarenConfig();
@@ -332,12 +355,13 @@ function registerIpcHandlers(): void {
     }
   );
 
-  ipcMain.handle("api:changdu", async (_event, endpoint, params, headers) => {
+  ipcMain.handle("api:changdu", async (_event, endpoint, params, headers, configType) => {
     return await apiService.changduRequest(
       endpoint,
       params,
       headers,
-      configService
+      configService,
+      configType || 'sanrou' // 默认使用散柔配置
     );
   });
 

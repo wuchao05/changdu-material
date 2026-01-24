@@ -9,6 +9,7 @@ export interface DarenInfo {
   feishuDramaStatusTableId?: string // 飞书剧集状态表 ID
   enableUpload?: boolean // 启用上传功能
   enableDownload?: boolean // 启用下载功能
+  changduConfigType?: 'sanrou' | 'meiri' // 常读配置类型：散柔/每日
 }
 
 export const useDarenStore = defineStore('daren', () => {

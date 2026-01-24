@@ -129,7 +129,8 @@ interface Api {
   changduRequest: (
     endpoint: string,
     params: unknown,
-    headers?: unknown
+    headers?: unknown,
+    configType?: 'sanrou' | 'meiri'
   ) => Promise<unknown>;
   uploadToTos: (
     filePath: string,
@@ -164,6 +165,11 @@ interface Api {
   quit: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   showInFolder: (path: string) => Promise<void>;
+
+  // 窗口控制
+  hideWindow: () => Promise<{ success: boolean }>;
+  showWindow: () => Promise<{ success: boolean }>;
+  minimizeWindow: () => Promise<{ success: boolean }>;
 }
 
 interface VideoMaterial {

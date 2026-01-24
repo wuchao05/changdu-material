@@ -13,6 +13,8 @@ import {
   NSwitch,
   NModal,
   NTag,
+  NRadioGroup,
+  NRadio,
   useMessage,
   useDialog,
 } from "naive-ui";
@@ -40,15 +42,27 @@ const darenForm = ref<DarenInfo>({
   feishuDramaStatusTableId: "",
   enableUpload: true,
   enableDownload: true,
+  changduConfigType: "sanrou", // 默认使用散柔配置
 });
 
 // API 配置表单（包含默认值）
 const defaultApiConfig = {
-  // 常读平台配置（默认配置）
-  changduAppId: "40012555",
-  distributorId: "1842236883646506",
-  changduAdUserId: "380892546610362",
-  changduRootAdUserId: "380892546610362",
+  // 散柔-常读配置（默认配置）
+  sanrouChangdu: {
+    changduAppId: "40012555",
+    distributorId: "1842236883646506",
+    changduAdUserId: "380892546610362",
+    changduRootAdUserId: "380892546610362",
+    cookie: "",
+  },
+  // 每日-常读配置
+  meiriChangdu: {
+    changduAppId: "",
+    distributorId: "",
+    changduAdUserId: "",
+    changduRootAdUserId: "",
+    cookie: "",
+  },
   // 飞书配置
   feishuAppId: "cli_a870f7611b7b1013",
   feishuAppSecret: "NTwHbZG8rpOQyMEnXGPV6cNQ84KEqE8z",
@@ -59,12 +73,22 @@ const defaultApiConfig = {
 };
 
 const apiForm = ref({
-  // 常读平台配置
-  cookie: "",
-  distributorId: defaultApiConfig.distributorId,
-  changduAppId: defaultApiConfig.changduAppId,
-  changduAdUserId: defaultApiConfig.changduAdUserId,
-  changduRootAdUserId: defaultApiConfig.changduRootAdUserId,
+  // 散柔-常读配置
+  sanrouChangdu: {
+    cookie: "",
+    distributorId: defaultApiConfig.sanrouChangdu.distributorId,
+    changduAppId: defaultApiConfig.sanrouChangdu.changduAppId,
+    changduAdUserId: defaultApiConfig.sanrouChangdu.changduAdUserId,
+    changduRootAdUserId: defaultApiConfig.sanrouChangdu.changduRootAdUserId,
+  },
+  // 每日-常读配置
+  meiriChangdu: {
+    cookie: "",
+    distributorId: defaultApiConfig.meiriChangdu.distributorId,
+    changduAppId: defaultApiConfig.meiriChangdu.changduAppId,
+    changduAdUserId: defaultApiConfig.meiriChangdu.changduAdUserId,
+    changduRootAdUserId: defaultApiConfig.meiriChangdu.changduRootAdUserId,
+  },
   // 飞书配置
   feishuAppId: defaultApiConfig.feishuAppId,
   feishuAppSecret: defaultApiConfig.feishuAppSecret,
@@ -88,18 +112,37 @@ onMounted(async () => {
   apiForm.value = {
     ...apiForm.value,
     ...loadedConfig,
-    // 如果后端值为空，使用默认值
-    changduAppId: loadedConfig.changduAppId || defaultApiConfig.changduAppId,
-    distributorId: loadedConfig.distributorId || defaultApiConfig.distributorId,
-    changduAdUserId:
-      loadedConfig.changduAdUserId || defaultApiConfig.changduAdUserId,
-    changduRootAdUserId:
-      loadedConfig.changduRootAdUserId || defaultApiConfig.changduRootAdUserId,
+    // 散柔配置：如果后端值为空，使用默认值
+    sanrouChangdu: {
+      cookie: loadedConfig.sanrouChangdu?.cookie || "",
+      changduAppId:
+        loadedConfig.sanrouChangdu?.changduAppId ||
+        defaultApiConfig.sanrouChangdu.changduAppId,
+      distributorId:
+        loadedConfig.sanrouChangdu?.distributorId ||
+        defaultApiConfig.sanrouChangdu.distributorId,
+      changduAdUserId:
+        loadedConfig.sanrouChangdu?.changduAdUserId ||
+        defaultApiConfig.sanrouChangdu.changduAdUserId,
+      changduRootAdUserId:
+        loadedConfig.sanrouChangdu?.changduRootAdUserId ||
+        defaultApiConfig.sanrouChangdu.changduRootAdUserId,
+    },
+    // 每日配置：如果后端值为空，使用默认值
+    meiriChangdu: {
+      cookie: loadedConfig.meiriChangdu?.cookie || "",
+      changduAppId: loadedConfig.meiriChangdu?.changduAppId || "",
+      distributorId: loadedConfig.meiriChangdu?.distributorId || "",
+      changduAdUserId: loadedConfig.meiriChangdu?.changduAdUserId || "",
+      changduRootAdUserId: loadedConfig.meiriChangdu?.changduRootAdUserId || "",
+    },
+    // 飞书配置
     feishuAppId: loadedConfig.feishuAppId || defaultApiConfig.feishuAppId,
     feishuAppSecret:
       loadedConfig.feishuAppSecret || defaultApiConfig.feishuAppSecret,
     feishuAppToken:
       loadedConfig.feishuAppToken || defaultApiConfig.feishuAppToken,
+    // TOS配置
     tosBucket: loadedConfig.tosBucket || defaultApiConfig.tosBucket,
     tosRegion: loadedConfig.tosRegion || defaultApiConfig.tosRegion,
   };
@@ -119,6 +162,7 @@ function openDarenModal(daren?: DarenInfo) {
       feishuDramaStatusTableId: "",
       enableUpload: true,
       enableDownload: true,
+      changduConfigType: "sanrou", // 默认使用散柔配置
     };
   }
   showDarenModal.value = true;
@@ -221,6 +265,23 @@ const darenColumns: DataTableColumns<DarenInfo> = [
     title: "名称",
     key: "label",
     width: 120,
+  },
+  {
+    title: "常读配置",
+    key: "changduConfigType",
+    width: 120,
+    render: (row) => {
+      const typeMap = {
+        sanrou: "散柔",
+        meiri: "每日",
+      };
+      const type = row.changduConfigType || "sanrou";
+      return h(
+        NTag,
+        { type: type === "sanrou" ? "info" : "success", size: "small" },
+        { default: () => typeMap[type] }
+      );
+    },
   },
   {
     title: "状态表 ID",
@@ -358,11 +419,11 @@ const darenColumns: DataTableColumns<DarenInfo> = [
           </NForm>
         </NCard>
 
-        <NCard title="常读平台配置" style="margin-top: 16px">
+        <NCard title="散柔-常读配置" style="margin-top: 16px">
           <NForm :model="apiForm" label-placement="left" label-width="140px">
             <NFormItem label="Cookie">
               <NInput
-                v-model:value="apiForm.cookie"
+                v-model:value="apiForm.sanrouChangdu.cookie"
                 type="textarea"
                 :rows="3"
                 placeholder="常读平台 Cookie"
@@ -370,25 +431,62 @@ const darenColumns: DataTableColumns<DarenInfo> = [
             </NFormItem>
             <NFormItem label="App ID">
               <NInput
-                v-model:value="apiForm.changduAppId"
+                v-model:value="apiForm.sanrouChangdu.changduAppId"
                 placeholder="常读应用 ID"
               />
             </NFormItem>
             <NFormItem label="Distributor ID">
               <NInput
-                v-model:value="apiForm.distributorId"
+                v-model:value="apiForm.sanrouChangdu.distributorId"
                 placeholder="分销商 ID"
               />
             </NFormItem>
             <NFormItem label="Ad User ID">
               <NInput
-                v-model:value="apiForm.changduAdUserId"
+                v-model:value="apiForm.sanrouChangdu.changduAdUserId"
                 placeholder="广告用户 ID"
               />
             </NFormItem>
             <NFormItem label="Root Ad User ID">
               <NInput
-                v-model:value="apiForm.changduRootAdUserId"
+                v-model:value="apiForm.sanrouChangdu.changduRootAdUserId"
+                placeholder="根广告用户 ID"
+              />
+            </NFormItem>
+          </NForm>
+        </NCard>
+
+        <NCard title="每日-常读配置" style="margin-top: 16px">
+          <NForm :model="apiForm" label-placement="left" label-width="140px">
+            <NFormItem label="Cookie">
+              <NInput
+                v-model:value="apiForm.meiriChangdu.cookie"
+                type="textarea"
+                :rows="3"
+                placeholder="常读平台 Cookie"
+              />
+            </NFormItem>
+            <NFormItem label="App ID">
+              <NInput
+                v-model:value="apiForm.meiriChangdu.changduAppId"
+                placeholder="常读应用 ID"
+              />
+            </NFormItem>
+            <NFormItem label="Distributor ID">
+              <NInput
+                v-model:value="apiForm.meiriChangdu.distributorId"
+                placeholder="分销商 ID"
+              />
+            </NFormItem>
+            <NFormItem label="Ad User ID">
+              <NInput
+                v-model:value="apiForm.meiriChangdu.changduAdUserId"
+                placeholder="广告用户 ID"
+              />
+            </NFormItem>
+            <NFormItem label="Root Ad User ID">
+              <NInput
+                v-model:value="apiForm.meiriChangdu.changduRootAdUserId"
                 placeholder="根广告用户 ID"
               />
             </NFormItem>
@@ -470,6 +568,14 @@ const darenColumns: DataTableColumns<DarenInfo> = [
             show-password-on="click"
             placeholder="达人登录密码（留空则无需密码）"
           />
+        </NFormItem>
+        <NFormItem label="常读配置" required>
+          <NRadioGroup v-model:value="darenForm.changduConfigType">
+            <NSpace>
+              <NRadio value="sanrou">散柔-常读配置</NRadio>
+              <NRadio value="meiri">每日-常读配置</NRadio>
+            </NSpace>
+          </NRadioGroup>
         </NFormItem>
         <NFormItem label="状态表 ID">
           <NInput

@@ -10,19 +10,26 @@ export interface DarenInfo {
   feishuDramaStatusTableId?: string; // 飞书剧集状态表 ID
   enableUpload?: boolean; // 启用上传功能
   enableDownload?: boolean; // 启用下载功能
+  changduConfigType?: 'sanrou' | 'meiri'; // 常读配置类型：散柔/每日
 }
 
 export interface DarenConfig {
   darenList: DarenInfo[];
 }
 
-export interface ApiConfig {
-  // 常读平台配置
+// 常读平台配置
+export interface ChangduConfig {
   cookie: string;
   distributorId: string;
   changduAppId: string;
   changduAdUserId: string;
   changduRootAdUserId: string;
+}
+
+export interface ApiConfig {
+  // 常读平台配置（两套）
+  sanrouChangdu: ChangduConfig; // 散柔-常读配置
+  meiriChangdu: ChangduConfig; // 每日-常读配置
   // 飞书配置
   feishuAppId: string;
   feishuAppSecret: string;
@@ -212,6 +219,7 @@ export class ConfigService {
       feishuDramaStatusTableId: daren.feishuDramaStatusTableId || "",
       enableUpload: daren.enableUpload ?? true,
       enableDownload: daren.enableDownload ?? true,
+      changduConfigType: daren.changduConfigType || 'sanrou', // 默认使用散柔配置
     };
   }
 
@@ -224,12 +232,21 @@ export class ConfigService {
     } catch (error) {
       // 如果文件不存在，返回默认配置
       const defaultConfig: ApiConfig = {
-        // 常读平台配置（默认配置）
-        cookie: "",
-        distributorId: "1842236883646506",
-        changduAppId: "40012555",
-        changduAdUserId: "380892546610362",
-        changduRootAdUserId: "380892546610362",
+        // 常读平台配置（两套）
+        sanrouChangdu: {
+          cookie: "",
+          distributorId: "1842236883646506",
+          changduAppId: "40012555",
+          changduAdUserId: "380892546610362",
+          changduRootAdUserId: "380892546610362",
+        },
+        meiriChangdu: {
+          cookie: "",
+          distributorId: "",
+          changduAppId: "",
+          changduAdUserId: "",
+          changduRootAdUserId: "",
+        },
         // 飞书配置
         feishuAppId: "cli_a870f7611b7b1013",
         feishuAppSecret: "NTwHbZG8rpOQyMEnXGPV6cNQ84KEqE8z",

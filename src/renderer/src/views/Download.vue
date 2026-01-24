@@ -59,6 +59,11 @@ const darenStore = useDarenStore();
 const authStore = useAuthStore();
 const apiConfigStore = useApiConfigStore();
 
+// 当前用户的常读配置类型
+const currentChangduConfigType = computed(() => {
+  return darenStore.currentDaren?.changduConfigType || 'sanrou';
+});
+
 // State
 const downloadTasks = ref<DownloadTask[]>([]);
 const loading = ref(false);
@@ -201,7 +206,9 @@ async function fetchPendingDownloads(): Promise<boolean> {
       try {
         const changduResult = (await window.api.changduRequest(
           "/node/api/platform/distributor/download_center/task_list/",
-          changduPayload
+          changduPayload,
+          undefined,
+          currentChangduConfigType.value
         )) as {
           code?: number;
           message?: string;
@@ -349,7 +356,9 @@ async function getDownloadUrl(imagexUri: string): Promise<string> {
       "/node/api/platform/distributor/download_center/get_url/",
       {
         imagex_uri: imagexUri,
-      }
+      },
+      undefined,
+      currentChangduConfigType.value
     ) as Promise<{ download_url?: string }>;
 
     const timeoutPromise = new Promise<never>((_, reject) => {

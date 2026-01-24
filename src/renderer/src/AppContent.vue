@@ -16,6 +16,7 @@ import {
   SettingsOutline,
   LogOutOutline,
   RefreshOutline,
+  EyeOffOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -121,6 +122,11 @@ function handleClose() {
   window.api.close();
 }
 
+// 后台运行（隐藏窗口到托盘）
+async function handleHideToTray() {
+  await window.api.hideWindow();
+}
+
 // 刷新页面和配置
 async function handleRefresh() {
   if (refreshing.value) return;
@@ -203,6 +209,17 @@ onMounted(async () => {
         </span>
       </div>
       <div class="title-bar-actions" style="-webkit-app-region: no-drag">
+        <NButton
+          v-if="authStore.isLoggedIn"
+          quaternary
+          size="small"
+          @click="handleHideToTray"
+          title="后台运行（隐藏到系统托盘）"
+        >
+          <template #icon>
+            <NIcon><EyeOffOutline /></NIcon>
+          </template>
+        </NButton>
         <NButton
           v-if="authStore.isLoggedIn"
           quaternary

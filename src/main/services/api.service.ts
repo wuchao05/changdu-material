@@ -230,18 +230,26 @@ export class ApiService {
   /**
    * 常读下载中心接口请求（不需要签名）
    * 域名: www.changdunovel.com
+   * @param configType 使用哪套常读配置，默认使用散柔配置
    */
   async changduRequest(
     endpoint: string,
     params: Record<string, string | number>,
     headers: Record<string, string> = {},
-    configService: ConfigService
+    configService: ConfigService,
+    configType: 'sanrou' | 'meiri' = 'sanrou'
   ): Promise<unknown> {
     console.log('[ApiService] 常读请求开始')
     console.log('[ApiService] Endpoint:', endpoint)
+    console.log('[ApiService] Config Type:', configType)
     console.log('[ApiService] Params:', JSON.stringify(params, null, 2))
 
     const apiConfig = await configService.getApiConfig()
+    
+    // 根据 configType 选择配置
+    const changduConfig = configType === 'meiri' 
+      ? apiConfig.meiriChangdu 
+      : apiConfig.sanrouChangdu
 
     const url = new URL(`https://www.changdunovel.com${endpoint}`)
     Object.entries(params).forEach(([key, value]) => {
@@ -250,18 +258,18 @@ export class ApiService {
 
     const requestHeaders = {
       ...headers,
-      Cookie: apiConfig.cookie,
-      Appid: apiConfig.changduAppId || '40012555',
+      Cookie: changduConfig.cookie,
+      Appid: changduConfig.changduAppId || '40012555',
       Apptype: '7',
-      Distributorid: apiConfig.distributorId,
-      Aduserid: apiConfig.changduAdUserId,
-      Rootaduserid: apiConfig.changduRootAdUserId
+      Distributorid: changduConfig.distributorId,
+      Aduserid: changduConfig.changduAdUserId,
+      Rootaduserid: changduConfig.changduRootAdUserId
     }
 
     console.log('[ApiService] 完整请求 URL:', url.toString())
     console.log('[ApiService] 请求头:', {
       ...requestHeaders,
-      Cookie: apiConfig.cookie ? `${apiConfig.cookie.substring(0, 50)}...` : 'no cookie'
+      Cookie: changduConfig.cookie ? `${changduConfig.cookie.substring(0, 50)}...` : 'no cookie'
     })
 
     const response = await axios.get(url.toString(), {
