@@ -100,7 +100,26 @@ export class DownloadService {
     if (fs.existsSync(savePath)) {
       const stats = fs.statSync(savePath);
       startByte = stats.size;
-      console.log(`[DownloadService] 发现已存在文件，大小: ${startByte} bytes，将尝试断点续传`);
+      console.log(`[DownloadService] 发现已存在文件，大小: ${startByte} bytes`);
+      
+      // 先发送一个 HEAD 请求检查文件总大小
+      try {
+        const totalSize = await this.getFileSize(url);
+        console.log(`[DownloadService] 服务器文件大小: ${totalSize} bytes`);
+        
+        if (totalSize > 0 && startByte >= totalSize) {
+          console.log(`[DownloadService] 文件已完整下载，无需重新下载`);
+          return { success: true, filePath: savePath };
+        } else if (startByte > 0 && startByte < totalSize) {
+          console.log(`[DownloadService] 将尝试断点续传，从 ${startByte} 字节开始`);
+        } else if (startByte > totalSize) {
+          console.log(`[DownloadService] 本地文件大小异常，删除后重新下载`);
+          fs.unlinkSync(savePath);
+          startByte = 0;
+        }
+      } catch (error) {
+        console.warn(`[DownloadService] 无法获取文件大小，将尝试断点续传:`, error);
+      }
     }
 
     // 带自动重试的下载
@@ -292,7 +311,37 @@ export class DownloadService {
           return;
         }
 
-        // 200 表示从头开始，206 表示断点续传
+        // 200 表示从头开始，206 表示断点续传，416 表示请求范围错误（可能文件已完整）
+        if (response.statusCode === 416) {
+          console.log("[DownloadService] 收到 416 响应，文件可能已完整下载");
+          file.close();
+          
+          // 验证本地文件大小是否匹配
+          if (fs.existsSync(savePath)) {
+            const stats = fs.statSync(savePath);
+            console.log(`[DownloadService] 本地文件大小: ${stats.size} bytes`);
+            
+            // 尝试从响应头中获取文件总大小
+            const contentRange = response.headers["content-range"];
+            if (contentRange) {
+              const match = contentRange.match(/bytes \*\/(\d+)/);
+              if (match) {
+                const serverSize = parseInt(match[1], 10);
+                console.log(`[DownloadService] 服务器文件大小: ${serverSize} bytes`);
+                
+                if (stats.size >= serverSize) {
+                  console.log("[DownloadService] ✓ 文件已完整下载");
+                  resolve({ success: true, filePath: savePath });
+                  return;
+                }
+              }
+            }
+          }
+          
+          reject(new Error(`下载失败，状态码: 416（Range Not Satisfiable）`));
+          return;
+        }
+        
         if (response.statusCode !== 200 && response.statusCode !== 206) {
           console.error(
             "[DownloadService] 下载失败，状态码:",
@@ -630,5 +679,46 @@ export class DownloadService {
   // 获取下载状态
   getDownloadState(dramaName: string): DownloadState | undefined {
     return this.downloadStates.get(dramaName);
+  }
+
+  // 获取远程文件大小（通过 HEAD 请求）
+  private async getFileSize(url: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const client = url.startsWith("https") ? https : http;
+      const isHttps = url.startsWith("https");
+      
+      const requestOptions: https.RequestOptions = {
+        method: 'HEAD',
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          Referer: "https://www.changdunovel.com/",
+        },
+        timeout: 10000,
+        agent: isHttps ? httpsAgent : httpAgent,
+      };
+
+      const request = client.request(url, requestOptions, (response) => {
+        // 处理重定向
+        if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          this.getFileSize(response.headers.location).then(resolve).catch(reject);
+          return;
+        }
+
+        if (response.statusCode === 200) {
+          const contentLength = parseInt(response.headers["content-length"] || "0", 10);
+          resolve(contentLength);
+        } else {
+          reject(new Error(`HEAD request failed with status ${response.statusCode}`));
+        }
+      });
+
+      request.on("error", reject);
+      request.on("timeout", () => {
+        request.destroy();
+        reject(new Error("HEAD request timeout"));
+      });
+      
+      request.end();
+    });
   }
 }

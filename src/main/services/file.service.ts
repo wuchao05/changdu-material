@@ -266,6 +266,9 @@ export class FileService {
   private async processExtractQueue(): Promise<void> {
     // 如果正在解压或队列为空，直接返回
     if (this.isExtracting || this.extractQueue.length === 0) {
+      console.log(
+        `[FileService] processExtractQueue 检查: isExtracting=${this.isExtracting}, queueLength=${this.extractQueue.length}`
+      );
       return;
     }
 
@@ -273,7 +276,7 @@ export class FileService {
     const task = this.extractQueue.shift()!;
 
     console.log(
-      `[FileService] 开始处理解压任务，剩余队列: ${this.extractQueue.length}`
+      `[FileService] 开始处理解压任务: ${path.basename(task.zipPath)}, 剩余队列: ${this.extractQueue.length}`
     );
 
     try {
@@ -287,8 +290,18 @@ export class FileService {
       task.reject(error);
     } finally {
       this.isExtracting = false;
-      // 继续处理队列中的下一个任务
-      this.processExtractQueue();
+      console.log(
+        `[FileService] 解压任务完成，继续处理队列 (剩余: ${this.extractQueue.length})`
+      );
+      
+      // 使用 setImmediate 确保异步继续处理队列
+      if (this.extractQueue.length > 0) {
+        setImmediate(() => {
+          this.processExtractQueue().catch(error => {
+            console.error('[FileService] 处理解压队列时发生错误:', error);
+          });
+        });
+      }
     }
   }
 
