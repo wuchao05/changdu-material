@@ -58,6 +58,10 @@ const api = {
     ipcRenderer.invoke("file:getVideoInfo", filePath),
   deleteFolder: (folderPath: string) =>
     ipcRenderer.invoke("file:deleteFolder", folderPath),
+  countMp4Files: (dirPath: string) =>
+    ipcRenderer.invoke("file:countMp4Files", dirPath),
+  checkZipFile: (zipPath: string) =>
+    ipcRenderer.invoke("file:checkZipFile", zipPath),
   selectFolder: () => ipcRenderer.invoke("file:selectFolder"),
   extractZip: (
     zipPath: string,

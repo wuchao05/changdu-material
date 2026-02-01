@@ -377,9 +377,21 @@ async function getDownloadUrl(imagexUri: string): Promise<string> {
   }
 }
 
-// 下载单个任务（进度停滞检测）
+// 检查已存在的 zip 文件是否完整
+async function checkExistingZip(dramaFolderPath: string, zipPath: string): Promise<{ exists: boolean; valid: boolean }> {
+  try {
+    const result = await window.api.checkZipFile(zipPath);
+    return result;
+  } catch (error) {
+    console.error(`[Download] 检查 zip 文件失败:`, error);
+    return { exists: false, valid: false };
+  }
+}
+
+// 下载单个任务（进度停滞检测 + 绝对超时检测）
 async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
   const STALL_TIMEOUT = 120 * 1000; // 2分钟无进度更新则判定为停滞
+  const ABSOLUTE_TIMEOUT = 30 * 60 * 1000; // 30分钟绝对超时
   const MAX_RETRIES = 3; // 最多重试3次
   const taskStartTime = Date.now();
 
@@ -415,7 +427,8 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
       savePath.value.endsWith("/") || savePath.value.endsWith("\\")
         ? savePath.value
         : savePath.value + "/";
-    const fullPath = `${normalizedSavePath}${task.dramaName}/${fileName}`;
+    const dramaFolderPath = `${normalizedSavePath}${task.dramaName}`;
+    const fullPath = `${dramaFolderPath}/${fileName}`;
 
     console.log("[Download] 下载文件:", {
       dramaName: task.dramaName,
@@ -423,9 +436,81 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
       fullPath: fullPath,
     });
 
-    // 启动停滞检测定时器
+    // 检查是否已存在完整的 zip 文件
+    const existingZipCheck = await checkExistingZip(dramaFolderPath, fullPath);
+    if (existingZipCheck.valid) {
+      // zip 存在且完整，直接使用
+      console.log(`[Download] ${task.dramaName} 发现已存在的完整 zip 文件，直接解压`);
+      message.info(`${task.dramaName} 发现已下载文件，正在解压...`);
+
+      task.progress = 50;
+
+      // 尝试解压
+      const extractResult = await window.api.extractZip(fullPath, undefined, true);
+
+      if (extractResult.success) {
+        // 解压成功，检查 mp4 文件数量
+        const mp4Count = await window.api.countMp4Files(dramaFolderPath);
+        console.log(`[Download] ${task.dramaName} 解压后发现 ${mp4Count} 个 mp4 文件`);
+
+        if (mp4Count >= 40) {
+          // mp4 文件数量足够
+          task.progress = 100;
+          task.status = "success";
+          task.localPath = extractResult.extractedPath;
+
+          await updateFeishuStatus(task, "待剪辑");
+          message.success(`${task.dramaName} 解压成功（${mp4Count} 个视频）`);
+          return;
+        } else {
+          // mp4 文件数量不够，删除目录重新下载
+          console.warn(`[Download] ${task.dramaName} 解压后只有 ${mp4Count} 个 mp4 文件，不足 40 个，删除重新下载`);
+          message.warning(`${task.dramaName} 视频文件不完整（${mp4Count}/40），删除重新下载`);
+
+          const deleteResult = await window.api.deleteFolder(dramaFolderPath);
+          if (deleteResult.success) {
+            console.log(`[Download] ${task.dramaName} 目录已删除，准备重新下载`);
+          } else {
+            console.error(`[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`);
+          }
+
+          // 继续正常下载流程
+        }
+      } else {
+        // 解压失败，删除目录重新下载
+        console.warn(`[Download] ${task.dramaName} 解压失败: ${extractResult.error}，删除重新下载`);
+        message.warning(`${task.dramaName} 解压失败，删除重新下载`);
+
+        const deleteResult = await window.api.deleteFolder(dramaFolderPath);
+        if (deleteResult.success) {
+          console.log(`[Download] ${task.dramaName} 目录已删除，准备重新下载`);
+        } else {
+          console.error(`[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`);
+        }
+
+        // 继续正常下载流程
+      }
+    } else if (existingZipCheck.exists) {
+      // zip 存在但不完整或损坏，删除后重新下载
+      console.warn(`[Download] ${task.dramaName} 发现不完整的 zip 文件，删除重新下载`);
+      message.warning(`${task.dramaName} 发现不完整文件，删除重新下载`);
+
+      const deleteResult = await window.api.deleteFolder(dramaFolderPath);
+      if (deleteResult.success) {
+        console.log(`[Download] ${task.dramaName} 目录已删除，准备重新下载`);
+      } else {
+        console.error(`[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`);
+      }
+
+      // 继续正常下载流程
+    }
+    // 如果 zip 不存在，直接进入下载流程
+
+    // 启动检测定时器（停滞检测 + 绝对超时检测）
     let isStalled = false;
-    const stallCheckInterval = setInterval(() => {
+    let isAbsoluteTimeout = false;
+    const checkInterval = setInterval(() => {
+      // 停滞检测：2分钟无进度更新
       const timeSinceLastUpdate =
         Date.now() - (task.lastProgressUpdate || Date.now());
       if (
@@ -436,39 +521,60 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
           `[Download] ${task.dramaName} 检测到停滞 (${(timeSinceLastUpdate / 1000).toFixed(0)}秒无进度更新)`
         );
         isStalled = true;
-        clearInterval(stallCheckInterval);
+        clearInterval(checkInterval);
+      }
+
+      // 绝对超时检测：30分钟不管有没有进度更新
+      const elapsedTime = Date.now() - taskStartTime;
+      if (elapsedTime > ABSOLUTE_TIMEOUT && task.status === "downloading") {
+        console.warn(
+          `[Download] ${task.dramaName} 检测到绝对超时 (${(elapsedTime / 1000 / 60).toFixed(1)}分钟)`
+        );
+        isAbsoluteTimeout = true;
+        clearInterval(checkInterval);
       }
     }, 10000); // 每10秒检查一次
 
-    task.stallCheckTimer = stallCheckInterval;
+    task.stallCheckTimer = checkInterval;
 
-    // 使用 Promise.race 实现停滞检测
+    // 使用 Promise.race 实现检测
     const downloadPromise = window.api.downloadVideo(
       task.downloadUrl,
       fullPath,
       task.dramaName
     );
 
-    // 停滞检测 Promise
-    const stallCheckPromise = new Promise<never>((_, reject) => {
-      const checkStallInterval = setInterval(() => {
+    // 超时检测 Promise
+    const timeoutCheckPromise = new Promise<never>((_, reject) => {
+      const checkTimer = setInterval(() => {
         if (isStalled) {
-          clearInterval(checkStallInterval);
-          clearInterval(stallCheckInterval);
+          clearInterval(checkTimer);
+          clearInterval(checkInterval);
           console.log(`[Download] ${task.dramaName} 停滞检测触发，取消下载...`);
           window.api.cancelDownload(task.dramaName).catch((err) => {
             console.error(`[Download] 取消下载失败:`, err);
           });
           reject(new Error("下载停滞（2分钟无进度更新）"));
         }
+
+        if (isAbsoluteTimeout) {
+          clearInterval(checkTimer);
+          clearInterval(checkInterval);
+          const elapsedMin = ((Date.now() - taskStartTime) / 1000 / 60).toFixed(1);
+          console.log(`[Download] ${task.dramaName} 绝对超时触发（${elapsedMin}分钟），取消下载...`);
+          window.api.cancelDownload(task.dramaName).catch((err) => {
+            console.error(`[Download] 取消下载失败:`, err);
+          });
+          reject(new Error(`下载超时（超过30分钟）`));
+        }
       }, 1000);
     });
 
-    // 执行下载（带停滞检测）
-    const result = await Promise.race([downloadPromise, stallCheckPromise]);
+    // 执行下载（带检测）
+    const result = await Promise.race([downloadPromise, timeoutCheckPromise]);
 
     // 清理定时器
-    clearInterval(stallCheckInterval);
+    clearInterval(checkInterval);
 
     if (result.success) {
       task.progress = 100;
@@ -531,6 +637,9 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     // 检查是否是停滞错误
     const isStallError = errorMessage.includes("下载停滞");
 
+    // 检查是否是绝对超时错误
+    const isAbsoluteTimeoutError = errorMessage.includes("下载超时") || errorMessage.includes("超过30分钟");
+
     // 检查是否是网络错误（可以断点续传）
     const isNetworkError =
       errorMessage.includes("网络连接中断") ||
@@ -545,8 +654,8 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         `[Download] ${task.dramaName} 失败，耗时 ${duration}秒，错误: ${errorMessage}`
       );
 
-      // 如果是网络错误或停滞错误且还有重试次数，尝试断点续传
-      if ((isNetworkError || isStallError) && task.retryCount! < MAX_RETRIES) {
+      // 如果是网络错误、停滞错误或绝对超时且还有重试次数，尝试重试
+      if ((isNetworkError || isStallError || isAbsoluteTimeoutError) && task.retryCount! < MAX_RETRIES) {
         task.retryCount!++;
         
         // 如果是网络错误且有进度，尝试断点续传

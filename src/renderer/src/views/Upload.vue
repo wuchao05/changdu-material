@@ -1058,47 +1058,47 @@ onMounted(() => {
 
         feishuBuiltPendingSet.value.add(dramaName);
 
-        // 如果失败数量 > 2，标记为失败
-        if (failCount > 2) {
-          console.error(
-            `[Upload] 剧《${dramaName}》上传失败，${failCount} 个视频失败，超过阈值`
-          );
-
-          // 更新飞书状态为"上传失败"
-          await updateFeishuDramaStatus(
-            dramaName,
-            "上传失败",
-            `有 ${failCount} 个视频上传失败`
-          );
-
-          message.error(
-            `剧《${dramaName}》有 ${failCount} 个视频上传失败，已标记为上传失败`
-          );
-
-          // 从已处理集合中移除，以便下次可以重新上传
-          feishuBuiltPendingSet.value.delete(dramaName);
-          return;
-        }
-
-        // 失败数量 ≤ 2，判定为成功，继续提交素材库
-        console.log(
-          `[Upload] 剧《${dramaName}》上传完成（${successVideos.length} 成功，${failCount} 失败），开始获取视频信息并提交到素材库`
-        );
-
-        // 获取该剧的本地素材目录
-        const dramaVideo = selectedDramaVideos[0];
-        const dramaFolderPath = dramaVideo?.filePath
-          ? dramaVideo.filePath.substring(
-              0,
-              dramaVideo.filePath.lastIndexOf(
-                dramaVideo.filePath.includes("\\") ? "\\" : "/"
-              )
-            )
-          : null;
-
-        // 异步处理：获取视频信息 → 提交素材库（带重试）→ 更新飞书 → 删除目录
+        // 异步处理：检查结果 → 提交素材库（带重试）→ 更新飞书 → 删除目录
         (async () => {
           try {
+            // 如果失败数量 > 2，标记为失败
+            if (failCount > 2) {
+              console.error(
+                `[Upload] 剧《${dramaName}》上传失败，${failCount} 个视频失败，超过阈值`
+              );
+
+              // 更新飞书状态为"上传失败"
+              await updateFeishuDramaStatus(
+                dramaName,
+                "上传失败",
+                `有 ${failCount} 个视频上传失败`
+              );
+
+              message.error(
+                `剧《${dramaName}》有 ${failCount} 个视频上传失败，已标记为上传失败`
+              );
+
+              // 从已处理集合中移除，以便下次可以重新上传
+              feishuBuiltPendingSet.value.delete(dramaName);
+              return;
+            }
+
+            // 失败数量 ≤ 2，判定为成功，继续提交素材库
+            console.log(
+              `[Upload] 剧《${dramaName}》上传完成（${successVideos.length} 成功，${failCount} 失败），开始获取视频信息并提交到素材库`
+            );
+
+            // 获取该剧的本地素材目录
+            const dramaVideo = selectedDramaVideos[0];
+            const dramaFolderPath = dramaVideo?.filePath
+              ? dramaVideo.filePath.substring(
+                  0,
+                  dramaVideo.filePath.lastIndexOf(
+                    dramaVideo.filePath.includes("\\") ? "\\" : "/"
+                  )
+                )
+              : null;
+
             // 1. 只获取成功上传的视频信息（跳过失败的视频）
             // 使用 for...of 循环而不是 Promise.all，避免单个失败导致整体失败
             const materials: any[] = [];

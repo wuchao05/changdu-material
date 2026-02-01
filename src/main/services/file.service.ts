@@ -582,4 +582,82 @@ export class FileService {
       return [];
     }
   }
+
+  /**
+   * 检查目录中的 mp4 文件数量
+   * @param dirPath 目录路径
+   * @returns mp4 文件数量
+   */
+  countMp4Files(dirPath: string): number {
+    try {
+      if (!fs.existsSync(dirPath)) {
+        return 0;
+      }
+
+      let count = 0;
+      const items = fs.readdirSync(dirPath, { withFileTypes: true });
+
+      for (const item of items) {
+        const fullPath = path.join(dirPath, item.name);
+        if (item.isDirectory()) {
+          // 递归统计子目录中的 mp4 文件
+          count += this.countMp4Files(fullPath);
+        } else if (item.isFile() && /\.(mp4|MP4)$/i.test(item.name)) {
+          count++;
+        }
+      }
+
+      return count;
+    } catch (error) {
+      console.error(`[FileService] 统计 mp4 文件失败:`, error);
+      return 0;
+    }
+  }
+
+  /**
+   * 检查 zip 文件是否存在且完整
+   * @param zipPath zip 文件路径
+   * @returns { exists: boolean, valid: boolean, size?: number }
+   */
+  checkZipFile(zipPath: string): { exists: boolean; valid: boolean; size?: number } {
+    try {
+      // 检查 zip 文件是否存在
+      if (!fs.existsSync(zipPath)) {
+        return { exists: false, valid: false };
+      }
+
+      const stats = fs.statSync(zipPath);
+      const fileSize = stats.size;
+
+      // 文件大小太小（小于 1MB），认为不完整
+      if (fileSize < 1024 * 1024) {
+        console.warn(`[FileService] zip 文件太小: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+        return { exists: true, valid: false, size: fileSize };
+      }
+
+      // 检查 zip 文件是否损坏（通过读取文件头）
+      const fd = fs.openSync(zipPath, 'r');
+      const buffer = Buffer.alloc(4);
+      fs.readSync(fd, buffer, 0, 4, 0);
+      fs.closeSync(fd);
+
+      // 检查是否是有效的 zip 文件头（PK\x03\x04, PK\x05\x06, 或 PK\x07\x08）
+      const isPKZip =
+        buffer[0] === 0x50 &&
+        buffer[1] === 0x4B &&
+        (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07);
+
+      if (!isPKZip) {
+        console.warn(`[FileService] zip 文件头无效: ${buffer.toString('hex')}`);
+        return { exists: true, valid: false, size: fileSize };
+      }
+
+      // zip 文件存在且看起来完整
+      console.log(`[FileService] 发现完整的 zip 文件: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+      return { exists: true, valid: true, size: fileSize };
+    } catch (error) {
+      console.error(`[FileService] 检查 zip 文件失败:`, error);
+      return { exists: false, valid: false };
+    }
+  }
 }

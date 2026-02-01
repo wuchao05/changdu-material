@@ -250,6 +250,14 @@ function registerIpcHandlers(): void {
     return await fileService.deleteFolder(folderPath);
   });
 
+  ipcMain.handle("file:countMp4Files", async (_event, dirPath) => {
+    return fileService.countMp4Files(dirPath);
+  });
+
+  ipcMain.handle("file:checkZipFile", async (_event, zipPath) => {
+    return fileService.checkZipFile(zipPath);
+  });
+
   ipcMain.handle("file:selectFolder", async () => {
     const { dialog } = await import("electron");
     const result = await dialog.showOpenDialog(mainWindow!, {
