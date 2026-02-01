@@ -1039,16 +1039,51 @@ onMounted(() => {
       }
       updateGroupedMaterials();
 
-      // 单剧集维度：如果该剧集选中的视频全部成功，则更新飞书状态为“待搭建”（只更新一次）
+      // 单剧集维度：检查该剧集的所有视频是否都已完成（成功或失败）
       const dramaName = video.dramaName;
       const selectedDramaVideos = videoMaterials.value.filter(
         (v) => v.dramaName === dramaName && selectedVideos.value.has(v.fileName)
       );
-      const dramaAllSuccess =
+
+      // 检查是否所有视频都已完成（成功或最终失败，不包括上传中）
+      const dramaAllCompleted =
         selectedDramaVideos.length > 0 &&
-        selectedDramaVideos.every((v) => v.status === "success");
-      if (dramaAllSuccess && !feishuBuiltPendingSet.value.has(dramaName)) {
+        selectedDramaVideos.every((v) => v.status === "success" || v.status === "error");
+
+      if (dramaAllCompleted && !feishuBuiltPendingSet.value.has(dramaName)) {
+        // 统计失败数量
+        const failedVideos = selectedDramaVideos.filter((v) => v.status === "error");
+        const failCount = failedVideos.length;
+        const successVideos = selectedDramaVideos.filter((v) => v.status === "success");
+
         feishuBuiltPendingSet.value.add(dramaName);
+
+        // 如果失败数量 > 2，标记为失败
+        if (failCount > 2) {
+          console.error(
+            `[Upload] 剧《${dramaName}》上传失败，${failCount} 个视频失败，超过阈值`
+          );
+
+          // 更新飞书状态为"上传失败"
+          await updateFeishuDramaStatus(
+            dramaName,
+            "上传失败",
+            `有 ${failCount} 个视频上传失败`
+          );
+
+          message.error(
+            `剧《${dramaName}》有 ${failCount} 个视频上传失败，已标记为上传失败`
+          );
+
+          // 从已处理集合中移除，以便下次可以重新上传
+          feishuBuiltPendingSet.value.delete(dramaName);
+          return;
+        }
+
+        // 失败数量 ≤ 2，判定为成功，继续提交素材库
+        console.log(
+          `[Upload] 剧《${dramaName}》上传完成（${successVideos.length} 成功，${failCount} 失败），开始获取视频信息并提交到素材库`
+        );
 
         // 获取该剧的本地素材目录
         const dramaVideo = selectedDramaVideos[0];
@@ -1061,104 +1096,142 @@ onMounted(() => {
             )
           : null;
 
-        // 剧上传完成后，立即获取视频信息、提交到素材库
-        console.log(
-          `[Upload] 剧《${dramaName}》上传完成，开始获取视频信息并提交到素材库`
-        );
-
         // 异步处理：获取视频信息 → 提交素材库（带重试）→ 更新飞书 → 删除目录
         (async () => {
-          // 1. 获取该剧所有视频的信息
-          const materials = await Promise.all(
-            selectedDramaVideos.map(async (v) => {
-              let videoInfo = { width: 1280, height: 720, duration: 60 };
+          try {
+            // 1. 只获取成功上传的视频信息（跳过失败的视频）
+            // 使用 for...of 循环而不是 Promise.all，避免单个失败导致整体失败
+            const materials: any[] = [];
+            for (const v of successVideos) {
               try {
-                videoInfo = await window.api.getVideoInfo(v.filePath);
+                const videoInfo = await window.api.getVideoInfo(v.filePath);
+                materials.push({
+                  name: v.fileName,
+                  url: v.url!,
+                  type: 0,
+                  width: videoInfo.width,
+                  height: videoInfo.height,
+                  duration: Math.round(videoInfo.duration),
+                  size: Math.ceil((v.size / 1024 / 1024) * 1000),
+                });
               } catch (e) {
-                console.warn(`获取视频信息失败，使用默认值: ${v.fileName}`);
-              }
-
-              return {
-                name: v.fileName,
-                url: v.url!,
-                type: 0,
-                width: videoInfo.width,
-                height: videoInfo.height,
-                duration: Math.round(videoInfo.duration),
-                size: Math.ceil((v.size / 1024 / 1024) * 1000),
-              };
-            })
-          );
-
-          // 2. 提交到素材库（带重试机制，最多3次）
-          const maxRetry = 3;
-          let submitSuccess = false;
-          let lastError: Error | null = null;
-
-          for (let attempt = 1; attempt <= maxRetry; attempt++) {
-            try {
-              console.log(
-                `[Upload] 剧《${dramaName}》提交素材库，第 ${attempt}/${maxRetry} 次尝试`
-              );
-              await window.api.submitMaterial(materials);
-              submitSuccess = true;
-              console.log(`[Upload] ✓ 剧《${dramaName}》素材库提交成功`);
-              break;
-            } catch (error) {
-              lastError = error instanceof Error ? error : new Error(String(error));
-              console.error(
-                `[Upload] 剧《${dramaName}》素材库提交失败 (${attempt}/${maxRetry}):`,
-                lastError.message
-              );
-              if (attempt < maxRetry) {
-                // 等待2秒后重试
-                await new Promise((resolve) => setTimeout(resolve, 2000));
+                console.error(`获取视频信息失败: ${v.fileName}`, e);
+                // 跳过这个视频，继续处理其他视频
+                continue;
               }
             }
-          }
 
-          if (submitSuccess) {
-            // 提交成功：标记为已提交
-            selectedDramaVideos.forEach((v) => {
-              v.isSubmitted = true;
-            });
+            // 检查是否还有有效的素材可以提交
+            if (materials.length === 0) {
+              throw new Error('没有可用的视频素材提交');
+            }
 
-            // 3. 更新飞书状态为"待搭建"
-            console.log(`[Upload] 剧《${dramaName}》更新飞书状态为"待搭建"`);
-            await updateFeishuDramaStatus(dramaName, "待搭建");
+            // 2. 提交到素材库（带重试机制，最多3次）
+            const maxRetry = 3;
+            let submitSuccess = false;
+            let lastError: Error | null = null;
 
-            // 4. 删除本地目录
-            if (dramaFolderPath) {
-              console.log(`[Upload] 剧《${dramaName}》开始删除本地目录`);
-              const deleteResult = await window.api.deleteFolder(dramaFolderPath);
-              if (deleteResult.success) {
-                console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
-                message.success(`剧《${dramaName}》已完成，本地素材已清理`);
-              } else {
-                console.error(
-                  `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
-                  deleteResult.error
+            for (let attempt = 1; attempt <= maxRetry; attempt++) {
+              try {
+                console.log(
+                  `[Upload] 剧《${dramaName}》提交素材库，第 ${attempt}/${maxRetry} 次尝试`
                 );
-                message.warning(`剧《${dramaName}》已完成，但本地素材清理失败`);
+                await window.api.submitMaterial(materials);
+                submitSuccess = true;
+                console.log(`[Upload] ✓ 剧《${dramaName}》素材库提交成功`);
+                break;
+              } catch (error) {
+                lastError = error instanceof Error ? error : new Error(String(error));
+                console.error(
+                  `[Upload] 剧《${dramaName}》素材库提交失败 (${attempt}/${maxRetry}):`,
+                  lastError.message
+                );
+                if (attempt < maxRetry) {
+                  // 等待2秒后重试
+                  await new Promise((resolve) => setTimeout(resolve, 2000));
+                }
+              }
+            }
+
+            if (submitSuccess) {
+              // 提交成功：只标记成功的视频为已提交
+              successVideos.forEach((v) => {
+                v.isSubmitted = true;
+              });
+
+              // 3. 更新飞书状态为"待搭建"
+              console.log(`[Upload] 剧《${dramaName}》更新飞书状态为"待搭建"`);
+              await updateFeishuDramaStatus(dramaName, "待搭建");
+
+              // 如果有失败的视频，在备注中说明
+              if (failCount > 0) {
+                await updateFeishuDramaStatus(
+                  dramaName,
+                  "待搭建",
+                  `有 ${failCount} 个视频上传失败，已提交成功视频`
+                );
+              }
+
+              // 4. 删除本地目录（只要剧集成功，就删除目录）
+              if (dramaFolderPath) {
+                console.log(`[Upload] 剧《${dramaName}》开始删除本地目录`);
+                const deleteResult = await window.api.deleteFolder(dramaFolderPath);
+                if (deleteResult.success) {
+                  console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
+                  const msg = failCount > 0
+                    ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败），本地素材已清理`
+                    : `剧《${dramaName}》已完成，本地素材已清理`;
+                  message.success(msg);
+                } else {
+                  console.error(
+                    `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
+                    deleteResult.error
+                  );
+                  const msg = failCount > 0
+                    ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败），但本地素材清理失败`
+                    : `剧《${dramaName}》已完成，但本地素材清理失败`;
+                  message.warning(msg);
+                }
+              } else {
+                const msg = failCount > 0
+                  ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败）`
+                  : `剧《${dramaName}》已完成`;
+                message.success(msg);
               }
             } else {
-              message.success(`剧《${dramaName}》已完成`);
-            }
-          } else {
-            // 提交失败：更新飞书状态为"上传失败"，备注说明原因，不删除本地素材
-            console.error(
-              `[Upload] ✗ 剧《${dramaName}》素材库提交失败，${maxRetry}次重试均失败`
-            );
-            message.error(
-              `剧《${dramaName}》素材库提交失败，已标记为上传失败，请重新上传`
-            );
+              // 提交失败：更新飞书状态为"上传失败"，备注说明原因，不删除本地素材
+              console.error(
+                `[Upload] ✗ 剧《${dramaName}》素材库提交失败，${maxRetry}次重试均失败`
+              );
+              message.error(
+                `剧《${dramaName}》素材库提交失败，已标记为上传失败，请重新上传`
+              );
 
-            // 更新飞书状态为"上传失败"，并添加备注
-            await updateFeishuDramaStatus(
-              dramaName,
-              "上传失败",
-              "提交到素材库失败，请重新上传"
-            );
+              // 更新飞书状态为"上传失败"，并添加备注
+              await updateFeishuDramaStatus(
+                dramaName,
+                "上传失败",
+                "提交到素材库失败，请重新上传"
+              );
+
+              // 从已处理集合中移除，以便下次可以重新上传
+              feishuBuiltPendingSet.value.delete(dramaName);
+            }
+          } catch (error) {
+            // 捕获所有未处理的异常
+            console.error(`[Upload] 剧《${dramaName}》处理过程中发生错误:`, error);
+            message.error(`剧《${dramaName}》处理失败: ${error instanceof Error ? error.message : String(error)}`);
+
+            // 更新飞书状态为"上传失败"
+            try {
+              await updateFeishuDramaStatus(
+                dramaName,
+                "上传失败",
+                `处理失败: ${error instanceof Error ? error.message : String(error)}`
+              );
+            } catch (feishuError) {
+              console.error(`[Upload] 更新飞书状态失败:`, feishuError);
+            }
 
             // 从已处理集合中移除，以便下次可以重新上传
             feishuBuiltPendingSet.value.delete(dramaName);
@@ -1593,9 +1666,6 @@ onUnmounted(() => {
             <li>
               点击"<strong>开始上传</strong>"按钮，开始批量上传到火山引擎TOS
             </li>
-            <li>
-              上传完成后，系统会自动更新飞书状态为"待搭建"，并删除本地素材目录
-            </li>
           </ol>
         </section>
 
@@ -1610,8 +1680,7 @@ onUnmounted(() => {
               <strong>扫描目录：</strong>实际扫描的目录路径（根目录 + 日期）
             </li>
             <li>
-              <strong>自动删除：</strong
-              >剧集上传成功后，会自动删除该剧的本地素材目录
+              <strong>并发数量：</strong>同时上传的视频文件数量，默认 5 个
             </li>
           </ul>
         </section>
@@ -1634,6 +1703,25 @@ onUnmounted(() => {
         </section>
 
         <section class="help-section">
+          <h3 class="help-title">🔁 重试与容错机制</h3>
+          <ul class="help-list">
+            <li><strong>单个视频重试：</strong>上传失败自动重试 3 次，间隔 2 秒</li>
+            <li><strong>超时重试：</strong>单个视频上传超过 20 分钟自动取消并重试</li>
+            <li><strong>素材库重试：</strong>提交素材库失败自动重试 3 次，间隔 2 秒</li>
+            <li>
+              <strong>剧集判定规则：</strong
+              >某剧所有视频上传完成后，统计失败数量：
+            </li>
+            <li class="help-sub-item">
+              • 失败 ≤ 2 个：判定成功，提交成功的视频到素材库，飞书状态改为"待搭建"，删除本地目录
+            </li>
+            <li class="help-sub-item">
+              • 失败 > 2 个：判定失败，飞书状态改为"上传失败"，不提交素材库，保留本地目录
+            </li>
+          </ul>
+        </section>
+
+        <section class="help-section">
           <h3 class="help-title">💡 温馨提示</h3>
           <ul class="help-list">
             <li>上传过程中可以点击"取消上传"停止所有上传任务</li>
@@ -1641,6 +1729,7 @@ onUnmounted(() => {
             <li>自动上传开启后，会显示"上一轮"和"下一轮"的查询时间</li>
             <li>上传成功的剧集本地目录会被自动删除，释放磁盘空间</li>
             <li>视频按剧名分组展示，可展开查看每个剧集的详细文件</li>
+            <li>失败的视频可以点击"重新上传"按钮手动重试</li>
           </ul>
         </section>
       </div>

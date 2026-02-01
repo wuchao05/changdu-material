@@ -100,12 +100,16 @@ export class TosService {
   private credentialsExpireTime = 0
   private uploadCancelTokens: Map<string, { cancel: () => void }> = new Map()
   private activeUploads: Map<string, boolean> = new Map()
+  private uploadTimeoutTimers: Map<string, NodeJS.Timeout> = new Map()
 
   // 上传队列管理
   private uploadQueue: string[] = []
   private uploadingCount = 0
   private maxConcurrentUploads = 5
   private totalStartTime = 0
+
+  // 上传超时时间（毫秒）：20 分钟
+  private readonly UPLOAD_TIMEOUT_MS = 20 * 60 * 1000
 
   async initTosClient(configService: ConfigService, force = false): Promise<TOS> {
     // 检查是否需要刷新凭证
@@ -171,6 +175,10 @@ export class TosService {
     }
   }
 
+  // 上传重试配置
+  private readonly MAX_UPLOAD_RETRY = 3
+  private readonly RETRY_DELAY_MS = 2000
+
   async uploadFile(
     filePath: string,
     configService: ConfigService,
@@ -178,126 +186,192 @@ export class TosService {
   ): Promise<UploadResult> {
     const fileName = path.basename(filePath)
 
-    try {
-      // 检查文件是否存在
-      if (!fs.existsSync(filePath)) {
-        throw new Error(`文件不存在: ${filePath}`)
-      }
-
-      // 初始化 TOS 客户端
-      const tosClient = await this.initTosClient(configService)
-
-      // 获取文件大小
-      const fileSize = fs.statSync(filePath).size
-
-      // 获取分片配置
-      const { partSize, taskNum } = getChunkConfig(fileSize)
-
-      // 生成 TOS 路径
-      const tosFilePath = generateFilePath(getMd5FileName(fileName))
-      console.log(`[TosService] 开始上传: ${fileName} -> ${tosFilePath}`)
-
-      // 创建取消令牌
-      const cancelTokenSource = TOS.CancelToken.source()
-      this.uploadCancelTokens.set(fileName, {
-        cancel: () => cancelTokenSource.cancel('用户取消上传')
-      })
-      this.activeUploads.set(fileName, true)
-
-      // 发送开始上传通知
-      onProgress?.({
-        fileName,
-        percent: 0,
-        uploadedBytes: 0,
-        totalBytes: fileSize,
-        status: 'uploading'
-      })
-
-      // 节流：限制进度回调频率（至少间隔 500ms）
-      let lastProgressTime = 0
-      let lastPercent = 0
-      const PROGRESS_THROTTLE_MS = 500
-
-      // 执行上传（直接传文件路径，避免读入内存）
-      await tosClient.uploadFile({
-        key: tosFilePath,
-        file: filePath, // 使用文件路径而非 Buffer，TOS SDK 支持流式读取
-        partSize,
-        taskNum,
-        cancelToken: cancelTokenSource.token,
-        progress: (p: number) => {
-          const now = Date.now()
-          const percent = Math.min(Math.round(p * 100), 98)
-          
-          // 节流：只有进度变化超过 2% 或时间间隔超过 500ms 才发送
-          if (percent - lastPercent >= 2 || now - lastProgressTime >= PROGRESS_THROTTLE_MS) {
-            lastProgressTime = now
-            lastPercent = percent
-            onProgress?.({
-              fileName,
-              percent,
-              uploadedBytes: Math.round(fileSize * p),
-              totalBytes: fileSize,
-              status: 'uploading'
-            })
-          }
-        }
-      })
-
-      // 上传成功
-      const url = `/${tosFilePath}`
-      console.log(`[TosService] 上传成功: ${fileName} -> ${url}`)
-
-      // 清理状态
-      this.uploadCancelTokens.delete(fileName)
-      this.activeUploads.delete(fileName)
-
-      onProgress?.({
-        fileName,
-        percent: 100,
-        uploadedBytes: fileSize,
-        totalBytes: fileSize,
-        status: 'success'
-      })
-
-      return {
-        success: true,
-        fileName,
-        url
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : '上传失败'
-
-      // 清理状态
-      this.uploadCancelTokens.delete(fileName)
-      this.activeUploads.delete(fileName)
-
-      // 检查是否是取消操作
-      if (errorMessage === '用户取消上传' || errorMessage === 'cancel uploadFile') {
-        console.log(`[TosService] 上传已取消: ${fileName}`)
-        return {
-          success: false,
-          fileName,
-          error: '上传已取消'
-        }
-      }
-
-      console.error(`[TosService] 上传失败: ${fileName}`, error)
-
+    // 检查文件是否存在
+    if (!fs.existsSync(filePath)) {
+      const error = `文件不存在: ${filePath}`
       onProgress?.({
         fileName,
         percent: 0,
         uploadedBytes: 0,
         totalBytes: 0,
         status: 'error',
-        error: errorMessage
+        error
       })
-
       return {
         success: false,
         fileName,
-        error: errorMessage
+        error
       }
+    }
+
+    // 初始化 TOS 客户端
+    const tosClient = await this.initTosClient(configService)
+
+    // 获取文件大小
+    const fileSize = fs.statSync(filePath).size
+
+    // 获取分片配置
+    const { partSize, taskNum } = getChunkConfig(fileSize)
+
+    // 生成 TOS 路径
+    const tosFilePath = generateFilePath(getMd5FileName(fileName))
+    console.log(`[TosService] 开始上传: ${fileName} -> ${tosFilePath}`)
+
+    // 重试循环
+    let lastError: Error | null = null
+    for (let attempt = 1; attempt <= this.MAX_UPLOAD_RETRY; attempt++) {
+      // 清除之前的超时定时器（如果有）
+      const existingTimer = this.uploadTimeoutTimers.get(fileName)
+      if (existingTimer) {
+        clearTimeout(existingTimer)
+        this.uploadTimeoutTimers.delete(fileName)
+      }
+
+      // 创建取消令牌
+      const cancelTokenSource = TOS.CancelToken.source()
+      let currentAttemptValid = true // 标记当前尝试是否有效（用于超时回调判断）
+      let timeoutId: NodeJS.Timeout | null = null
+
+      try {
+        this.uploadCancelTokens.set(fileName, {
+          cancel: () => {
+            currentAttemptValid = false
+            cancelTokenSource.cancel('用户取消上传')
+          }
+        })
+        this.activeUploads.set(fileName, true)
+
+        // 发送开始上传通知（首次或重试）
+        if (attempt === 1) {
+          onProgress?.({
+            fileName,
+            percent: 0,
+            uploadedBytes: 0,
+            totalBytes: fileSize,
+            status: 'uploading'
+          })
+        } else {
+          console.log(`[TosService] 重试上传: ${fileName} (${attempt}/${this.MAX_UPLOAD_RETRY})`)
+        }
+
+        // 设置超时定时器（20 分钟）
+        timeoutId = setTimeout(() => {
+          // 只有当前尝试仍然有效时才取消（避免取消下一次尝试）
+          if (currentAttemptValid && this.uploadCancelTokens.has(fileName)) {
+            console.warn(`[TosService] 上传超时: ${fileName}，取消并准备重试`)
+            cancelTokenSource.cancel(`上传超时（超过 ${this.UPLOAD_TIMEOUT_MS / 60000} 分钟）`)
+          }
+        }, this.UPLOAD_TIMEOUT_MS)
+        this.uploadTimeoutTimers.set(fileName, timeoutId)
+
+        // 节流：限制进度回调频率（至少间隔 500ms）
+        let lastProgressTime = 0
+        let lastPercent = 0
+        const PROGRESS_THROTTLE_MS = 500
+
+        // 执行上传（直接传文件路径，避免读入内存）
+        await tosClient.uploadFile({
+          key: tosFilePath,
+          file: filePath, // 使用文件路径而非 Buffer，TOS SDK 支持流式读取
+          partSize,
+          taskNum,
+          cancelToken: cancelTokenSource.token,
+          progress: (p: number) => {
+            const now = Date.now()
+            const percent = Math.min(Math.round(p * 100), 98)
+
+            // 节流：只有进度变化超过 2% 或时间间隔超过 500ms 才发送
+            if (percent - lastPercent >= 2 || now - lastProgressTime >= PROGRESS_THROTTLE_MS) {
+              lastProgressTime = now
+              lastPercent = percent
+              onProgress?.({
+                fileName,
+                percent,
+                uploadedBytes: Math.round(fileSize * p),
+                totalBytes: fileSize,
+                status: 'uploading'
+              })
+            }
+          }
+        })
+
+        const url = `/${tosFilePath}`
+        console.log(`[TosService] 上传成功: ${fileName} -> ${url}${attempt > 1 ? ` (第 ${attempt} 次尝试)` : ''}`)
+
+        onProgress?.({
+          fileName,
+          percent: 100,
+          uploadedBytes: fileSize,
+          totalBytes: fileSize,
+          status: 'success'
+        })
+
+        return {
+          success: true,
+          fileName,
+          url
+        }
+      } catch (error: unknown) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        const errorMessage = lastError.message
+
+        // 检查是否是用户取消操作
+        if (!currentAttemptValid || errorMessage === '用户取消上传' || errorMessage === 'cancel uploadFile') {
+          console.log(`[TosService] 上传已取消: ${fileName}`)
+          return {
+            success: false,
+            fileName,
+            error: '上传已取消'
+          }
+        }
+
+        // 检查是否是超时取消
+        const isTimeout = errorMessage.includes('上传超时')
+        if (isTimeout) {
+          console.warn(`[TosService] 上传超时: ${fileName} (${attempt}/${this.MAX_UPLOAD_RETRY})`)
+        } else {
+          console.error(`[TosService] 上传失败: ${fileName} (${attempt}/${this.MAX_UPLOAD_RETRY})`, lastError)
+        }
+
+        // 如果还有重试次数，等待后重试
+        if (attempt < this.MAX_UPLOAD_RETRY) {
+          const retryReason = isTimeout ? '超时' : '失败'
+          console.log(`[TosService] ${retryReason}，等待 ${this.RETRY_DELAY_MS / 1000} 秒后重试...`)
+          await new Promise((resolve) => setTimeout(resolve, this.RETRY_DELAY_MS))
+        }
+      } finally {
+        // 清理状态（无论成功还是失败）
+        this.uploadCancelTokens.delete(fileName)
+        this.activeUploads.delete(fileName)
+
+        // 清除超时定时器
+        const timer = this.uploadTimeoutTimers.get(fileName)
+        if (timer) {
+          clearTimeout(timer)
+          this.uploadTimeoutTimers.delete(fileName)
+        }
+
+        // 标记当前尝试已结束
+        currentAttemptValid = false
+      }
+    }
+
+    // 所有重试都失败
+    console.error(`[TosService] 上传最终失败: ${fileName}，已重试 ${this.MAX_UPLOAD_RETRY} 次`)
+
+    onProgress?.({
+      fileName,
+      percent: 0,
+      uploadedBytes: 0,
+      totalBytes: fileSize,
+      status: 'error',
+      error: lastError?.message || '上传失败'
+    })
+
+    return {
+      success: false,
+      fileName,
+      error: lastError?.message || '上传失败'
     }
   }
 
@@ -358,6 +432,14 @@ export class TosService {
       cancelToken.cancel()
       this.uploadCancelTokens.delete(fileName)
       this.activeUploads.delete(fileName)
+
+      // 清除超时定时器
+      const timer = this.uploadTimeoutTimers.get(fileName)
+      if (timer) {
+        clearTimeout(timer)
+        this.uploadTimeoutTimers.delete(fileName)
+      }
+
       return true
     }
     return false
@@ -368,10 +450,18 @@ export class TosService {
     for (const [fileName, cancelToken] of this.uploadCancelTokens) {
       cancelToken.cancel()
       this.activeUploads.delete(fileName)
+
+      // 清除超时定时器
+      const timer = this.uploadTimeoutTimers.get(fileName)
+      if (timer) {
+        clearTimeout(timer)
+        this.uploadTimeoutTimers.delete(fileName)
+      }
     }
     this.uploadCancelTokens.clear()
     this.uploadQueue = []
     this.uploadingCount = 0
+    this.uploadTimeoutTimers.clear()
   }
 
   // 检查是否正在上传
