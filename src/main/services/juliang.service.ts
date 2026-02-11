@@ -91,6 +91,7 @@ export class JuliangService {
   private logs: Array<{ time: string; message: string }> = [];
   private maxLogs = 500; // 最多保存 500 条日志
   private progressManager: JuliangProgressManager = new JuliangProgressManager();
+  private isCancelled = false; // 取消标志
 
   /**
    * 获取用户数据目录
@@ -259,6 +260,9 @@ export class JuliangService {
    */
   async initialize(): Promise<{ success: boolean; error?: string }> {
     try {
+      // 重置取消标志
+      this.isCancelled = false;
+
       if (this.isInitialized && this.context) {
         this.log("浏览器已初始化，跳过");
         return { success: true };
@@ -327,6 +331,9 @@ export class JuliangService {
    */
   async close(): Promise<void> {
     try {
+      // 设置取消标志，让正在执行的上传任务退出
+      this.isCancelled = true;
+
       if (this.page) {
         await this.page.close();
         this.page = null;
@@ -342,6 +349,20 @@ export class JuliangService {
     } catch (error) {
       console.error(`[Juliang] 关闭浏览器失败: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * 重置取消标志（初始化时调用）
+   */
+  resetCancelFlag(): void {
+    this.isCancelled = false;
+  }
+
+  /**
+   * 检查是否已取消
+   */
+  checkCancelled(): boolean {
+    return this.isCancelled;
   }
 
   /**
@@ -526,7 +547,19 @@ export class JuliangService {
       await this.randomDelay(5000, 6000);
 
       while (Date.now() - startTime < maxWaitTime) {
+        // 检查是否已取消
+        if (this.isCancelled) {
+          this.log("上传已被取消");
+          return { success: false, successCount: 0 };
+        }
+
         try {
+          // 检查页面是否还有效
+          if (!this.page || this.page.isClosed()) {
+            this.log("页面已关闭，上传取消");
+            return { success: false, successCount: 0 };
+          }
+
           // 查找所有进度条元素
           const progressBars = this.page.locator(".material-center-v2-oc-upload-table-name-progress");
           const progressCount = await progressBars.count();
