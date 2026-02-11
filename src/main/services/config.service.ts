@@ -220,6 +220,7 @@ export class ConfigService {
       feishuDramaStatusTableId: daren.feishuDramaStatusTableId || "",
       enableUpload: daren.enableUpload ?? true,
       enableDownload: daren.enableDownload ?? true,
+      enableJuliang: daren.enableJuliang ?? false, // 默认不启用巨量上传
       changduConfigType: daren.changduConfigType || 'sanrou', // 默认使用散柔配置
     };
   }
