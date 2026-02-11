@@ -31,6 +31,21 @@ const isReady = ref(false);
 const isUploading = ref(false);
 const needLogin = ref(false);
 
+// 调度器状态
+const schedulerStatus = ref<"idle" | "running" | "stopped">("idle");
+const schedulerStats = ref({
+  total: 0,
+  pending: 0,
+  running: 0,
+  completed: 0,
+  failed: 0,
+  skipped: 0,
+});
+const schedulerConfig = ref({
+  fetchIntervalMinutes: 20,
+  localRootDir: "",
+});
+
 // 配置
 const config = ref({
   baseUploadUrl: "",
@@ -61,10 +76,13 @@ const testFilesPath = ref("");
 // 日志
 const logs = ref<Array<{ time: string; message: string }>>([]);
 const showLogs = ref(false);
+const schedulerLogs = ref<Array<{ time: string; message: string }>>([]);
+const showSchedulerLogs = ref(false);
 
 // 进度监听器
 let unsubscribeProgress: (() => void) | null = null;
 let unsubscribeLog: (() => void) | null = null;
+let unsubscribeSchedulerLog: (() => void) | null = null;
 
 // 初始化浏览器
 async function initializeBrowser() {
@@ -285,6 +303,92 @@ async function toggleLogs() {
   }
 }
 
+// ==================== 调度器相关 ====================
+
+// 启动调度器
+async function startScheduler() {
+  try {
+    const result = await window.api.juliangSchedulerStart();
+    if (result.success) {
+      schedulerStatus.value = "running";
+      message.success("调度器已启动");
+    } else {
+      message.error(`启动失败: ${result.error}`);
+    }
+  } catch (error) {
+    message.error(`启动失败: ${error}`);
+  }
+}
+
+// 停止调度器
+async function stopScheduler() {
+  try {
+    await window.api.juliangSchedulerStop();
+    schedulerStatus.value = "stopped";
+    message.success("调度器已停止");
+  } catch (error) {
+    message.error(`停止失败: ${error}`);
+  }
+}
+
+// 刷新调度器状态
+async function refreshSchedulerStatus() {
+  try {
+    const result = await window.api.juliangSchedulerGetStatus();
+    schedulerStatus.value = result.status;
+    schedulerStats.value = result.stats;
+  } catch (error) {
+    console.error("刷新调度器状态失败:", error);
+  }
+}
+
+// 加载调度器配置
+async function loadSchedulerConfig() {
+  try {
+    schedulerConfig.value = await window.api.juliangSchedulerGetConfig();
+  } catch (error) {
+    console.error("加载调度器配置失败:", error);
+  }
+}
+
+// 保存调度器配置
+async function saveSchedulerConfig() {
+  try {
+    await window.api.juliangSchedulerUpdateConfig(schedulerConfig.value);
+    message.success("配置已保存");
+  } catch (error) {
+    message.error(`保存配置失败: ${error}`);
+  }
+}
+
+// 加载调度器日志
+async function loadSchedulerLogs() {
+  try {
+    schedulerLogs.value = await window.api.juliangSchedulerGetLogs();
+  } catch (error) {
+    console.error("加载调度器日志失败:", error);
+  }
+}
+
+// 清空调度器日志
+async function clearSchedulerLogs() {
+  try {
+    await window.api.juliangSchedulerClearLogs();
+    schedulerLogs.value = [];
+    message.success("调度器日志已清空");
+  } catch (error) {
+    message.error(`清空日志失败: ${error}`);
+  }
+}
+
+// 切换调度器日志显示
+async function toggleSchedulerLogs() {
+  showSchedulerLogs.value = !showSchedulerLogs.value;
+  if (showSchedulerLogs.value) {
+    await loadSchedulerLogs();
+  }
+}
+
 onMounted(async () => {
   // 加载配置
   await loadConfig();
@@ -292,6 +396,10 @@ onMounted(async () => {
   // 检查是否已初始化
   const ready = await window.api.juliangIsReady();
   isReady.value = ready;
+
+  // 加载调度器配置和状态
+  await loadSchedulerConfig();
+  await refreshSchedulerStatus();
 
   // 监听上传进度
   unsubscribeProgress = window.api.onJuliangUploadProgress((progress) => {
@@ -301,11 +409,21 @@ onMounted(async () => {
   // 监听实时日志
   unsubscribeLog = window.api.onJuliangLog((log) => {
     logs.value.push(log);
-    // 限制日志数量
     if (logs.value.length > 500) {
       logs.value.shift();
     }
   });
+
+  // 监听调度器日志
+  unsubscribeSchedulerLog = window.api.onJuliangSchedulerLog((log) => {
+    schedulerLogs.value.push(log);
+    if (schedulerLogs.value.length > 500) {
+      schedulerLogs.value.shift();
+    }
+  });
+
+  // 定时刷新调度器状态
+  setInterval(refreshSchedulerStatus, 5000);
 });
 
 onUnmounted(() => {
@@ -314,6 +432,9 @@ onUnmounted(() => {
   }
   if (unsubscribeLog) {
     unsubscribeLog();
+  }
+  if (unsubscribeSchedulerLog) {
+    unsubscribeSchedulerLog();
   }
 });
 </script>
@@ -326,6 +447,96 @@ onUnmounted(() => {
           <NTag :type="statusType">{{ statusText }}</NTag>
         </NSpace>
       </template>
+
+      <!-- 调度器控制 -->
+      <div style="margin-bottom: 20px">
+        <NCard size="small" title="自动调度">
+          <template #header-extra>
+            <NTag
+              :type="
+                schedulerStatus === 'running'
+                  ? 'success'
+                  : schedulerStatus === 'stopped'
+                  ? 'error'
+                  : 'default'
+              "
+            >
+              {{
+                schedulerStatus === "running"
+                  ? "运行中"
+                  : schedulerStatus === "stopped"
+                  ? "已停止"
+                  : "未启动"
+              }}
+            </NTag>
+          </template>
+
+          <NGrid :cols="6" :x-gap="12" style="margin-bottom: 16px">
+            <NGi>
+              <NStatistic label="待处理" :value="schedulerStats.pending" />
+            </NGi>
+            <NGi>
+              <NStatistic label="运行中" :value="schedulerStats.running" />
+            </NGi>
+            <NGi>
+              <NStatistic label="已完成" :value="schedulerStats.completed" />
+            </NGi>
+            <NGi>
+              <NStatistic label="已跳过" :value="schedulerStats.skipped" />
+            </NGi>
+            <NGi>
+              <NStatistic label="失败" :value="schedulerStats.failed" />
+            </NGi>
+            <NGi>
+              <NStatistic label="总计" :value="schedulerStats.total" />
+            </NGi>
+          </NGrid>
+
+          <NSpace>
+            <NButton
+              type="primary"
+              :disabled="schedulerStatus === 'running'"
+              @click="startScheduler"
+            >
+              启动调度
+            </NButton>
+            <NButton
+              :disabled="schedulerStatus !== 'running'"
+              @click="stopScheduler"
+            >
+              停止调度
+            </NButton>
+            <NButton @click="toggleSchedulerLogs">
+              {{ showSchedulerLogs ? "隐藏日志" : "调度日志" }}
+            </NButton>
+          </NSpace>
+
+          <!-- 调度器日志 -->
+          <div v-if="showSchedulerLogs" style="margin-top: 16px">
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
+              <NButton size="small" @click="clearSchedulerLogs">清空</NButton>
+            </div>
+            <div
+              style="
+                height: 200px;
+                overflow-y: auto;
+                background: #1e1e1e;
+                color: #d4d4d4;
+                padding: 8px;
+                border-radius: 4px;
+                font-family: monospace;
+                font-size: 12px;
+              "
+            >
+              <div v-if="schedulerLogs.length === 0" style="color: #888">暂无日志</div>
+              <div v-for="(log, index) in schedulerLogs" :key="index">
+                <span style="color: #6a9955">[{{ log.time }}]</span>
+                <span style="margin-left: 8px">{{ log.message }}</span>
+              </div>
+            </div>
+          </div>
+        </NCard>
+      </div>
 
       <!-- 状态统计 -->
       <NGrid :cols="4" :x-gap="12" style="margin-bottom: 20px">

@@ -174,6 +174,31 @@ const api = {
   juliangGetScreenshot: () => ipcRenderer.invoke("juliang:getScreenshot"),
   juliangGetLogs: () => ipcRenderer.invoke("juliang:getLogs"),
   juliangClearLogs: () => ipcRenderer.invoke("juliang:clearLogs"),
+
+  // ==================== 巨量调度器 ====================
+  juliangSchedulerStart: () => ipcRenderer.invoke("juliang:scheduler:start"),
+  juliangSchedulerStop: () => ipcRenderer.invoke("juliang:scheduler:stop"),
+  juliangSchedulerGetStatus: () =>
+    ipcRenderer.invoke("juliang:scheduler:getStatus"),
+  juliangSchedulerGetConfig: () =>
+    ipcRenderer.invoke("juliang:scheduler:getConfig"),
+  juliangSchedulerUpdateConfig: (config: unknown) =>
+    ipcRenderer.invoke("juliang:scheduler:updateConfig", config),
+  juliangSchedulerGetLogs: () =>
+    ipcRenderer.invoke("juliang:scheduler:getLogs"),
+  juliangSchedulerClearLogs: () =>
+    ipcRenderer.invoke("juliang:scheduler:clearLogs"),
+  onJuliangSchedulerLog: (
+    callback: (log: { time: string; message: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      log: { time: string; message: string }
+    ) => callback(log);
+    ipcRenderer.on("juliang:scheduler-log", handler);
+    return () => ipcRenderer.removeListener("juliang:scheduler-log", handler);
+  },
+
   onJuliangLog: (
     callback: (log: { time: string; message: string }) => void
   ) => {

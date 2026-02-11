@@ -227,6 +227,59 @@ export class ApiService {
     return response.data
   }
 
+  /**
+   * 更新飞书记录状态
+   * @param recordId 记录 ID
+   * @param newStatus 新状态（待上传、上传中、待搭建、上传失败等）
+   * @param tableId 表格 ID
+   */
+  async updateFeishuRecordStatus(
+    recordId: string,
+    newStatus: string,
+    configService: ConfigService,
+    tableId?: string
+  ): Promise<boolean> {
+    try {
+      const apiConfig = await configService.getApiConfig()
+      const finalTableId = tableId || apiConfig.feishuDramaStatusTableId
+
+      if (!finalTableId) {
+        console.error('[ApiService] 更新飞书状态失败: 未配置表格 ID')
+        return false
+      }
+
+      const token = await this.getFeishuToken(apiConfig)
+
+      console.log(`[ApiService] 更新飞书记录状态: ${recordId} -> ${newStatus}`)
+
+      const response = await axios.put(
+        `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/${recordId}`,
+        {
+          fields: {
+            '当前状态': newStatus
+          }
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      )
+
+      if (response.data.code !== 0) {
+        console.error(`[ApiService] 更新飞书状态失败: ${response.data.msg}`)
+        return false
+      }
+
+      console.log(`[ApiService] 飞书状态更新成功: ${recordId} -> ${newStatus}`)
+      return true
+    } catch (error) {
+      console.error(`[ApiService] 更新飞书状态异常: ${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }
+
   private async getFeishuToken(apiConfig: ApiConfig): Promise<string> {
     // 检查缓存
     if (this.feishuTokenCache.token && Date.now() < this.feishuTokenCache.expireTime) {

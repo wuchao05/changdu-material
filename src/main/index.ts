@@ -78,6 +78,7 @@ import { DownloadService } from './services/download.service';
 import { ApiService } from './services/api.service';
 import { TosService } from './services/tos.service';
 import { juliangService } from './services/juliang.service';
+import { getJuliangScheduler } from './services/juliang-scheduler.service';
 
 // 初始化服务
 const configService = new ConfigService();
@@ -85,6 +86,7 @@ const fileService = new FileService();
 const downloadService = new DownloadService();
 const apiService = new ApiService();
 const tosService = new TosService();
+const juliangScheduler = getJuliangScheduler(apiService, fileService, configService);
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -451,6 +453,44 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('juliang:clearLogs', async () => {
     juliangService.clearLogs();
+    return { success: true };
+  });
+
+  // ==================== 巨量调度器 ====================
+  ipcMain.handle('juliang:scheduler:start', async () => {
+    if (mainWindow) {
+      juliangScheduler.setMainWindow(mainWindow);
+    }
+    return await juliangScheduler.start();
+  });
+
+  ipcMain.handle('juliang:scheduler:stop', async () => {
+    await juliangScheduler.stop();
+    return { success: true };
+  });
+
+  ipcMain.handle('juliang:scheduler:getStatus', async () => {
+    return {
+      status: juliangScheduler.getStatus(),
+      stats: juliangScheduler.getQueueStats(),
+    };
+  });
+
+  ipcMain.handle('juliang:scheduler:getConfig', async () => {
+    return juliangScheduler.getConfig();
+  });
+
+  ipcMain.handle('juliang:scheduler:updateConfig', async (_event, config) => {
+    juliangScheduler.updateConfig(config);
+    return { success: true };
+  });
+
+  ipcMain.handle('juliang:scheduler:getLogs', async () => {
+    return juliangScheduler.getLogs();
+  });
+
+  ipcMain.handle('juliang:scheduler:clearLogs', async () => {
+    juliangScheduler.clearLogs();
     return { success: true };
   });
 
