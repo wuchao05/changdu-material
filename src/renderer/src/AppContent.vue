@@ -303,7 +303,7 @@ onMounted(async () => {
         </NLayoutSider>
         <NLayoutContent class="main-content">
           <router-view v-slot="{ Component }">
-            <KeepAlive include="Upload,Download">
+            <KeepAlive include="Upload,Download,JuliangUpload">
               <component :is="Component" />
             </KeepAlive>
           </router-view>
