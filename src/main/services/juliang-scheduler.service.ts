@@ -323,16 +323,18 @@ export class JuliangSchedulerService {
 
         // 取消后不自动重新初始化浏览器，等待用户手动操作
         this.log("取消完成，调度器暂停，点击'立即查询'继续");
+      } else {
+        // 如果没有正在执行的任务，可以重置取消标志
+        this.isCancelled = false;
       }
 
-      // 重置取消标志，但不启动定时拉取
-      this.isCancelled = false;
+      // 注意：如果有任务正在执行，isCancelled 保持为 true
+      // 让 onTaskComplete 检测到取消后不再查询
 
       return { success: true };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(`取消任务失败: ${errorMsg}`);
-      this.isCancelled = false; // 确保重置
       return { success: false, error: errorMsg };
     }
   }
@@ -651,14 +653,17 @@ export class JuliangSchedulerService {
       this.isTaskProcessing = true;
       this.currentTask = task; // 记录当前任务
       let taskSkipped = false;
-      let taskCancelled = false;
 
       try {
         taskSkipped = await this.processTask(task);
-        // 检查任务执行后是否被取消
-        taskCancelled = this.isCancelled;
       } finally {
         this.currentTask = null;
+        // 在 finally 中检查取消状态，确保即使异常也能正确处理
+        const taskCancelled = this.isCancelled;
+        if (taskCancelled) {
+          // 取消后重置标志，但不继续查询
+          this.isCancelled = false;
+        }
         await this.onTaskComplete(taskSkipped, taskCancelled);
       }
 
