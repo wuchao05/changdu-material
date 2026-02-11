@@ -393,10 +393,18 @@ export class JuliangSchedulerService {
         else if (obj.value) date = String(obj.value);
       }
 
-      const account = daren.id; // 使用达人 ID 作为账户
+      // 解析账户（巨量账户 ID）
+      const accountId = this.parseFieldValue(fields["账户"]);
+
+      const account = daren.id; // 使用达人 ID 作为账户标识
 
       if (!drama || !date) {
         this.log(`记录 ${record.record_id} 缺少剧名或日期，跳过`);
+        return null;
+      }
+
+      if (!accountId) {
+        this.log(`记录 ${record.record_id} (${drama}) 缺少账户字段，跳过`);
         return null;
       }
 
@@ -406,7 +414,7 @@ export class JuliangSchedulerService {
         drama: String(drama),
         date: String(date),
         account,
-        accountId: account, // TODO: 从配置中获取巨量账户 ID
+        accountId: String(accountId), // 使用飞书表格中的账户字段
         tableId: daren.feishuDramaStatusTableId || "",
         status: "pending",
         createdAt: new Date(),
