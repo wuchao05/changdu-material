@@ -250,10 +250,23 @@ export class JuliangSchedulerService {
             continue;
           }
 
+          // 先解析所有记录
+          const tasks: InternalTask[] = [];
           for (const item of result.data.items) {
             this.log(`解析记录: ${item.record_id}, 剧名=${item.fields['剧名']}, 日期=${item.fields['日期']}`);
             const task = this.parseFeishuRecord(item, daren);
-            if (task && this.addTask(task)) {
+            if (task) {
+              tasks.push(task);
+            }
+          }
+
+          // 按日期升序排序（最早的日期优先上传）
+          tasks.sort((a, b) => a.date.localeCompare(b.date));
+          this.log(`达人 ${daren.label} 共 ${tasks.length} 个任务（已按日期升序排序）`);
+
+          // 添加到队列
+          for (const task of tasks) {
+            if (this.addTask(task)) {
               totalAdded++;
             }
           }
