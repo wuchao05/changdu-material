@@ -46,6 +46,7 @@ export class JuliangSchedulerService {
   private taskMap: Map<string, InternalTask> = new Map();
   private fetchTimer: NodeJS.Timeout | null = null;
   private isTaskProcessing = false;
+  private isCancelled = false; // 取消标志
   private currentTask: InternalTask | null = null; // 当前正在执行的任务
   private mainWindow: BrowserWindow | null = null;
   private logs: Array<{ time: string; message: string }> = [];
@@ -271,6 +272,9 @@ export class JuliangSchedulerService {
     try {
       this.log("手动触发：取消所有上传任务");
 
+      // 设置取消标志
+      this.isCancelled = true;
+
       // 停止定时拉取
       this.stopScheduledFetching();
 
@@ -315,7 +319,8 @@ export class JuliangSchedulerService {
         }
       }
 
-      // 重新启动定时拉取
+      // 重置取消标志，启动定时拉取
+      this.isCancelled = false;
       if (this.status === "running") {
         this.startScheduledFetching();
       }
@@ -324,6 +329,7 @@ export class JuliangSchedulerService {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(`取消任务失败: ${errorMsg}`);
+      this.isCancelled = false; // 确保重置
       return { success: false, error: errorMsg };
     }
   }
@@ -590,9 +596,16 @@ export class JuliangSchedulerService {
   /**
    * 任务完成时调用
    * @param taskSkipped 任务是否被跳过（本地目录不存在等原因）
+   * @param taskCancelled 任务是否被取消
    */
-  private async onTaskComplete(taskSkipped = false) {
+  private async onTaskComplete(taskSkipped = false, taskCancelled = false) {
     this.isTaskProcessing = false;
+
+    // 如果任务被取消，不要查询新任务（cancelAll 已经处理了后续逻辑）
+    if (taskCancelled || this.isCancelled) {
+      this.log("任务已取消，不再查询新任务");
+      return;
+    }
 
     // 如果任务是被跳过的（比如本地目录不存在），不要立即再查询
     // 因为再查询还是会拿到同一条记录，会形成无限循环
@@ -626,15 +639,24 @@ export class JuliangSchedulerService {
         continue;
       }
 
+      // 检查是否已取消
+      if (this.isCancelled) {
+        this.log("调度已取消，停止处理队列");
+        break;
+      }
+
       this.isTaskProcessing = true;
       this.currentTask = task; // 记录当前任务
       let taskSkipped = false;
+      let taskCancelled = false;
 
       try {
         taskSkipped = await this.processTask(task);
+        // 检查任务执行后是否被取消
+        taskCancelled = this.isCancelled;
       } finally {
         this.currentTask = null;
-        await this.onTaskComplete(taskSkipped);
+        await this.onTaskComplete(taskSkipped, taskCancelled);
       }
 
       // 任务间延迟
@@ -659,6 +681,12 @@ export class JuliangSchedulerService {
    * @returns 是否被跳过（true = 跳过，false = 正常完成或失败）
    */
   private async processTask(task: InternalTask): Promise<boolean> {
+    // 检查是否已取消
+    if (this.isCancelled) {
+      this.log(`任务被取消: ${task.drama}`);
+      return false;
+    }
+
     try {
       // 标记为运行中
       task.status = "running";
@@ -714,6 +742,12 @@ export class JuliangSchedulerService {
         this.log(`更新飞书状态为"上传中"失败，但继续上传`);
       }
 
+      // 检查是否已取消
+      if (this.isCancelled) {
+        this.log(`任务被取消: ${task.drama}`);
+        return false;
+      }
+
       // 3. 执行上传
       const uploadTask: JuliangTask = {
         id: task.id,
@@ -727,6 +761,12 @@ export class JuliangSchedulerService {
       };
 
       const uploadResult = await juliangService.uploadTask(uploadTask);
+
+      // 检查是否已取消（上传过程中可能被取消）
+      if (this.isCancelled) {
+        this.log(`任务被取消: ${task.drama}`);
+        return false;
+      }
 
       if (!uploadResult.success) {
         task.status = "failed";
