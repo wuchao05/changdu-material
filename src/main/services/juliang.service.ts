@@ -111,7 +111,7 @@ export class JuliangService {
     }
 
     // 打印到控制台
-    this.log(`${message}`);
+    console.log(`[Juliang] ${message}`);
 
     // 发送到前端
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
