@@ -8,6 +8,7 @@ import { app, BrowserWindow } from "electron";
 import { join } from "path";
 import * as fs from "fs";
 import { execSync } from "child_process";
+import { JuliangProgressManager } from "./juliang-progress.service";
 
 // 上传任务状态
 export type JuliangTaskStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -89,6 +90,7 @@ export class JuliangService {
   private progressCallback: ((progress: JuliangUploadProgress) => void) | null = null;
   private logs: Array<{ time: string; message: string }> = [];
   private maxLogs = 500; // 最多保存 500 条日志
+  private progressManager: JuliangProgressManager = new JuliangProgressManager();
 
   /**
    * 获取用户数据目录
@@ -684,10 +686,28 @@ export class JuliangService {
         batches.push(task.files.slice(i, i + batchSize));
       }
 
-      let totalSuccess = 0;
       const totalBatches = batches.length;
 
-      for (let i = 0; i < batches.length; i++) {
+      // 检查是否有保存的进度（断点续传）
+      const savedProgress = this.progressManager.getProgress(task.recordId);
+      let startBatchIndex = 0;
+      let totalSuccess = 0;
+
+      if (savedProgress && savedProgress.totalBatches === totalBatches) {
+        startBatchIndex = savedProgress.completedBatches;
+        // 计算已完成批次的成功文件数
+        totalSuccess = startBatchIndex * batchSize;
+        if (startBatchIndex > 0) {
+          this.log(
+            `检测到上传进度，从第 ${startBatchIndex + 1}/${totalBatches} 批开始继续上传`
+          );
+        }
+      } else {
+        this.log(`文件分为 ${totalBatches} 批上传`);
+      }
+
+      // 从保存的进度开始上传
+      for (let i = startBatchIndex; i < batches.length; i++) {
         const batch = batches[i];
 
         // 发送进度：当前批次
@@ -706,12 +726,54 @@ export class JuliangService {
 
         if (result.success) {
           totalSuccess += result.successCount;
+          // 每批成功后更新进度
+          this.progressManager.updateProgress(
+            task.recordId,
+            task.drama,
+            task.date,
+            task.account,
+            totalBatches,
+            i + 1 // 已完成的批次数
+          );
         } else {
+          // 上传失败，保存进度
+          this.progressManager.updateProgress(
+            task.recordId,
+            task.drama,
+            task.date,
+            task.account,
+            totalBatches,
+            i // 保存已完成的批次数
+          );
           console.error(`[Juliang] 第 ${i + 1}/${totalBatches} 批上传失败`);
+
+          // 发送进度：失败
+          this.emitProgress({
+            taskId: task.id,
+            drama: task.drama,
+            status: "failed",
+            currentBatch: i + 1,
+            totalBatches,
+            successCount: totalSuccess,
+            totalFiles: task.files.length,
+            message: `第 ${i + 1} 批上传失败，进度已保存`,
+          });
+
+          return {
+            success: false,
+            taskId: task.id,
+            drama: task.drama,
+            successCount: totalSuccess,
+            totalFiles: task.files.length,
+            error: `第 ${i + 1} 批上传失败`,
+          };
         }
       }
 
       const success = totalSuccess >= task.files.length * 0.9; // 90% 成功即可
+
+      // 上传完成，清除进度记录
+      this.progressManager.clearProgress(task.recordId, task.drama);
 
       // 发送进度：完成
       this.emitProgress({
