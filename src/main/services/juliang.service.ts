@@ -66,7 +66,7 @@ export interface JuliangConfig {
 // 默认配置
 const DEFAULT_CONFIG: JuliangConfig = {
   baseUploadUrl: "https://ad.oceanengine.com/material_center/management/video?aadvid={accountId}#source=ad_navigator",
-  batchSize: 20,
+  batchSize: 10, // 巨量后台每次最多上传 10 个视频
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
