@@ -676,6 +676,7 @@ onUnmounted(() => {
 }
 
 .advanced-config {
+  margin-top: 16px;
   background: #fff;
   border-radius: 8px;
 }
