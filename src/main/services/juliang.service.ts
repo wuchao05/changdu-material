@@ -691,6 +691,12 @@ export class JuliangService {
       };
     }
 
+    // 用于在 catch 中保存进度的变量
+    let currentBatchIndex = 0;
+    let batches: string[][] = [];
+    let totalBatches = 0;
+    let totalSuccess = 0;
+
     try {
       this.log(`开始上传任务: ${task.drama}，共 ${task.files.length} 个文件`);
 
@@ -714,33 +720,42 @@ export class JuliangService {
 
       // 分批上传
       const batchSize = this.config.batchSize;
-      const batches: string[][] = [];
+      batches = [];
       for (let i = 0; i < task.files.length; i += batchSize) {
         batches.push(task.files.slice(i, i + batchSize));
       }
 
-      const totalBatches = batches.length;
+      totalBatches = batches.length;
 
       // 检查是否有保存的进度（断点续传）
-      const savedProgress = this.progressManager.getProgress(task.recordId);
+      const savedProgress = task.recordId ? this.progressManager.getProgress(task.recordId) : null;
       let startBatchIndex = 0;
-      let totalSuccess = 0;
+      totalSuccess = 0;
 
       if (savedProgress && savedProgress.totalBatches === totalBatches) {
         startBatchIndex = savedProgress.completedBatches;
-        // 计算已完成批次的成功文件数
-        totalSuccess = startBatchIndex * batchSize;
+        // 计算已完成批次的成功文件数（考虑最后一批可能不足 batchSize）
+        for (let j = 0; j < startBatchIndex; j++) {
+          totalSuccess += batches[j].length;
+        }
         if (startBatchIndex > 0) {
           this.log(
-            `检测到上传进度，从第 ${startBatchIndex + 1}/${totalBatches} 批开始继续上传`
+            `检测到上传进度，从第 ${startBatchIndex + 1}/${totalBatches} 批开始继续上传（已完成 ${totalSuccess} 个文件）`
           );
         }
       } else {
+        if (savedProgress && savedProgress.totalBatches !== totalBatches) {
+          this.log(`文件数量已变化（${savedProgress.totalBatches} → ${totalBatches} 批），重新开始上传`);
+          if (task.recordId) {
+            this.progressManager.clearProgress(task.recordId, task.drama);
+          }
+        }
         this.log(`文件分为 ${totalBatches} 批上传`);
       }
 
       // 从保存的进度开始上传
       for (let i = startBatchIndex; i < batches.length; i++) {
+        currentBatchIndex = i; // 记录当前批次，用于异常时保存进度
         const batch = batches[i];
 
         // 发送进度：当前批次
@@ -760,24 +775,28 @@ export class JuliangService {
         if (result.success) {
           totalSuccess += result.successCount;
           // 每批成功后更新进度
-          this.progressManager.updateProgress(
-            task.recordId,
-            task.drama,
-            task.date,
-            task.account,
-            totalBatches,
-            i + 1 // 已完成的批次数
-          );
+          if (task.recordId) {
+            this.progressManager.updateProgress(
+              task.recordId,
+              task.drama,
+              task.date,
+              task.account,
+              totalBatches,
+              i + 1 // 已完成的批次数
+            );
+          }
         } else {
           // 上传失败，保存进度
-          this.progressManager.updateProgress(
-            task.recordId,
-            task.drama,
-            task.date,
-            task.account,
-            totalBatches,
-            i // 保存已完成的批次数
-          );
+          if (task.recordId) {
+            this.progressManager.updateProgress(
+              task.recordId,
+              task.drama,
+              task.date,
+              task.account,
+              totalBatches,
+              i // 保存已完成的批次数
+            );
+          }
           console.error(`[Juliang] 第 ${i + 1}/${totalBatches} 批上传失败`);
 
           // 发送进度：失败
@@ -831,14 +850,27 @@ export class JuliangService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[Juliang] 上传任务失败: ${errorMessage}`);
 
+      // 异常时保存进度（如果有 recordId 且已开始上传）
+      if (task.recordId && totalBatches > 0 && currentBatchIndex > 0) {
+        this.progressManager.updateProgress(
+          task.recordId,
+          task.drama,
+          task.date,
+          task.account,
+          totalBatches,
+          currentBatchIndex // 保存当前批次之前的进度
+        );
+        this.log(`异常发生，已保存进度：${currentBatchIndex}/${totalBatches} 批`);
+      }
+
       // 发送进度：失败
       this.emitProgress({
         taskId: task.id,
         drama: task.drama,
         status: "failed",
-        currentBatch: 0,
-        totalBatches: 0,
-        successCount: 0,
+        currentBatch: currentBatchIndex,
+        totalBatches,
+        successCount: totalSuccess,
         totalFiles: task.files.length,
         message: `上传失败: ${errorMessage}`,
       });
@@ -847,7 +879,7 @@ export class JuliangService {
         success: false,
         taskId: task.id,
         drama: task.drama,
-        successCount: 0,
+        successCount: totalSuccess,
         totalFiles: task.files.length,
         error: errorMessage,
       };
