@@ -465,16 +465,17 @@ onUnmounted(() => {
     </NCard>
 
     <!-- 当前任务进度 -->
-    <NCard v-if="currentTask" class="progress-card">
+    <NCard v-if="currentTask" :class="['progress-card', currentTask.status === 'skipped' ? 'cancelled' : '']">
       <div class="progress-header">
         <span class="progress-title">{{ currentTask.drama }}</span>
         <span class="progress-status">{{ currentTask.message }}</span>
       </div>
-      <div class="progress-info">
+      <div v-if="currentTask.status !== 'skipped'" class="progress-info">
         <span>批次: {{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}</span>
         <span>文件: {{ currentTask.successCount }}/{{ currentTask.totalFiles }}</span>
       </div>
       <NProgress
+        v-if="currentTask.status !== 'skipped'"
         type="line"
         :percentage="currentTask.totalFiles > 0 ? Math.round((currentTask.successCount / currentTask.totalFiles) * 100) : 0"
         :indicator-placement="'inside'"
@@ -679,6 +680,10 @@ onUnmounted(() => {
 .progress-card :deep(.n-progress) {
   --n-fill-color: rgba(255, 255, 255, 0.9);
   --n-rail-color: rgba(255, 255, 255, 0.3);
+}
+
+.progress-card.cancelled {
+  background: linear-gradient(135deg, #666 0%, #888 100%);
 }
 
 .login-alert {

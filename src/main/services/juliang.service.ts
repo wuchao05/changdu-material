@@ -801,7 +801,17 @@ export class JuliangService {
           // 检查是否是取消导致的失败
           if (this.isCancelled) {
             this.log(`上传已取消: ${task.drama}`);
-            // 取消时不保存进度，不发送失败消息
+            // 发送取消状态
+            this.emitProgress({
+              taskId: task.id,
+              drama: task.drama,
+              status: "skipped",
+              currentBatch: i + 1,
+              totalBatches,
+              successCount: totalSuccess,
+              totalFiles: task.files.length,
+              message: "上传已取消",
+            });
             return {
               success: false,
               taskId: task.id,
