@@ -7,6 +7,7 @@ import { chromium, BrowserContext, Page } from "playwright";
 import { app, BrowserWindow } from "electron";
 import { join } from "path";
 import * as fs from "fs";
+import { execSync } from "child_process";
 
 // 上传任务状态
 export type JuliangTaskStatus = "pending" | "running" | "completed" | "failed" | "skipped";
@@ -95,6 +96,85 @@ export class JuliangService {
   }
 
   /**
+   * 检测系统已安装的 Chrome 或 Edge 浏览器路径
+   */
+  private findSystemBrowser(): string | undefined {
+    const platform = process.platform;
+
+    // Windows 常见路径
+    if (platform === "win32") {
+      const windowsPaths = [
+        // Chrome
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+        // Edge
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+      ];
+
+      for (const browserPath of windowsPaths) {
+        if (fs.existsSync(browserPath)) {
+          console.log(`[Juliang] 找到系统浏览器: ${browserPath}`);
+          return browserPath;
+        }
+      }
+
+      // 尝试通过注册表查找
+      try {
+        const regQuery = execSync(
+          'reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe" /ve',
+          { encoding: "utf-8" }
+        );
+        const match = regQuery.match(/REG_SZ\s+(.+)/);
+        if (match && match[1] && fs.existsSync(match[1].trim())) {
+          console.log(`[Juliang] 通过注册表找到 Chrome: ${match[1].trim()}`);
+          return match[1].trim();
+        }
+      } catch {
+        // 注册表查询失败，忽略
+      }
+    }
+
+    // macOS 常见路径
+    if (platform === "darwin") {
+      const macPaths = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        `${process.env.HOME}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+      ];
+
+      for (const browserPath of macPaths) {
+        if (fs.existsSync(browserPath)) {
+          console.log(`[Juliang] 找到系统浏览器: ${browserPath}`);
+          return browserPath;
+        }
+      }
+    }
+
+    // Linux 常见路径
+    if (platform === "linux") {
+      const linuxPaths = [
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/microsoft-edge",
+      ];
+
+      for (const browserPath of linuxPaths) {
+        if (fs.existsSync(browserPath)) {
+          console.log(`[Juliang] 找到系统浏览器: ${browserPath}`);
+          return browserPath;
+        }
+      }
+    }
+
+    console.warn("[Juliang] 未找到系统浏览器");
+    return undefined;
+  }
+
+  /**
    * 设置主窗口引用（用于发送进度事件）
    */
   setMainWindow(window: BrowserWindow) {
@@ -145,15 +225,27 @@ export class JuliangService {
       }
 
       const userDataDir = this.getUserDataDir();
-      console.log(`[Juliang] 正在初始化 Playwright 浏览器，数据目录: ${userDataDir}`);
+      console.log(`[Juliang] 正在初始化浏览器，数据目录: ${userDataDir}`);
 
       // 确保目录存在
       if (!fs.existsSync(userDataDir)) {
         fs.mkdirSync(userDataDir, { recursive: true });
       }
 
+      // 查找系统已安装的浏览器
+      const executablePath = this.findSystemBrowser();
+      if (!executablePath) {
+        return {
+          success: false,
+          error: "未找到 Chrome 或 Edge 浏览器，请先安装 Google Chrome 或 Microsoft Edge",
+        };
+      }
+
+      console.log(`[Juliang] 使用系统浏览器: ${executablePath}`);
+
       // 使用持久化上下文，保存登录状态
       this.context = await chromium.launchPersistentContext(userDataDir, {
+        executablePath, // 使用系统浏览器
         headless: this.config.headless,
         slowMo: this.config.slowMo,
         viewport: null,

@@ -1,11 +1,11 @@
 // Windows 控制台编码修复：在所有导入之前设置
-if (process.platform === "win32") {
+if (process.platform === 'win32') {
   // 方法1：强制 stdout 和 stderr 使用 UTF-8 编码
   if (process.stdout && typeof process.stdout.setDefaultEncoding === 'function') {
-    process.stdout.setDefaultEncoding("utf8");
+    process.stdout.setDefaultEncoding('utf8');
   }
   if (process.stderr && typeof process.stderr.setDefaultEncoding === 'function') {
-    process.stderr.setDefaultEncoding("utf8");
+    process.stderr.setDefaultEncoding('utf8');
   }
 
   // 方法2：重写 console.log 以确保使用 UTF-8（带错误处理）
@@ -24,24 +24,24 @@ if (process.platform === "win32") {
     }
   };
 
-  console.log = function(...args) {
-    const message = args.map(arg =>
-      typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
-    ).join(' ');
+  console.log = function (...args) {
+    const message = args
+      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)))
+      .join(' ');
     safeWrite(process.stdout, message);
   };
 
-  console.error = function(...args) {
-    const message = args.map(arg =>
-      typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
-    ).join(' ');
+  console.error = function (...args) {
+    const message = args
+      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)))
+      .join(' ');
     safeWrite(process.stderr, message);
   };
 
-  console.warn = function(...args) {
-    const message = args.map(arg =>
-      typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
-    ).join(' ');
+  console.warn = function (...args) {
+    const message = args
+      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)))
+      .join(' ');
     safeWrite(process.stderr, message);
   };
 }
@@ -55,29 +55,29 @@ import {
   Menu,
   nativeImage,
   globalShortcut,
-} from "electron";
-import { join } from "path";
-import { electronApp, optimizer, is } from "@electron-toolkit/utils";
+} from 'electron';
+import { join } from 'path';
+import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 
 // 扩展 Electron App 类型以支持 isQuitting 属性
-declare module "electron" {
+declare module 'electron' {
   interface App {
     isQuitting?: boolean;
   }
 }
 
 // Windows 网络优化：禁用代理，避免代理检测导致的延迟
-app.commandLine.appendSwitch("no-proxy-server");
+app.commandLine.appendSwitch('no-proxy-server');
 // 禁用自动代理检测
-app.commandLine.appendSwitch("winhttp-proxy-resolver");
+app.commandLine.appendSwitch('winhttp-proxy-resolver');
 
 // 服务导入
-import { ConfigService } from "./services/config.service";
-import { FileService } from "./services/file.service";
-import { DownloadService } from "./services/download.service";
-import { ApiService } from "./services/api.service";
-import { TosService } from "./services/tos.service";
-import { juliangService } from "./services/juliang.service";
+import { ConfigService } from './services/config.service';
+import { FileService } from './services/file.service';
+import { DownloadService } from './services/download.service';
+import { ApiService } from './services/api.service';
+import { TosService } from './services/tos.service';
+import { juliangService } from './services/juliang.service';
 
 // 初始化服务
 const configService = new ConfigService();
@@ -98,16 +98,16 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    title: "常读素材管理工具",
+    title: '常读素材管理工具',
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  mainWindow.on("ready-to-show", () => {
+  mainWindow.on('ready-to-show', () => {
     mainWindow?.show();
     // 开发模式下自动打开 DevTools
     if (is.dev) {
@@ -117,11 +117,11 @@ function createWindow(): void {
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
-    return { action: "deny" };
+    return { action: 'deny' };
   });
 
   // 关闭窗口时最小化到托盘
-  mainWindow.on("close", (event) => {
+  mainWindow.on('close', (event) => {
     if (!app.isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
@@ -129,16 +129,16 @@ function createWindow(): void {
   });
 
   // HMR for renderer base on electron-vite cli.
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
   } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
   }
 }
 
 function createTray(): void {
   // 创建托盘图标
-  const iconPath = join(__dirname, "../../resources/icon.png");
+  const iconPath = join(__dirname, '../../resources/icon.png');
   let icon: Electron.NativeImage;
 
   try {
@@ -155,19 +155,19 @@ function createTray(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "显示主窗口",
+      label: '显示主窗口',
       click: () => {
         mainWindow?.show();
       },
     },
     {
-      label: "开发者工具",
+      label: '开发者工具',
       click: () => {
         mainWindow?.webContents.toggleDevTools();
       },
     },
     {
-      label: "退出",
+      label: '退出',
       click: () => {
         app.isQuitting = true;
         app.quit();
@@ -175,10 +175,10 @@ function createTray(): void {
     },
   ]);
 
-  tray.setToolTip("常读素材管理工具");
+  tray.setToolTip('常读素材管理工具');
   tray.setContextMenu(contextMenu);
 
-  tray.on("double-click", () => {
+  tray.on('double-click', () => {
     mainWindow?.show();
   });
 }
@@ -186,109 +186,97 @@ function createTray(): void {
 // 注册 IPC 处理程序
 function registerIpcHandlers(): void {
   // ==================== 窗口控制 ====================
-  ipcMain.handle("window:hide", async () => {
+  ipcMain.handle('window:hide', async () => {
     mainWindow?.hide();
     return { success: true };
   });
 
-  ipcMain.handle("window:show", async () => {
+  ipcMain.handle('window:show', async () => {
     mainWindow?.show();
     return { success: true };
   });
 
-  ipcMain.handle("window:minimize", async () => {
+  ipcMain.handle('window:minimize', async () => {
     mainWindow?.minimize();
     return { success: true };
   });
 
   // ==================== 配置管理 ====================
-  ipcMain.handle("config:getDaren", async () => {
+  ipcMain.handle('config:getDaren', async () => {
     return await configService.getDarenConfig();
   });
 
-  ipcMain.handle("config:addDaren", async (_event, daren) => {
+  ipcMain.handle('config:addDaren', async (_event, daren) => {
     return await configService.addDaren(daren);
   });
 
-  ipcMain.handle("config:updateDaren", async (_event, id, updates) => {
+  ipcMain.handle('config:updateDaren', async (_event, id, updates) => {
     return await configService.updateDaren(id, updates);
   });
 
-  ipcMain.handle("config:deleteDaren", async (_event, id) => {
+  ipcMain.handle('config:deleteDaren', async (_event, id) => {
     return await configService.deleteDaren(id);
   });
 
-  ipcMain.handle("config:getApiConfig", async () => {
+  ipcMain.handle('config:getApiConfig', async () => {
     return await configService.getApiConfig();
   });
 
-  ipcMain.handle("config:saveApiConfig", async (_event, config) => {
+  ipcMain.handle('config:saveApiConfig', async (_event, config) => {
     return await configService.saveApiConfig(config);
   });
 
   // 远程配置同步
-  ipcMain.handle("config:syncFromRemote", async () => {
+  ipcMain.handle('config:syncFromRemote', async () => {
     return await configService.syncFromRemote();
   });
 
-  ipcMain.handle("config:pushToRemote", async () => {
+  ipcMain.handle('config:pushToRemote', async () => {
     return await configService.pushToRemote();
   });
 
   // ==================== 文件系统 ====================
-  ipcMain.handle("file:scanVideos", async (_event, basePath) => {
+  ipcMain.handle('file:scanVideos', async (_event, basePath) => {
     return await fileService.scanVideos(basePath);
   });
 
-  ipcMain.handle("file:getVideoInfo", async (_event, filePath) => {
+  ipcMain.handle('file:getVideoInfo', async (_event, filePath) => {
     return await fileService.getVideoInfo(filePath);
   });
 
-  ipcMain.handle("file:deleteFolder", async (_event, folderPath) => {
+  ipcMain.handle('file:deleteFolder', async (_event, folderPath) => {
     return await fileService.deleteFolder(folderPath);
   });
 
-  ipcMain.handle("file:countMp4Files", async (_event, dirPath) => {
+  ipcMain.handle('file:countMp4Files', async (_event, dirPath) => {
     return fileService.countMp4Files(dirPath);
   });
 
-  ipcMain.handle("file:checkZipFile", async (_event, zipPath) => {
+  ipcMain.handle('file:checkZipFile', async (_event, zipPath) => {
     return fileService.checkZipFile(zipPath);
   });
 
-  ipcMain.handle("file:selectFolder", async () => {
-    const { dialog } = await import("electron");
+  ipcMain.handle('file:selectFolder', async () => {
+    const { dialog } = await import('electron');
     const result = await dialog.showOpenDialog(mainWindow!, {
-      properties: ["openDirectory"],
+      properties: ['openDirectory'],
     });
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle(
-    "file:extractZip",
-    async (_event, zipPath, targetDir, deleteAfterExtract) => {
-      return await fileService.extractZip(
-        zipPath,
-        targetDir,
-        deleteAfterExtract
-      );
-    }
-  );
+  ipcMain.handle('file:extractZip', async (_event, zipPath, targetDir, deleteAfterExtract) => {
+    return await fileService.extractZip(zipPath, targetDir, deleteAfterExtract);
+  });
 
   // ==================== 下载 ====================
-  ipcMain.handle("download:video", async (event, url, savePath, dramaName) => {
+  ipcMain.handle('download:video', async (event, url, savePath, dramaName) => {
     try {
-      return await downloadService.downloadFile(
-        url,
-        savePath,
-        dramaName,
-        (progress) => {
-          event.sender.send("download:progress", progress);
-        }
-      );
+      return await downloadService.downloadFile(url, savePath, dramaName, (progress) => {
+        event.sender.send('download:progress', progress);
+      });
     } catch (error) {
       // 确保错误能正确传递到渲染进程
-      console.error("[IPC] download:video 错误:", error);
+      console.error('[IPC] download:video 错误:', error);
       // 返回一个包含错误信息的对象，而不是抛出异常
       return {
         success: false,
@@ -298,146 +286,123 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("download:cancel", async (_event, dramaName) => {
+  ipcMain.handle('download:cancel', async (_event, dramaName) => {
     return downloadService.cancelDownload(dramaName);
   });
 
-  ipcMain.handle("download:pause", async (_event, dramaName) => {
+  ipcMain.handle('download:pause', async (_event, dramaName) => {
     return downloadService.pauseDownload(dramaName);
   });
 
-  ipcMain.handle("download:resume", async (event, dramaName) => {
+  ipcMain.handle('download:resume', async (event, dramaName) => {
     try {
       return await downloadService.resumeDownload(dramaName, (progress) => {
-        event.sender.send("download:progress", progress);
+        event.sender.send('download:progress', progress);
       });
     } catch (error) {
       // 确保错误能正确传递到渲染进程
-      console.error("[IPC] download:resume 错误:", error);
+      console.error('[IPC] download:resume 错误:', error);
       return {
         success: false,
-        filePath: "",
+        filePath: '',
         error: error instanceof Error ? error.message : String(error),
       };
     }
   });
 
-  ipcMain.handle("download:isPaused", async (_event, dramaName) => {
+  ipcMain.handle('download:isPaused', async (_event, dramaName) => {
     return downloadService.isPaused(dramaName);
   });
 
-  ipcMain.handle("download:getState", async (_event, dramaName) => {
+  ipcMain.handle('download:getState', async (_event, dramaName) => {
     return downloadService.getDownloadState(dramaName);
   });
 
   // ==================== API 代理 ====================
-  ipcMain.handle(
-    "api:feishu",
-    async (_event, endpoint, data, method = "POST") => {
-      return await apiService.feishuRequest(
-        endpoint,
-        data,
-        method,
-        configService
-      );
-    }
-  );
+  ipcMain.handle('api:feishu', async (_event, endpoint, data, method = 'POST') => {
+    return await apiService.feishuRequest(endpoint, data, method, configService);
+  });
+
+  ipcMain.handle('api:feishuPendingUpload', async (_event, tableId?: string) => {
+    return await apiService.getPendingUploadDramas(configService, tableId);
+  });
 
   ipcMain.handle(
-    "api:feishuPendingUpload",
-    async (_event, tableId?: string) => {
-      return await apiService.getPendingUploadDramas(configService, tableId);
-    }
-  );
-
-  ipcMain.handle(
-    "api:feishuPendingUploadByDate",
+    'api:feishuPendingUploadByDate',
     async (_event, tableId: string | undefined, dateTimestamp: number) => {
-      return await apiService.getPendingUploadDramasByDate(
-        configService,
-        tableId,
-        dateTimestamp
-      );
-    }
+      return await apiService.getPendingUploadDramasByDate(configService, tableId, dateTimestamp);
+    },
   );
 
-  ipcMain.handle("api:changdu", async (_event, endpoint, params, headers, configType) => {
+  ipcMain.handle('api:changdu', async (_event, endpoint, params, headers, configType) => {
     return await apiService.changduRequest(
       endpoint,
       params,
       headers,
       configService,
-      configType || 'sanrou' // 默认使用散柔配置
+      configType || 'sanrou', // 默认使用散柔配置
     );
   });
 
-  ipcMain.handle("api:upload", async (event, filePath, options) => {
-    return await apiService.uploadToTos(
-      filePath,
-      options,
-      configService,
-      (progress) => {
-        event.sender.send("upload:progress", progress);
-      }
-    );
+  ipcMain.handle('api:upload', async (event, filePath, options) => {
+    return await apiService.uploadToTos(filePath, options, configService, (progress) => {
+      event.sender.send('upload:progress', progress);
+    });
   });
 
-  ipcMain.handle("api:submitMaterial", async (_event, materials) => {
+  ipcMain.handle('api:submitMaterial', async (_event, materials) => {
     return await apiService.submitToMaterialLibrary(materials, configService);
   });
 
   // ==================== TOS 上传 ====================
-  ipcMain.handle("tos:uploadFile", async (event, filePath) => {
+  ipcMain.handle('tos:uploadFile', async (event, filePath) => {
     return await tosService.uploadFile(filePath, configService, (progress) => {
-      event.sender.send("tos:uploadProgress", progress);
+      event.sender.send('tos:uploadProgress', progress);
     });
   });
 
-  ipcMain.handle(
-    "tos:uploadBatch",
-    async (event, filePaths, maxConcurrent = 5) => {
-      return new Promise<void>((resolve) => {
-        tosService
-          .uploadBatch(
-            filePaths,
-            configService,
-            maxConcurrent,
-            (fileName, progress) => {
-              event.sender.send("tos:uploadProgress", {
-                fileName,
-                ...progress,
-              });
-            },
-            (fileName, result) => {
-              event.sender.send("tos:uploadComplete", { fileName, ...result });
-            }
-          )
-          .then(() => {
-            resolve();
-          });
-      });
-    }
-  );
+  ipcMain.handle('tos:uploadBatch', async (event, filePaths, maxConcurrent = 5) => {
+    return new Promise<void>((resolve) => {
+      tosService
+        .uploadBatch(
+          filePaths,
+          configService,
+          maxConcurrent,
+          (fileName, progress) => {
+            event.sender.send('tos:uploadProgress', {
+              fileName,
+              ...progress,
+            });
+          },
+          (fileName, result) => {
+            event.sender.send('tos:uploadComplete', { fileName, ...result });
+          },
+        )
+        .then(() => {
+          resolve();
+        });
+    });
+  });
 
-  ipcMain.handle("tos:cancelUpload", async (_event, fileName) => {
+  ipcMain.handle('tos:cancelUpload', async (_event, fileName) => {
     return tosService.cancelUpload(fileName);
   });
 
-  ipcMain.handle("tos:cancelAllUploads", async () => {
+  ipcMain.handle('tos:cancelAllUploads', async () => {
     tosService.cancelAllUploads();
   });
 
-  ipcMain.handle("tos:getQueueStatus", async () => {
+  ipcMain.handle('tos:getQueueStatus', async () => {
     return tosService.getQueueStatus();
   });
 
-  ipcMain.handle("tos:initClient", async () => {
+  ipcMain.handle('tos:initClient', async () => {
     await tosService.initTosClient(configService, true);
     return { success: true };
   });
 
   // ==================== 巨量上传 ====================
-  ipcMain.handle("juliang:initialize", async () => {
+  ipcMain.handle('juliang:initialize', async () => {
     // 设置主窗口引用
     if (mainWindow) {
       juliangService.setMainWindow(mainWindow);
@@ -445,47 +410,47 @@ function registerIpcHandlers(): void {
     return await juliangService.initialize();
   });
 
-  ipcMain.handle("juliang:close", async () => {
+  ipcMain.handle('juliang:close', async () => {
     await juliangService.close();
     return { success: true };
   });
 
-  ipcMain.handle("juliang:isReady", async () => {
+  ipcMain.handle('juliang:isReady', async () => {
     return juliangService.isReady();
   });
 
-  ipcMain.handle("juliang:navigate", async (_event, accountId) => {
+  ipcMain.handle('juliang:navigate', async (_event, accountId) => {
     return await juliangService.navigateToUploadPage(accountId);
   });
 
-  ipcMain.handle("juliang:checkLogin", async () => {
+  ipcMain.handle('juliang:checkLogin', async () => {
     return await juliangService.checkLoginStatus();
   });
 
-  ipcMain.handle("juliang:uploadTask", async (_event, task) => {
+  ipcMain.handle('juliang:uploadTask', async (_event, task) => {
     return await juliangService.uploadTask(task);
   });
 
-  ipcMain.handle("juliang:getConfig", async () => {
+  ipcMain.handle('juliang:getConfig', async () => {
     return juliangService.getConfig();
   });
 
-  ipcMain.handle("juliang:updateConfig", async (_event, config) => {
+  ipcMain.handle('juliang:updateConfig', async (_event, config) => {
     juliangService.updateConfig(config);
     return { success: true };
   });
 
-  ipcMain.handle("juliang:getScreenshot", async () => {
+  ipcMain.handle('juliang:getScreenshot', async () => {
     const buffer = await juliangService.getScreenshot();
-    return buffer ? buffer.toString("base64") : null;
+    return buffer ? buffer.toString('base64') : null;
   });
 
   // ==================== 应用控制 ====================
-  ipcMain.handle("app:minimize", () => {
+  ipcMain.handle('app:minimize', () => {
     mainWindow?.minimize();
   });
 
-  ipcMain.handle("app:maximize", () => {
+  ipcMain.handle('app:maximize', () => {
     if (mainWindow?.isMaximized()) {
       mainWindow.unmaximize();
     } else {
@@ -493,26 +458,26 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle("app:close", () => {
+  ipcMain.handle('app:close', () => {
     mainWindow?.hide();
   });
 
-  ipcMain.handle("app:quit", () => {
+  ipcMain.handle('app:quit', () => {
     app.isQuitting = true;
     app.quit();
   });
 
-  ipcMain.handle("app:openExternal", async (_event, url) => {
+  ipcMain.handle('app:openExternal', async (_event, url) => {
     await shell.openExternal(url);
   });
 
-  ipcMain.handle("app:showInFolder", async (_event, path) => {
+  ipcMain.handle('app:showInFolder', async (_event, path) => {
     shell.showItemInFolder(path);
   });
 }
 
 // 扩展 app 类型
-declare module "electron" {
+declare module 'electron' {
   interface App {
     isQuitting: boolean;
   }
@@ -524,11 +489,11 @@ app.isQuitting = false;
 // initialization and is ready to create browser windows.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId("com.guazai.changdu-material");
+  electronApp.setAppUserModelId('com.guazai.changdu-material');
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
-  app.on("browser-window-created", (_, window) => {
+  app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
 
@@ -539,7 +504,7 @@ app.whenReady().then(() => {
   createTray();
 
   // 全局快捷键：F12 打开开发者工具（用于调试打包后的应用）
-  globalShortcut.register("F12", () => {
+  globalShortcut.register('F12', () => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     if (focusedWindow) {
       focusedWindow.webContents.toggleDevTools();
@@ -547,14 +512,14 @@ app.whenReady().then(() => {
   });
 
   // Ctrl+Shift+I 也打开开发者工具
-  globalShortcut.register("CommandOrControl+Shift+I", () => {
+  globalShortcut.register('CommandOrControl+Shift+I', () => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     if (focusedWindow) {
       focusedWindow.webContents.toggleDevTools();
     }
   });
 
-  app.on("activate", function () {
+  app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -562,13 +527,13 @@ app.whenReady().then(() => {
 });
 
 // Quit when all windows are closed, except on macOS.
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
     app.quit();
   }
 });
 
 // 在退出前清理
-app.on("before-quit", () => {
+app.on('before-quit', () => {
   app.isQuitting = true;
 });
