@@ -292,6 +292,33 @@ export class JuliangSchedulerService {
   }
 
   /**
+   * 解析飞书字段值（飞书可能返回数组或对象格式）
+   */
+  private parseFieldValue(value: unknown): string | null {
+    if (!value) return null;
+
+    // 如果是数组，取第一个元素
+    if (Array.isArray(value)) {
+      value = value[0];
+    }
+
+    // 如果是对象，尝试获取 text 属性
+    if (typeof value === "object" && value !== null) {
+      const obj = value as Record<string, unknown>;
+      if (obj.text) return String(obj.text);
+      if (obj.value) return String(obj.value);
+      return null;
+    }
+
+    // 如果是字符串或数字，直接转换
+    if (typeof value === "string" || typeof value === "number") {
+      return String(value);
+    }
+
+    return null;
+  }
+
+  /**
    * 解析飞书记录
    */
   private parseFeishuRecord(
@@ -301,20 +328,33 @@ export class JuliangSchedulerService {
     try {
       const fields = record.fields;
 
-      let drama = fields["剧名"] as string;
-      let date = fields["日期"];
-      const account = daren.id; // 使用达人 ID 作为账户
+      // 解析剧名
+      const drama = this.parseFieldValue(fields["剧名"]);
 
-      // 处理日期字段
+      // 解析日期
+      let date = fields["日期"];
+      // 如果是数组，取第一个元素
+      if (Array.isArray(date)) {
+        date = date[0];
+      }
+      // 如果是时间戳，转换为日期字符串
       if (typeof date === "number") {
         const dateObj = new Date(date);
         const year = dateObj.getFullYear();
         const month = String(dateObj.getMonth() + 1).padStart(2, "0");
         const day = String(dateObj.getDate()).padStart(2, "0");
         date = `${year}-${month}-${day}`;
+      } else if (typeof date === "object" && date !== null) {
+        // 可能是对象格式
+        const obj = date as Record<string, unknown>;
+        if (obj.text) date = String(obj.text);
+        else if (obj.value) date = String(obj.value);
       }
 
+      const account = daren.id; // 使用达人 ID 作为账户
+
       if (!drama || !date) {
+        this.log(`记录 ${record.record_id} 缺少剧名或日期，跳过`);
         return null;
       }
 
@@ -331,6 +371,7 @@ export class JuliangSchedulerService {
         updatedAt: new Date(),
       };
     } catch (error) {
+      this.log(`解析记录 ${record.record_id} 失败: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -411,9 +452,18 @@ export class JuliangSchedulerService {
 
   /**
    * 任务完成时调用
+   * @param taskSkipped 任务是否被跳过（本地目录不存在等原因）
    */
-  private async onTaskComplete() {
+  private async onTaskComplete(taskSkipped = false) {
     this.isTaskProcessing = false;
+
+    // 如果任务是被跳过的（比如本地目录不存在），不要立即再查询
+    // 因为再查询还是会拿到同一条记录，会形成无限循环
+    if (taskSkipped) {
+      this.log("任务被跳过，启动定时轮询等待下次检查");
+      this.startScheduledFetching();
+      return;
+    }
 
     this.log("任务完成，立即查询飞书获取新任务");
 
@@ -440,11 +490,12 @@ export class JuliangSchedulerService {
       }
 
       this.isTaskProcessing = true;
+      let taskSkipped = false;
 
       try {
-        await this.processTask(task);
+        taskSkipped = await this.processTask(task);
       } finally {
-        await this.onTaskComplete();
+        await this.onTaskComplete(taskSkipped);
       }
 
       // 任务间延迟
@@ -466,8 +517,9 @@ export class JuliangSchedulerService {
 
   /**
    * 处理单个任务
+   * @returns 是否被跳过（true = 跳过，false = 正常完成或失败）
    */
-  private async processTask(task: InternalTask) {
+  private async processTask(task: InternalTask): Promise<boolean> {
     try {
       // 标记为运行中
       task.status = "running";
@@ -490,7 +542,21 @@ export class JuliangSchedulerService {
         task.status = "skipped";
         task.error = "本地目录不存在或没有视频文件";
         this.log(`任务跳过: ${task.drama} - ${task.error}`);
-        return;
+
+        // 更新飞书状态为"跳过上传"
+        const updateSuccess = await this.apiService.updateFeishuRecordStatus(
+          task.recordId,
+          "跳过上传",
+          this.configService,
+          task.tableId
+        );
+        if (updateSuccess) {
+          this.log(`飞书状态已更新为"跳过上传": ${task.drama}`);
+        } else {
+          this.log(`更新飞书状态失败: ${task.drama}`);
+        }
+
+        return true; // 返回 true 表示被跳过
       }
 
       task.localPath = dramaPath;
@@ -543,7 +609,7 @@ export class JuliangSchedulerService {
         }
 
         // 不删除本地素材目录，等待下次重试
-        return;
+        return false;
       }
 
       this.log(`上传完成: ${uploadResult.successCount}/${uploadResult.totalFiles} 个文件成功`);
@@ -575,6 +641,7 @@ export class JuliangSchedulerService {
       task.status = "completed";
       task.updatedAt = new Date();
       this.log(`任务完成: ${task.drama}`);
+      return false; // 正常完成
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       task.status = "failed";
@@ -589,6 +656,7 @@ export class JuliangSchedulerService {
         this.configService,
         task.tableId
       );
+      return false; // 失败但不是跳过
     }
   }
 
