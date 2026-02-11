@@ -256,6 +256,15 @@ export class JuliangSchedulerService {
     }
 
     try {
+      // 如果浏览器未初始化，先初始化
+      if (!juliangService.isReady()) {
+        this.log("浏览器未初始化，正在初始化...");
+        const initResult = await juliangService.initialize(this.mainWindow!);
+        if (!initResult.success) {
+          return { success: false, count: 0, error: `浏览器初始化失败: ${initResult.error}` };
+        }
+      }
+
       this.log("手动触发：立即查询飞书任务");
       const count = await this.fetchAndEnqueueTasks();
       return { success: true, count };
@@ -312,18 +321,12 @@ export class JuliangSchedulerService {
           }
         }
 
-        // 如果调度器还在运行，重新初始化浏览器
-        if (this.status === "running") {
-          this.log("重新初始化浏览器...");
-          await juliangService.initialize(this.mainWindow!);
-        }
+        // 取消后不自动重新初始化浏览器，等待用户手动操作
+        this.log("取消完成，调度器暂停，点击'立即查询'继续");
       }
 
-      // 重置取消标志，启动定时拉取
+      // 重置取消标志，但不启动定时拉取
       this.isCancelled = false;
-      if (this.status === "running") {
-        this.startScheduledFetching();
-      }
 
       return { success: true };
     } catch (error) {
