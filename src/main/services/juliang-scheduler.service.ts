@@ -46,6 +46,7 @@ export class JuliangSchedulerService {
   private taskMap: Map<string, InternalTask> = new Map();
   private fetchTimer: NodeJS.Timeout | null = null;
   private isTaskProcessing = false;
+  private currentTask: InternalTask | null = null; // 当前正在执行的任务
   private mainWindow: BrowserWindow | null = null;
   private logs: Array<{ time: string; message: string }> = [];
   private maxLogs = 500;
@@ -282,12 +283,30 @@ export class JuliangSchedulerService {
       this.log(`已清空 ${pendingCount} 个待处理任务`);
 
       // 标记当前正在处理的任务为取消状态
-      if (this.isTaskProcessing) {
-        this.log("正在取消当前上传任务...");
-        // 通过关闭并重新打开浏览器来强制取消当前上传
+      if (this.isTaskProcessing && this.currentTask) {
+        const cancelledTask = this.currentTask;
+        this.log(`正在取消当前上传任务: ${cancelledTask.drama}...`);
+
+        // 通过关闭浏览器来强制取消当前上传
         await juliangService.close();
         this.isTaskProcessing = false;
+        this.currentTask = null;
         this.log("当前上传任务已取消");
+
+        // 恢复飞书状态为"待上传"
+        if (cancelledTask.recordId && cancelledTask.tableId) {
+          const updateSuccess = await this.apiService.updateFeishuRecordStatus(
+            cancelledTask.recordId,
+            "待上传",
+            this.configService,
+            cancelledTask.tableId
+          );
+          if (updateSuccess) {
+            this.log(`已将飞书状态恢复为"待上传": ${cancelledTask.drama}`);
+          } else {
+            this.log(`恢复飞书状态失败: ${cancelledTask.drama}`);
+          }
+        }
 
         // 如果调度器还在运行，重新初始化浏览器
         if (this.status === "running") {
@@ -608,11 +627,13 @@ export class JuliangSchedulerService {
       }
 
       this.isTaskProcessing = true;
+      this.currentTask = task; // 记录当前任务
       let taskSkipped = false;
 
       try {
         taskSkipped = await this.processTask(task);
       } finally {
+        this.currentTask = null;
         await this.onTaskComplete(taskSkipped);
       }
 
