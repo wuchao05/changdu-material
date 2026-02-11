@@ -469,51 +469,28 @@ onUnmounted(() => {
     <!-- 高级配置 -->
     <NCollapse class="advanced-config">
       <NCollapseItem title="高级配置" name="config">
-        <div class="config-grid">
-          <div class="config-row">
-            <span class="config-label">每批文件数</span>
-            <NInputNumber
-              v-model:value="config.batchSize"
-              :min="1"
-              :max="50"
-              style="width: 120px"
-            />
+        <div class="advanced-config-content">
+          <div class="config-grid">
+            <div class="config-row">
+              <span class="config-label">每批文件数</span>
+              <NInputNumber
+                v-model:value="config.batchSize"
+                :min="1"
+                :max="50"
+                style="width: 120px"
+              />
+              <span class="config-desc">每次上传的文件数量</span>
+            </div>
+            <div class="config-row">
+              <span class="config-label">无头模式</span>
+              <NSwitch v-model:value="config.headless" />
+              <span class="config-desc">开启后浏览器窗口不可见</span>
+            </div>
           </div>
-          <div class="config-row">
-            <span class="config-label">批次间隔(ms)</span>
-            <NInputNumber
-              v-model:value="config.batchDelayMin"
-              :min="1000"
-              :max="30000"
-              :step="1000"
-              style="width: 100px"
-            />
-            <span style="margin: 0 8px">-</span>
-            <NInputNumber
-              v-model:value="config.batchDelayMax"
-              :min="1000"
-              :max="30000"
-              :step="1000"
-              style="width: 100px"
-            />
-          </div>
-          <div class="config-row">
-            <span class="config-label">操作延迟(ms)</span>
-            <NInputNumber
-              v-model:value="config.slowMo"
-              :min="0"
-              :max="500"
-              :step="10"
-              style="width: 120px"
-            />
-          </div>
-          <div class="config-row">
-            <span class="config-label">无头模式</span>
-            <NSwitch v-model:value="config.headless" />
-            <span class="config-hint" style="margin-left: 8px">(开启后浏览器窗口不可见)</span>
+          <div class="config-actions">
+            <NButton type="primary" @click="saveConfig">保存配置</NButton>
           </div>
         </div>
-        <NButton type="primary" style="margin-top: 16px" @click="saveConfig">保存配置</NButton>
       </NCollapseItem>
     </NCollapse>
   </div>
@@ -703,9 +680,45 @@ onUnmounted(() => {
   border-radius: 8px;
 }
 
-.config-grid {
+.advanced-config :deep(.n-collapse-item__content-inner) {
+  padding-top: 0 !important;
+}
+
+.advanced-config-content {
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 6px;
+}
+
+.advanced-config .config-grid {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+}
+
+.advanced-config .config-row {
+  display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+.advanced-config .config-label {
+  width: 80px;
+  flex-shrink: 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.config-desc {
+  color: #999;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.config-actions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
 }
 </style>
