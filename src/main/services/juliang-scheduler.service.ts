@@ -3,7 +3,9 @@
  * 负责从飞书拉取待上传任务、执行上传、更新状态、删除本地目录
  */
 
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
+import { join } from "path";
+import * as fs from "fs";
 import { juliangService, JuliangTask, JuliangUploadResult } from "./juliang.service";
 import { ApiService } from "./api.service";
 import { FileService } from "./file.service";
@@ -56,6 +58,7 @@ export class JuliangSchedulerService {
   private apiService: ApiService;
   private fileService: FileService;
   private configService: ConfigService;
+  private configFilePath: string;
 
   constructor(
     apiService: ApiService,
@@ -65,6 +68,36 @@ export class JuliangSchedulerService {
     this.apiService = apiService;
     this.fileService = fileService;
     this.configService = configService;
+    this.configFilePath = join(app.getPath("userData"), "juliang-scheduler-config.json");
+    this.loadConfig();
+  }
+
+  /**
+   * 从文件加载配置
+   */
+  private loadConfig() {
+    try {
+      if (fs.existsSync(this.configFilePath)) {
+        const data = fs.readFileSync(this.configFilePath, "utf-8");
+        const savedConfig = JSON.parse(data);
+        this.config = { ...this.config, ...savedConfig };
+        console.log(`[JuliangScheduler] 已加载配置: localRootDir=${this.config.localRootDir}`);
+      }
+    } catch (error) {
+      console.error(`[JuliangScheduler] 加载配置失败:`, error);
+    }
+  }
+
+  /**
+   * 保存配置到文件
+   */
+  private saveConfig() {
+    try {
+      fs.writeFileSync(this.configFilePath, JSON.stringify(this.config, null, 2), "utf-8");
+      console.log(`[JuliangScheduler] 配置已保存: localRootDir=${this.config.localRootDir}`);
+    } catch (error) {
+      console.error(`[JuliangScheduler] 保存配置失败:`, error);
+    }
   }
 
   /**
@@ -99,6 +132,7 @@ export class JuliangSchedulerService {
    */
   updateConfig(config: Partial<SchedulerConfig>) {
     this.config = { ...this.config, ...config };
+    this.saveConfig();
   }
 
   /**
