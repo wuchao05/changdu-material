@@ -72,11 +72,11 @@ const DEFAULT_CONFIG: JuliangConfig = {
   headless: false,
   slowMo: 50,
   selectors: {
-    uploadButton: 'button:has(span:text("上传视频"))',
-    uploadPanel: ".upload-area, .oc-upload, .tos-upload, [class*='upload']",
+    uploadButton: "button:has(span:text('上传视频'))",
+    uploadPanel: ".material-center-v2-oc-create-upload-select-wrapper",
     fileInput: 'input[type="file"]',
-    confirmButton: 'button:has(span:text("确定"))',
-    cancelButton: 'button:has(span:text("取消"))',
+    confirmButton: ".material-center-v2-oc-create-material-submit-bar-btn-group button:has-text('确定')",
+    cancelButton: ".material-center-v2-oc-create-material-submit-bar-btn-group button:has-text('取消')",
   },
 };
 
@@ -394,20 +394,32 @@ export class JuliangService {
 
         console.log("[Juliang] 上传按钮点击成功，等待上传面板");
 
-        // 2. 等待上传面板
+        // 2. 等待上传面板完全加载
+        console.log(`[Juliang] 等待上传面板出现: ${this.config.selectors.uploadPanel}`);
         const uploadPanel = this.page.locator(this.config.selectors.uploadPanel).first();
         await uploadPanel.waitFor({ state: "visible", timeout: 10000 });
-        await this.randomDelay(2000, 3000);
+
+        // 等待上传面板动画完成和完全准备好
+        console.log("[Juliang] 上传面板已出现，等待完全加载...");
+        await this.randomDelay(3000, 4000);
 
         // 3. 使用文件选择器上传
-        console.log(`[Juliang] 设置 ${files.length} 个文件`);
+        // 先开始监听文件选择器事件（在点击之前）
+        console.log(`[Juliang] 开始监听文件选择器事件...`);
         const fileChooserPromise = this.page.waitForEvent("filechooser", { timeout: 15000 });
+
+        // 点击上传面板触发文件选择对话框
+        console.log(`[Juliang] 点击上传面板触发文件选择`);
         await uploadPanel.click();
 
+        // 等待文件选择器出现并设置文件
+        console.log(`[Juliang] 等待文件选择器弹出...`);
+
         const fileChooser = await fileChooserPromise;
+        console.log(`[Juliang] 文件选择器已弹出，设置 ${files.length} 个文件`);
         await fileChooser.setFiles(files);
 
-        console.log("[Juliang] 文件设置成功，等待上传完成");
+        console.log("[Juliang] 文件设置成功，开始上传");
         await this.randomDelay(2000, 3000);
 
         // 4. 等待上传完成（简化版：等待固定时间 + 检查进度）
