@@ -185,6 +185,14 @@ export class JuliangSchedulerService {
       return { success: false, error: "调度器已在运行中" };
     }
 
+    // 重新加载配置，确保使用最新值
+    this.loadConfig();
+    this.log(`使用配置: localRootDir=${this.config.localRootDir}`);
+
+    if (!this.config.localRootDir) {
+      return { success: false, error: "请先设置素材根目录" };
+    }
+
     // 初始化浏览器
     const initResult = await juliangService.initialize();
     if (!initResult.success) {
