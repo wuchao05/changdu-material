@@ -221,10 +221,14 @@ export class JuliangSchedulerService {
       let totalAdded = 0;
 
       for (const daren of enabledDarens) {
+        this.log(`处理达人: ${daren.label} (${daren.id})`);
+
         if (!daren.feishuDramaStatusTableId) {
           this.log(`达人 ${daren.label} 未配置飞书表格 ID，跳过`);
           continue;
         }
+
+        this.log(`达人 ${daren.label} 飞书表格 ID: ${daren.feishuDramaStatusTableId}`);
 
         try {
           const result = await this.apiService.getPendingUploadDramas(
@@ -232,12 +236,20 @@ export class JuliangSchedulerService {
             daren.feishuDramaStatusTableId
           );
 
-          if (result.code !== 0 || !result.data?.items) {
+          this.log(`达人 ${daren.label} 查询结果: code=${result.code}, items=${result.data?.items?.length || 0}`);
+
+          if (result.code !== 0) {
             this.log(`达人 ${daren.label} 查询失败: ${result.msg}`);
             continue;
           }
 
+          if (!result.data?.items || result.data.items.length === 0) {
+            this.log(`达人 ${daren.label} 没有待上传的任务`);
+            continue;
+          }
+
           for (const item of result.data.items) {
+            this.log(`解析记录: ${item.record_id}, 剧名=${item.fields['剧名']}, 日期=${item.fields['日期']}`);
             const task = this.parseFeishuRecord(item, daren);
             if (task && this.addTask(task)) {
               totalAdded++;
