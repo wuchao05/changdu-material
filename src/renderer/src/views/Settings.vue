@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from "vue";
+import { ref, onMounted, h, watch } from "vue";
 import {
   NCard,
   NTabs,
@@ -147,6 +147,9 @@ onMounted(async () => {
     tosBucket: loadedConfig.tosBucket || defaultApiConfig.tosBucket,
     tosRegion: loadedConfig.tosRegion || defaultApiConfig.tosRegion,
   };
+
+  // 标记配置已加载完成，启用自动保存
+  configLoaded.value = true;
 });
 
 // 打开达人编辑弹窗
@@ -238,7 +241,7 @@ function confirmDeleteDaren(daren: DarenInfo) {
 }
 
 // 保存 API 配置
-async function saveApiConfig() {
+async function saveApiConfig(showMessage = true) {
   try {
     await apiConfigStore.saveConfig(apiForm.value);
 
@@ -247,16 +250,47 @@ async function saveApiConfig() {
     const pushResult = await window.api.pushRemoteConfig();
     if (pushResult.success) {
       console.log("[Settings] ✓ 配置推送成功");
-      message.success("配置已保存并同步到服务器");
+      if (showMessage) {
+        message.success("配置已保存并同步到服务器");
+      }
     } else {
       console.warn("[Settings] 配置推送失败:", pushResult.error);
-      message.warning("配置已保存，但同步到服务器失败");
+      if (showMessage) {
+        message.warning("配置已保存，但同步到服务器失败");
+      }
     }
   } catch (error) {
     console.error("[Settings] 保存失败:", error);
-    message.error("保存失败");
+    if (showMessage) {
+      message.error("保存失败");
+    }
   }
 }
+
+// 自动保存：防抖定时器
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+const configLoaded = ref(false); // 标记配置是否已加载完成
+
+// 监听 API 配置变化，自动保存
+watch(
+  apiForm,
+  () => {
+    // 配置加载完成后才启用自动保存
+    if (!configLoaded.value) return;
+
+    // 清除之前的定时器
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+    }
+
+    // 延迟 1 秒后自动保存（防抖）
+    autoSaveTimer = setTimeout(() => {
+      console.log("[Settings] 配置变化，自动保存...");
+      saveApiConfig(false); // 静默保存，不显示消息
+    }, 1000);
+  },
+  { deep: true }
+);
 
 // 达人表格列
 const darenColumns: DataTableColumns<DarenInfo> = [
