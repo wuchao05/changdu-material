@@ -440,8 +440,20 @@ export class JuliangService {
     const maxRetries = 10; // 最多重试10次
 
     for (let retry = 0; retry < maxRetries; retry++) {
+      // 检查是否已取消或页面已关闭
+      if (this.isCancelled || !this.page || this.page.isClosed()) {
+        this.log("上传已取消");
+        return { success: false, successCount: 0 };
+      }
+
       try {
         if (retry > 0) {
+          // 再次检查页面状态
+          if (!this.page || this.page.isClosed()) {
+            this.log("页面已关闭，上传取消");
+            return { success: false, successCount: 0 };
+          }
+
           this.log(`第 ${batchIndex}/${totalBatches} 批重试第 ${retry} 次`);
 
           // 重试前刷新页面，确保页面状态干净
