@@ -355,7 +355,12 @@ async function loadSchedulerConfig() {
 // 保存调度器配置
 async function saveSchedulerConfig() {
   try {
-    await window.api.juliangSchedulerUpdateConfig(schedulerConfig.value);
+    // 转换为普通对象，避免 Vue ref 无法序列化的问题
+    const config = {
+      fetchIntervalMinutes: schedulerConfig.value.fetchIntervalMinutes,
+      localRootDir: schedulerConfig.value.localRootDir,
+    };
+    await window.api.juliangSchedulerUpdateConfig(config);
     message.success("配置已保存");
   } catch (error) {
     message.error(`保存配置失败: ${error}`);
