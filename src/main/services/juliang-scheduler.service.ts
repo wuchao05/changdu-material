@@ -242,6 +242,74 @@ export class JuliangSchedulerService {
   }
 
   /**
+   * 立即执行一次查询
+   */
+  async fetchNow(): Promise<{ success: boolean; count: number; error?: string }> {
+    if (this.status !== "running") {
+      return { success: false, count: 0, error: "调度器未运行" };
+    }
+
+    if (this.isTaskProcessing) {
+      return { success: false, count: 0, error: "当前有任务正在执行" };
+    }
+
+    try {
+      this.log("手动触发：立即查询飞书任务");
+      const count = await this.fetchAndEnqueueTasks();
+      return { success: true, count };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      return { success: false, count: 0, error: errorMsg };
+    }
+  }
+
+  /**
+   * 取消所有上传任务
+   */
+  async cancelAll(): Promise<{ success: boolean; error?: string }> {
+    try {
+      this.log("手动触发：取消所有上传任务");
+
+      // 停止定时拉取
+      this.stopScheduledFetching();
+
+      // 清空队列中的待处理任务
+      const pendingCount = this.queue.filter((t) => t.status === "pending").length;
+      this.queue = this.queue.filter((t) => t.status !== "pending");
+      this.taskMap.clear();
+      this.queue.forEach((t) => this.taskMap.set(t.recordId, t));
+
+      this.log(`已清空 ${pendingCount} 个待处理任务`);
+
+      // 标记当前正在处理的任务为取消状态
+      if (this.isTaskProcessing) {
+        this.log("正在取消当前上传任务...");
+        // 通过关闭并重新打开浏览器来强制取消当前上传
+        await juliangService.close();
+        this.isTaskProcessing = false;
+        this.log("当前上传任务已取消");
+
+        // 如果调度器还在运行，重新初始化浏览器
+        if (this.status === "running") {
+          this.log("重新初始化浏览器...");
+          await juliangService.initialize(this.mainWindow!);
+        }
+      }
+
+      // 重新启动定时拉取
+      if (this.status === "running") {
+        this.startScheduledFetching();
+      }
+
+      return { success: true };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`取消任务失败: ${errorMsg}`);
+      return { success: false, error: errorMsg };
+    }
+  }
+
+  /**
    * 从飞书拉取任务并入队
    */
   private async fetchAndEnqueueTasks(): Promise<number> {

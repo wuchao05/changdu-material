@@ -151,6 +151,35 @@ async function stopScheduler() {
   }
 }
 
+// 立即执行调度
+async function fetchNow() {
+  try {
+    const result = await window.api.juliangSchedulerFetchNow();
+    if (result.success) {
+      message.success(`查询完成，发现 ${result.count} 个任务`);
+    } else {
+      message.warning(result.error || "查询失败");
+    }
+  } catch (error) {
+    message.error(`查询失败: ${error}`);
+  }
+}
+
+// 取消所有上传
+async function cancelAll() {
+  try {
+    const result = await window.api.juliangSchedulerCancelAll();
+    if (result.success) {
+      message.success("已取消所有上传任务");
+      await refreshSchedulerStatus();
+    } else {
+      message.error(result.error || "取消失败");
+    }
+  } catch (error) {
+    message.error(`取消失败: ${error}`);
+  }
+}
+
 // 刷新调度器状态
 async function refreshSchedulerStatus() {
   try {
@@ -413,6 +442,21 @@ onUnmounted(() => {
           @click="stopScheduler"
         >
           停止调度
+        </NButton>
+        <NButton
+          size="large"
+          :disabled="schedulerStatus !== 'running' || schedulerStats.running > 0"
+          @click="fetchNow"
+        >
+          立即查询
+        </NButton>
+        <NButton
+          size="large"
+          type="error"
+          :disabled="schedulerStatus !== 'running' || (schedulerStats.pending === 0 && schedulerStats.running === 0)"
+          @click="cancelAll"
+        >
+          取消上传
         </NButton>
         <NButton size="large" @click="toggleLogs">
           {{ showLogs ? '隐藏日志' : '查看日志' }}

@@ -494,6 +494,14 @@ function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  ipcMain.handle('juliang:scheduler:fetchNow', async () => {
+    return await juliangScheduler.fetchNow();
+  });
+
+  ipcMain.handle('juliang:scheduler:cancelAll', async () => {
+    return await juliangScheduler.cancelAll();
+  });
+
   // ==================== 应用控制 ====================
   ipcMain.handle('app:minimize', () => {
     mainWindow?.minimize();

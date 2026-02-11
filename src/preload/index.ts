@@ -188,6 +188,10 @@ const api = {
     ipcRenderer.invoke("juliang:scheduler:getLogs"),
   juliangSchedulerClearLogs: () =>
     ipcRenderer.invoke("juliang:scheduler:clearLogs"),
+  juliangSchedulerFetchNow: () =>
+    ipcRenderer.invoke("juliang:scheduler:fetchNow"),
+  juliangSchedulerCancelAll: () =>
+    ipcRenderer.invoke("juliang:scheduler:cancelAll"),
   onJuliangSchedulerLog: (
     callback: (log: { time: string; message: string }) => void
   ) => {
