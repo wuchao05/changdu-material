@@ -360,7 +360,6 @@ onUnmounted(() => {
         <NButton :disabled="!isReady" @click="checkLoginStatus">
           检查登录
         </NButton>
-        <NButton :disabled="!isReady" @click="getScreenshot"> 获取截图 </NButton>
       </NSpace>
 
       <!-- 需要登录提示 -->
@@ -405,11 +404,10 @@ onUnmounted(() => {
             </div>
             <NButton
               type="primary"
-              :loading="isUploading"
-              :disabled="!isReady || needLogin"
+              :disabled="!isReady || needLogin || isUploading"
               @click="startTestUpload"
             >
-              开始上传
+              {{ isUploading ? "上传中..." : "开始上传" }}
             </NButton>
           </NSpace>
         </NCollapseItem>
