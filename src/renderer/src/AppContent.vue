@@ -61,8 +61,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 巨量上传 - 管理员或有上传权限的达人可见
-  if (isAdmin || darenStore.canUpload) {
+  // 巨量上传 - 管理员或有巨量上传权限的达人可见
+  if (isAdmin || darenStore.canJuliang) {
     options.push({
       label: "巨量上传",
       key: "juliang",

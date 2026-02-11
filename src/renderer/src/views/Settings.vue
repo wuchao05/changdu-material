@@ -42,6 +42,7 @@ const darenForm = ref<DarenInfo>({
   feishuDramaStatusTableId: "",
   enableUpload: true,
   enableDownload: true,
+  enableJuliang: false, // 默认不启用巨量上传
   changduConfigType: "sanrou", // 默认使用散柔配置
 });
 
@@ -162,6 +163,7 @@ function openDarenModal(daren?: DarenInfo) {
       feishuDramaStatusTableId: "",
       enableUpload: true,
       enableDownload: true,
+      enableJuliang: false,
       changduConfigType: "sanrou", // 默认使用散柔配置
     };
   }
@@ -298,6 +300,7 @@ const darenColumns: DataTableColumns<DarenInfo> = [
       const tags: Array<{ type: "success" | "default"; text: string }> = [];
       if (row.enableUpload) tags.push({ type: "success", text: "上传" });
       if (row.enableDownload) tags.push({ type: "success", text: "下载" });
+      if (row.enableJuliang) tags.push({ type: "success", text: "巨量" });
 
       if (tags.length === 0)
         return h(
@@ -595,6 +598,9 @@ const darenColumns: DataTableColumns<DarenInfo> = [
         </NFormItem>
         <NFormItem label="启用下载功能">
           <NSwitch v-model:value="darenForm.enableDownload" />
+        </NFormItem>
+        <NFormItem label="启用巨量上传">
+          <NSwitch v-model:value="darenForm.enableJuliang" />
         </NFormItem>
       </NForm>
 
