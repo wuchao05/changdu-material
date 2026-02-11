@@ -300,14 +300,15 @@ export class JuliangSchedulerService {
         const cancelledTask = this.currentTask;
         this.log(`正在取消当前上传任务: ${cancelledTask.drama}...`);
 
-        // 将任务状态改为 skipped（取消）
-        cancelledTask.status = "skipped";
-        cancelledTask.error = "用户取消上传";
-
         // 通过关闭浏览器来强制取消当前上传
         await juliangService.close();
         this.isTaskProcessing = false;
         this.currentTask = null;
+
+        // 从队列中移除被取消的任务
+        this.queue = this.queue.filter((t) => t.recordId !== cancelledTask.recordId);
+        this.taskMap.delete(cancelledTask.recordId);
+
         this.log("当前上传任务已取消");
 
         // 恢复飞书状态为"待上传"
