@@ -17,6 +17,7 @@ import {
   LogOutOutline,
   RefreshOutline,
   EyeOffOutline,
+  RocketOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -57,6 +58,15 @@ const menuOptions = computed(() => {
       label: "素材下载",
       key: "download",
       icon: () => h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
+    });
+  }
+
+  // 巨量上传 - 管理员或有上传权限的达人可见
+  if (isAdmin || darenStore.canUpload) {
+    options.push({
+      label: "巨量上传",
+      key: "juliang",
+      icon: () => h(NIcon, null, { default: () => h(RocketOutline) }),
     });
   }
 

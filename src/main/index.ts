@@ -7,46 +7,42 @@ if (process.platform === "win32") {
   if (process.stderr && typeof process.stderr.setDefaultEncoding === 'function') {
     process.stderr.setDefaultEncoding("utf8");
   }
-  
-  // 方法2：重写 console.log 以确保使用 UTF-8
+
+  // 方法2：重写 console.log 以确保使用 UTF-8（带错误处理）
   const originalLog = console.log;
   const originalError = console.error;
   const originalWarn = console.warn;
-  
+
+  // 安全写入函数，捕获 EPIPE 错误
+  const safeWrite = (stream: NodeJS.WriteStream, message: string) => {
+    try {
+      if (stream && stream.writable && !stream.destroyed) {
+        stream.write(message + '\n', 'utf8');
+      }
+    } catch {
+      // 忽略 EPIPE 等写入错误
+    }
+  };
+
   console.log = function(...args) {
-    const message = args.map(arg => 
+    const message = args.map(arg =>
       typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
     ).join(' ');
-    
-    if (process.stdout.write) {
-      process.stdout.write(message + '\n', 'utf8');
-    } else {
-      originalLog.apply(console, args);
-    }
+    safeWrite(process.stdout, message);
   };
-  
+
   console.error = function(...args) {
-    const message = args.map(arg => 
+    const message = args.map(arg =>
       typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
     ).join(' ');
-    
-    if (process.stderr.write) {
-      process.stderr.write(message + '\n', 'utf8');
-    } else {
-      originalError.apply(console, args);
-    }
+    safeWrite(process.stderr, message);
   };
-  
+
   console.warn = function(...args) {
-    const message = args.map(arg => 
+    const message = args.map(arg =>
       typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)
     ).join(' ');
-    
-    if (process.stderr.write) {
-      process.stderr.write(message + '\n', 'utf8');
-    } else {
-      originalWarn.apply(console, args);
-    }
+    safeWrite(process.stderr, message);
   };
 }
 
@@ -58,6 +54,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  globalShortcut,
 } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
@@ -80,6 +77,7 @@ import { FileService } from "./services/file.service";
 import { DownloadService } from "./services/download.service";
 import { ApiService } from "./services/api.service";
 import { TosService } from "./services/tos.service";
+import { juliangService } from "./services/juliang.service";
 
 // 初始化服务
 const configService = new ConfigService();
@@ -438,6 +436,50 @@ function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  // ==================== 巨量上传 ====================
+  ipcMain.handle("juliang:initialize", async () => {
+    // 设置主窗口引用
+    if (mainWindow) {
+      juliangService.setMainWindow(mainWindow);
+    }
+    return await juliangService.initialize();
+  });
+
+  ipcMain.handle("juliang:close", async () => {
+    await juliangService.close();
+    return { success: true };
+  });
+
+  ipcMain.handle("juliang:isReady", async () => {
+    return juliangService.isReady();
+  });
+
+  ipcMain.handle("juliang:navigate", async (_event, accountId) => {
+    return await juliangService.navigateToUploadPage(accountId);
+  });
+
+  ipcMain.handle("juliang:checkLogin", async () => {
+    return await juliangService.checkLoginStatus();
+  });
+
+  ipcMain.handle("juliang:uploadTask", async (_event, task) => {
+    return await juliangService.uploadTask(task);
+  });
+
+  ipcMain.handle("juliang:getConfig", async () => {
+    return juliangService.getConfig();
+  });
+
+  ipcMain.handle("juliang:updateConfig", async (_event, config) => {
+    juliangService.updateConfig(config);
+    return { success: true };
+  });
+
+  ipcMain.handle("juliang:getScreenshot", async () => {
+    const buffer = await juliangService.getScreenshot();
+    return buffer ? buffer.toString("base64") : null;
+  });
+
   // ==================== 应用控制 ====================
   ipcMain.handle("app:minimize", () => {
     mainWindow?.minimize();
@@ -495,6 +537,22 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
+
+  // 全局快捷键：F12 打开开发者工具（用于调试打包后的应用）
+  globalShortcut.register("F12", () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+      focusedWindow.webContents.toggleDevTools();
+    }
+  });
+
+  // Ctrl+Shift+I 也打开开发者工具
+  globalShortcut.register("CommandOrControl+Shift+I", () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+      focusedWindow.webContents.toggleDevTools();
+    }
+  });
 
   app.on("activate", function () {
     // On macOS it's common to re-create a window in the app when the

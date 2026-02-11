@@ -158,6 +158,49 @@ const api = {
   hideWindow: () => ipcRenderer.invoke("window:hide"),
   showWindow: () => ipcRenderer.invoke("window:show"),
   minimizeWindow: () => ipcRenderer.invoke("window:minimize"),
+
+  // ==================== 巨量上传 ====================
+  juliangInitialize: () => ipcRenderer.invoke("juliang:initialize"),
+  juliangClose: () => ipcRenderer.invoke("juliang:close"),
+  juliangIsReady: () => ipcRenderer.invoke("juliang:isReady"),
+  juliangNavigate: (accountId: string) =>
+    ipcRenderer.invoke("juliang:navigate", accountId),
+  juliangCheckLogin: () => ipcRenderer.invoke("juliang:checkLogin"),
+  juliangUploadTask: (task: unknown) =>
+    ipcRenderer.invoke("juliang:uploadTask", task),
+  juliangGetConfig: () => ipcRenderer.invoke("juliang:getConfig"),
+  juliangUpdateConfig: (config: unknown) =>
+    ipcRenderer.invoke("juliang:updateConfig", config),
+  juliangGetScreenshot: () => ipcRenderer.invoke("juliang:getScreenshot"),
+  onJuliangUploadProgress: (
+    callback: (progress: {
+      taskId: string;
+      drama: string;
+      status: string;
+      currentBatch: number;
+      totalBatches: number;
+      successCount: number;
+      totalFiles: number;
+      message: string;
+    }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: {
+        taskId: string;
+        drama: string;
+        status: string;
+        currentBatch: number;
+        totalBatches: number;
+        successCount: number;
+        totalFiles: number;
+        message: string;
+      }
+    ) => callback(progress);
+    ipcRenderer.on("juliang:upload-progress", handler);
+    return () =>
+      ipcRenderer.removeListener("juliang:upload-progress", handler);
+  },
 };
 
 // Use `contextBridge` APIs to expose Electron APIs to

@@ -165,7 +165,7 @@ export class ApiService {
     const response = await axios.post(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
       {
-        field_names: ['剧名', '日期', '当前状态'],
+        field_names: ['剧名', '日期', '当前状态', '主体'],
         page_size: 100,
         filter: {
           conjunction: 'and',
@@ -179,11 +179,6 @@ export class ApiService {
               field_name: '主体',
               operator: 'isNot',
               value: ['每日']
-            },
-            {
-              field_name: '日期',
-              operator: 'is',
-              value: ['ExactDate', exactDateTimestamp.toString()]
             }
           ]
         }
@@ -200,6 +195,33 @@ export class ApiService {
 
     if (response.data.code !== 0) {
       throw new Error(response.data.msg || '查询待上传剧集失败')
+    }
+
+    // 如果返回了数据，在前端按日期筛选
+    if (response.data.data?.items) {
+      const filteredItems = response.data.data.items.filter((item: any) => {
+        const itemDate = item.fields['日期']
+        if (!itemDate) return false
+
+        // 处理日期字段（可能是时间戳或字符串）
+        let itemDateTimestamp: number
+        if (typeof itemDate === 'number') {
+          itemDateTimestamp = itemDate
+        } else if (typeof itemDate === 'string') {
+          // 如果是字符串，尝试解析
+          itemDateTimestamp = new Date(itemDate).getTime()
+        } else {
+          return false
+        }
+
+        // 检查是否是同一天
+        const itemDateObj = new Date(itemDateTimestamp)
+        itemDateObj.setHours(0, 0, 0, 0)
+        return itemDateObj.getTime() === exactDateTimestamp
+      })
+
+      response.data.data.items = filteredItems
+      console.log(`[ApiService] 日期筛选后剩余: ${filteredItems.length} 条记录`)
     }
 
     return response.data

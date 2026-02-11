@@ -29,6 +29,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Settings',
     component: () => import('../views/Settings.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/juliang',
+    name: 'Juliang',
+    component: () => import('../views/JuliangUpload.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

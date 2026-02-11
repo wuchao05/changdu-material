@@ -602,17 +602,54 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         console.log(`[Download] ${task.dramaName} 完成，耗时 ${duration}秒`);
         message.success(`${task.dramaName} 下载并解压成功`);
       } else {
+        // 解压失败：删除损坏的 zip 并重新下载
         console.error(`[Download] ✗ 解压失败: ${extractResult.error}`);
-        task.status = "success"; // 下载成功，但解压失败
-        task.localPath = result.filePath;
-        task.error = `解压失败: ${extractResult.error}`;
+        console.log(`[Download] 删除损坏的 zip 文件并重新下载: ${task.dramaName}`);
 
-        // 仍然更新飞书状态
-        await updateFeishuStatus(task, "待剪辑");
+        // 删除损坏的 zip 文件所在目录
+        const dramaFolderPath = `${savePath.value.endsWith("/") || savePath.value.endsWith("\\") ? savePath.value : savePath.value + "/"}${task.dramaName}`;
+        try {
+          await window.api.deleteFolder(dramaFolderPath);
+          console.log(`[Download] ✓ 已删除损坏的文件: ${dramaFolderPath}`);
+        } catch (deleteError) {
+          console.error(`[Download] 删除目录失败:`, deleteError);
+        }
 
-        message.warning(
-          `${task.dramaName} 下载成功，但解压失败: ${extractResult.error}`
-        );
+        // 检查重试次数
+        task.retryCount = (task.retryCount || 0) + 1;
+        const MAX_RETRIES = 3;
+
+        if (task.retryCount <= MAX_RETRIES) {
+          // 重新加入下载队列
+          task.status = "pending";
+          task.progress = 0;
+          task.error = undefined;
+          task.downloadUrl = ""; // 清空下载链接，需要重新获取
+
+          // 更新飞书状态为"待下载"
+          await updateFeishuStatus(task, "待下载");
+
+          console.log(`[Download] ${task.dramaName} 解压失败，已删除损坏文件，加入队列重新下载 (${task.retryCount}/${MAX_RETRIES})`);
+
+          if (queue) {
+            queue.push(task);
+          }
+
+          message.warning(
+            `${task.dramaName} 解压失败，已删除损坏文件，重新下载 (${task.retryCount}/${MAX_RETRIES})`
+          );
+        } else {
+          // 重试次数用尽
+          task.status = "error";
+          task.error = `解压失败（重试 ${task.retryCount - 1} 次后仍失败）: ${extractResult.error}`;
+
+          // 更新飞书状态为"下载失败"
+          await updateFeishuStatus(task, "下载失败");
+
+          message.error(`${task.dramaName} 解压失败且重试次数用尽，已标记为下载失败`);
+        }
+
+        return; // 不继续执行后续逻辑
       }
     } else {
       // 下载失败，使用返回的错误信息
