@@ -4,7 +4,13 @@ import type { RouteRecordRaw } from 'vue-router'
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    redirect: '/upload'
+    redirect: '/home' // 临时重定向，会在 AppContent 中根据权限重新路由
+  },
+  {
+    path: '/home',
+    name: 'Home',
+    component: () => import('../views/Home.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/login',
@@ -46,11 +52,11 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, _from, next) => {
   const isLoggedIn = localStorage.getItem('auth-token')
-  
+
   if (to.meta.requiresAuth && !isLoggedIn) {
     next('/login')
   } else if (to.path === '/login' && isLoggedIn) {
-    next('/upload')
+    next('/home') // 让 Home 页面根据权限重定向
   } else {
     next()
   }

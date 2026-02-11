@@ -87,6 +87,7 @@ const defaultRoute = computed(() => {
   if (authStore.isAdmin) return "/upload";
   if (darenStore.canUpload) return "/upload";
   if (darenStore.canDownload) return "/download";
+  if (darenStore.canJuliang) return "/juliang";
   return "/login";
 });
 
