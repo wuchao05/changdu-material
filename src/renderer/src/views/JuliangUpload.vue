@@ -682,7 +682,7 @@ onUnmounted(() => {
 }
 
 .advanced-config :deep(.n-collapse-item__header) {
-  padding: 14px 16px;
+  padding: 14px 16px !important;
 }
 
 .advanced-config :deep(.n-collapse-item__header-main) {
