@@ -12,7 +12,7 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        external: ['form-data']
+        external: ['form-data', 'playwright', 'playwright-core']
       }
     }
   },
