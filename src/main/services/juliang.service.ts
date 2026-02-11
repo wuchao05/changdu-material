@@ -400,7 +400,8 @@ export class JuliangService {
   }
 
   /**
-   * 上传单批文件
+   * 上传单批文件（支持重试）
+   * 策略：必须所有素材都上传成功才算成功，不足额就重试
    */
   private async uploadBatch(
     files: string[],
@@ -413,103 +414,231 @@ export class JuliangService {
       return { success: false, successCount: 0 };
     }
 
-    const maxRetries = 3;
+    const maxRetries = 10; // 最多重试10次
 
     for (let retry = 0; retry < maxRetries; retry++) {
       try {
         if (retry > 0) {
           this.log(`第 ${batchIndex}/${totalBatches} 批重试第 ${retry} 次`);
+
+          // 重试前刷新页面，确保页面状态干净
+          this.log("刷新页面以清理状态...");
           await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
-          await this.randomDelay(3000, 5000);
-        }
-
-        // 1. 点击上传按钮
-        this.log(`第 ${batchIndex}/${totalBatches} 批：查找上传按钮`);
-        const uploadButton = this.page.locator(this.config.selectors.uploadButton).first();
-        await uploadButton.waitFor({ state: "visible", timeout: 10000 });
-        await this.randomDelay(500, 1000);
-        await uploadButton.click();
-
-        this.log("上传按钮点击成功，等待上传面板");
-
-        // 2. 等待上传面板完全加载
-        this.log(`等待上传面板出现: ${this.config.selectors.uploadPanel}`);
-        const uploadPanel = this.page.locator(this.config.selectors.uploadPanel).first();
-        await uploadPanel.waitFor({ state: "visible", timeout: 10000 });
-
-        // 等待上传面板动画完成和完全准备好
-        this.log("上传面板已出现，等待完全加载...");
-        await this.randomDelay(3000, 4000);
-
-        // 3. 使用文件选择器上传
-        // 先开始监听文件选择器事件（在点击之前）
-        this.log(`开始监听文件选择器事件...`);
-        const fileChooserPromise = this.page.waitForEvent("filechooser", { timeout: 15000 });
-
-        // 点击上传面板触发文件选择对话框
-        this.log(`点击上传面板触发文件选择`);
-        await uploadPanel.click();
-
-        // 等待文件选择器出现并设置文件
-        this.log(`等待文件选择器弹出...`);
-
-        const fileChooser = await fileChooserPromise;
-        this.log(`文件选择器已弹出，设置 ${files.length} 个文件`);
-        await fileChooser.setFiles(files);
-
-        this.log("文件设置成功，开始上传");
-        await this.randomDelay(2000, 3000);
-
-        // 4. 等待上传完成（简化版：等待固定时间 + 检查进度）
-        const maxWaitTime = 600000; // 10分钟
-        const startTime = Date.now();
-
-        while (Date.now() - startTime < maxWaitTime) {
-          // 检查进度条
-          const progressBars = this.page.locator(".material-center-v2-oc-upload-table-name-progress");
-          const progressCount = await progressBars.count();
-
-          if (progressCount > 0) {
-            // 检查成功状态
-            let successCount = 0;
-            for (let i = 0; i < progressCount; i++) {
-              const parent = progressBars.nth(i).locator("..");
-              const successElement = parent.locator(".material-center-v2-oc-upload-table-name-progress-success");
-              if ((await successElement.count()) > 0) {
-                successCount++;
-              }
-            }
-
-            this.log(`上传进度: ${successCount}/${progressCount}`);
-
-            if (successCount === progressCount && successCount >= files.length) {
-              // 全部完成，点击确定
-              this.log("所有文件上传完成");
-              await this.randomDelay(1000, 2000);
-
-              const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
-              await confirmButton.waitFor({ state: "visible", timeout: 10000 });
-              await confirmButton.click();
-
-              await this.randomDelay(this.config.batchDelayMin, this.config.batchDelayMax);
-              return { success: true, successCount };
-            }
-          }
-
+          this.log("页面刷新完成，等待 5 秒后重试");
           await this.page.waitForTimeout(5000);
         }
 
-        // 超时
-        throw new Error("上传超时");
+        const result = await this.uploadBatchInternal(files, batchIndex, totalBatches, taskId, drama, retry);
+
+        // 完全成功
+        if (result.success) {
+          return result;
+        }
+
+        // 不足额，需要重试
+        if (retry < maxRetries - 1) {
+          const shortfall = files.length - result.successCount;
+          this.log(
+            `第 ${batchIndex}/${totalBatches} 批上传不足额（${result.successCount}/${files.length}，差 ${shortfall} 个），准备刷新页面后重试...`
+          );
+        } else {
+          // 最后一次重试仍失败
+          this.log(
+            `第 ${batchIndex}/${totalBatches} 批重试 ${maxRetries} 次后仍失败（${result.successCount}/${files.length}）`
+          );
+        }
       } catch (error) {
-        console.error(`[Juliang] 第 ${batchIndex}/${totalBatches} 批上传失败: ${error}`);
-        if (retry === maxRetries - 1) {
-          return { success: false, successCount: 0 };
+        this.log(
+          `上传第 ${batchIndex}/${totalBatches} 批失败（第 ${retry + 1} 次尝试）: ${error instanceof Error ? error.message : String(error)}`
+        );
+
+        if (retry < maxRetries - 1) {
+          this.log("准备刷新页面后重试...");
+        } else {
+          throw error;
         }
       }
     }
 
     return { success: false, successCount: 0 };
+  }
+
+  /**
+   * 上传单批文件（内部实现）
+   */
+  private async uploadBatchInternal(
+    files: string[],
+    batchIndex: number,
+    totalBatches: number,
+    taskId: string,
+    drama: string,
+    retryCount: number
+  ): Promise<{ success: boolean; successCount: number }> {
+    if (!this.page) {
+      return { success: false, successCount: 0 };
+    }
+
+    try {
+      // 1. 点击上传按钮
+      this.log(`第 ${batchIndex}/${totalBatches} 批：查找上传按钮`);
+      const uploadButton = this.page.locator(this.config.selectors.uploadButton).first();
+
+      // 等待按钮可见（对于非第一批或重试，可能需要更长时间）
+      const waitTimeout = batchIndex === 1 && retryCount === 0 ? 10000 : 20000;
+      await uploadButton.waitFor({ state: "visible", timeout: waitTimeout });
+      await this.randomDelay(500, 1000);
+      await uploadButton.click();
+
+      this.log("上传按钮点击成功，等待上传面板");
+
+      // 2. 等待上传面板完全加载
+      this.log(`等待上传面板出现: ${this.config.selectors.uploadPanel}`);
+      const uploadPanel = this.page.locator(this.config.selectors.uploadPanel).first();
+      await uploadPanel.waitFor({ state: "visible", timeout: 10000 });
+
+      // 等待上传面板动画完成和完全准备好
+      this.log("上传面板已出现，等待完全加载...");
+      await this.randomDelay(3000, 4000);
+
+      // 3. 使用文件选择器上传
+      this.log("开始监听文件选择器事件...");
+      const fileChooserPromise = this.page.waitForEvent("filechooser", { timeout: 15000 });
+
+      this.log("点击上传面板触发文件选择");
+      await uploadPanel.click();
+
+      this.log("等待文件选择器弹出...");
+      const fileChooser = await fileChooserPromise;
+      this.log(`文件选择器已弹出，设置 ${files.length} 个文件`);
+      await fileChooser.setFiles(files);
+
+      this.log("文件设置成功，开始上传");
+      await this.randomDelay(2000, 3000);
+
+      // 4. 等待上传完成
+      const maxWaitTime = 600000; // 10分钟
+      const startTime = Date.now();
+      let finalSuccessCount = 0;
+
+      // 先等待一下，让文件开始上传和进度条出现
+      await this.randomDelay(5000, 6000);
+
+      while (Date.now() - startTime < maxWaitTime) {
+        try {
+          // 查找所有进度条元素
+          const progressBars = this.page.locator(".material-center-v2-oc-upload-table-name-progress");
+          const progressCount = await progressBars.count();
+
+          if (progressCount === 0) {
+            this.log("进度条未找到，继续等待...");
+            await this.randomDelay(5000, 6000);
+            continue;
+          }
+
+          // 如果进度条数量少于预期，且不是刚开始就少（说明有文件上传失败），立即取消并重试
+          const elapsedTime = Date.now() - startTime;
+          if (progressCount < files.length && elapsedTime > 20000) {
+            this.log(
+              `检测到进度条数量不足：${progressCount}/${files.length}，立即取消并准备重试`
+            );
+
+            // 点击取消按钮
+            await this.clickCancelButton();
+
+            // 返回不足额状态，让外层重试
+            return { success: false, successCount: progressCount };
+          }
+
+          this.log(`找到 ${progressCount} 个进度条（期望 ${files.length} 个）`);
+
+          // 检查每个进度条是否有成功标识
+          let successCount = 0;
+          for (let i = 0; i < progressCount; i++) {
+            const progressBar = progressBars.nth(i);
+            const parent = progressBar.locator("..");
+            const successElement = parent.locator(".material-center-v2-oc-upload-table-name-progress-success");
+            if ((await successElement.count()) > 0) {
+              successCount++;
+            }
+          }
+
+          this.log(`上传进度: ${successCount}/${progressCount} 个素材已完成`);
+
+          // 判断上传完成的条件：所有找到的进度条都显示成功状态
+          if (successCount === progressCount && successCount > 0) {
+            finalSuccessCount = successCount;
+
+            if (progressCount < files.length) {
+              // 进度条数量少于预期，说明有文件上传失败
+              this.log(
+                `上传完成但数量不足：${progressCount}/${files.length}（第 ${retryCount + 1} 次尝试）`
+              );
+
+              // 点击取消按钮
+              await this.clickCancelButton();
+
+              // 返回不足额状态，让外层决定
+              return { success: false, successCount: finalSuccessCount };
+            } else {
+              // 进度条数量符合预期，全部上传成功
+              this.log("所有素材上传完成（所有进度条显示成功状态）");
+              await this.randomDelay(1000, 2000);
+
+              // 点击确定按钮
+              this.log("点击确定按钮");
+              const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
+              await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+              await this.randomDelay(500, 1000);
+              await confirmButton.click();
+
+              this.log("确定按钮点击成功");
+
+              // 批次间延迟
+              if (batchIndex < totalBatches) {
+                this.log("等待页面准备下一批上传...");
+                await this.randomDelay(5000, 8000);
+              } else {
+                await this.randomDelay(this.config.batchDelayMin, this.config.batchDelayMax);
+              }
+
+              return { success: true, successCount: finalSuccessCount };
+            }
+          }
+
+          // 继续等待（30秒轮询间隔）
+          await this.page.waitForTimeout(30000);
+        } catch (error) {
+          this.log(`检查上传状态时出错: ${error instanceof Error ? error.message : String(error)}`);
+          await this.randomDelay(5000, 6000);
+        }
+      }
+
+      // 超时
+      throw new Error("等待文件上传超时（10分钟）");
+    } catch (error) {
+      this.log(
+        `上传第 ${batchIndex}/${totalBatches} 批失败: ${error instanceof Error ? error.message : String(error)}`
+      );
+      return { success: false, successCount: 0 };
+    }
+  }
+
+  /**
+   * 点击取消按钮
+   */
+  private async clickCancelButton(): Promise<void> {
+    if (!this.page) return;
+
+    try {
+      const cancelButton = this.page.locator(this.config.selectors.cancelButton).first();
+      await cancelButton.waitFor({ state: "visible", timeout: 5000 });
+      await this.randomDelay(500, 1000);
+      await cancelButton.click();
+      this.log("取消按钮点击成功");
+      await this.randomDelay(2000, 3000);
+    } catch (cancelError) {
+      this.log(`点击取消按钮失败: ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
+    }
   }
 
   /**
