@@ -287,13 +287,12 @@ export class JuliangSchedulerService {
       // 停止定时拉取
       this.stopScheduledFetching();
 
-      // 清空队列中的待处理任务
-      const pendingCount = this.queue.filter((t) => t.status === "pending").length;
-      this.queue = this.queue.filter((t) => t.status !== "pending");
+      // 清空整个队列
+      const totalCount = this.queue.length;
+      this.queue = [];
       this.taskMap.clear();
-      this.queue.forEach((t) => this.taskMap.set(t.recordId, t));
 
-      this.log(`已清空 ${pendingCount} 个待处理任务`);
+      this.log(`已清空队列（共 ${totalCount} 个任务）`);
 
       // 标记当前正在处理的任务为取消状态
       if (this.isTaskProcessing && this.currentTask) {
