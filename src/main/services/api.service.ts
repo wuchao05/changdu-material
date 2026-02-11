@@ -113,7 +113,7 @@ export class ApiService {
     const response = await axios.post(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
       {
-        field_names: ['剧名', '日期', '当前状态'],
+        field_names: ['剧名', '日期', '当前状态', '账户'],
         page_size: 100,
         filter: {
           conjunction: 'and',
@@ -175,7 +175,7 @@ export class ApiService {
     const response = await axios.post(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
       {
-        field_names: ['剧名', '日期', '当前状态', '主体'],
+        field_names: ['剧名', '日期', '当前状态', '主体', '账户'],
         page_size: 100,
         filter: {
           conjunction: 'and',
