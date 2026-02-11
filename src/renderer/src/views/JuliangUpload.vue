@@ -311,6 +311,7 @@ async function startScheduler() {
     const result = await window.api.juliangSchedulerStart();
     if (result.success) {
       schedulerStatus.value = "running";
+      showSchedulerLogs.value = true; // 自动展开日志面板
       message.success("调度器已启动");
     } else {
       message.error(`启动失败: ${result.error}`);
