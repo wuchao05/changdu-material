@@ -261,6 +261,11 @@ export class JuliangService {
       this.isInitialized = true;
       console.log("[Juliang] 浏览器初始化成功");
 
+      // 初始化后导航到巨量主页，用于检查登录状态
+      console.log("[Juliang] 导航到巨量主页检查登录状态...");
+      await this.page.goto("https://ad.oceanengine.com/", { waitUntil: "networkidle", timeout: 30000 });
+      await this.randomDelay(1000, 2000);
+
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -331,19 +336,16 @@ export class JuliangService {
     }
 
     try {
-      // 检查页面 URL 或特定元素判断是否已登录
+      // 获取当前页面 URL
       const currentUrl = this.page.url();
+      console.log(`[Juliang] 当前页面 URL: ${currentUrl}`);
 
-      // 如果在登录页面，说明未登录
-      if (currentUrl.includes("login") || currentUrl.includes("sso")) {
-        return { isLoggedIn: false, needLogin: true };
-      }
+      // 如果 URL 包含 login 或 sso，说明未登录（被重定向到登录页）
+      const needLogin = currentUrl.includes("login") || currentUrl.includes("sso");
+      const isLoggedIn = !needLogin;
 
-      // 检查是否有上传按钮（已登录的标志）
-      const uploadButton = this.page.locator(this.config.selectors.uploadButton).first();
-      const isVisible = await uploadButton.isVisible().catch(() => false);
-
-      return { isLoggedIn: isVisible, needLogin: !isVisible };
+      console.log(`[Juliang] 登录状态: ${isLoggedIn ? "已登录" : "需要登录"}`);
+      return { isLoggedIn, needLogin };
     } catch (error) {
       console.error(`[Juliang] 检查登录状态失败: ${error}`);
       return { isLoggedIn: false, needLogin: true };
