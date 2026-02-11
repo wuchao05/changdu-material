@@ -231,9 +231,11 @@ export class JuliangSchedulerService {
         this.log(`达人 ${daren.label} 飞书表格 ID: ${daren.feishuDramaStatusTableId}`);
 
         try {
+          // 巨量上传不过滤每日主体，所有待上传的剧都要处理
           const result = await this.apiService.getPendingUploadDramas(
             this.configService,
-            daren.feishuDramaStatusTableId
+            daren.feishuDramaStatusTableId,
+            { filterMeiri: false }
           );
 
           this.log(`达人 ${daren.label} 查询结果: code=${result.code}, items=${result.data?.items?.length || 0}`);

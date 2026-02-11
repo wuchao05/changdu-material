@@ -64,10 +64,12 @@ export class ApiService {
   /**
    * 查询待上传的剧集列表
    * @param tableId 可选的表格 ID，如果不传则使用系统配置
+   * @param options.filterMeiri 是否过滤每日主体，默认 true
    */
   async getPendingUploadDramas(
     configService: ConfigService,
-    tableId?: string
+    tableId?: string,
+    options?: { filterMeiri?: boolean }
   ): Promise<{
     code: number
     msg?: string
@@ -79,15 +81,34 @@ export class ApiService {
     }
   }> {
     const apiConfig = await configService.getApiConfig()
-    
+    const filterMeiri = options?.filterMeiri ?? true
+
     // 如果没有传入 tableId，使用系统配置
     const finalTableId = tableId || apiConfig.feishuDramaStatusTableId
-    
+
     if (!finalTableId) {
       throw new Error('请先配置飞书剧集状态表 ID')
     }
 
     const token = await this.getFeishuToken(apiConfig)
+
+    // 构建过滤条件
+    const conditions: Array<{ field_name: string; operator: string; value: string[] }> = [
+      {
+        field_name: '当前状态',
+        operator: 'is',
+        value: ['待上传']
+      }
+    ]
+
+    // 如果需要过滤每日主体
+    if (filterMeiri) {
+      conditions.push({
+        field_name: '主体',
+        operator: 'isNot',
+        value: ['每日']
+      })
+    }
 
     const response = await axios.post(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
@@ -96,18 +117,7 @@ export class ApiService {
         page_size: 100,
         filter: {
           conjunction: 'and',
-          conditions: [
-            {
-              field_name: '当前状态',
-              operator: 'is',
-              value: ['待上传']
-            },
-            {
-              field_name: '主体',
-              operator: 'isNot',
-              value: ['每日']
-            }
-          ]
+          conditions
         }
       },
       {
