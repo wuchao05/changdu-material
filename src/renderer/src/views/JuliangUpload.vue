@@ -362,6 +362,18 @@ async function saveSchedulerConfig() {
   }
 }
 
+// 选择素材根目录
+async function selectLocalRootDir() {
+  try {
+    const path = await window.api.selectFolder();
+    if (path) {
+      schedulerConfig.value.localRootDir = path;
+    }
+  } catch (error) {
+    message.error(`选择目录失败: ${error}`);
+  }
+}
+
 // 加载调度器日志
 async function loadSchedulerLogs() {
   try {
@@ -493,10 +505,28 @@ onUnmounted(() => {
             </NGi>
           </NGrid>
 
+          <!-- 调度器配置 -->
+          <div style="margin-bottom: 16px">
+            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 8px">
+              <span style="width: 120px">素材根目录:</span>
+              <NInput
+                v-model:value="schedulerConfig.localRootDir"
+                placeholder="选择本地素材导出的根目录"
+                style="flex: 1"
+                readonly
+              />
+              <NButton @click="selectLocalRootDir">选择</NButton>
+              <NButton @click="saveSchedulerConfig">保存配置</NButton>
+            </div>
+            <div style="font-size: 12px; color: #999">
+              目录结构示例: 根目录/2.9导出/剧名/视频.mp4
+            </div>
+          </div>
+
           <NSpace>
             <NButton
               type="primary"
-              :disabled="schedulerStatus === 'running'"
+              :disabled="schedulerStatus === 'running' || !schedulerConfig.localRootDir"
               @click="startScheduler"
             >
               启动调度
