@@ -153,7 +153,10 @@ onMounted(async () => {
 function openDarenModal(daren?: DarenInfo) {
   if (daren) {
     editingDaren.value = daren;
-    darenForm.value = { ...daren };
+    darenForm.value = {
+      ...daren,
+      changduConfigType: daren.changduConfigType || "sanrou", // 确保有默认值
+    };
   } else {
     editingDaren.value = null;
     darenForm.value = {
