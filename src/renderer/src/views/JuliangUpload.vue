@@ -681,6 +681,15 @@ onUnmounted(() => {
   border-radius: 8px;
 }
 
+.advanced-config :deep(.n-collapse-item__header) {
+  padding: 14px 16px;
+}
+
+.advanced-config :deep(.n-collapse-item__header-main) {
+  font-size: 14px;
+  font-weight: 500;
+}
+
 .advanced-config :deep(.n-collapse-item__content-inner) {
   padding-top: 0 !important;
 }
