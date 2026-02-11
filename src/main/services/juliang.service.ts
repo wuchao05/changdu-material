@@ -263,8 +263,9 @@ export class JuliangService {
 
       // 初始化后导航到巨量主页，用于检查登录状态
       console.log("[Juliang] 导航到巨量主页检查登录状态...");
-      await this.page.goto("https://ad.oceanengine.com/", { waitUntil: "networkidle", timeout: 30000 });
-      await this.randomDelay(1000, 2000);
+      await this.page.goto("https://ad.oceanengine.com/", { waitUntil: "domcontentloaded", timeout: 15000 });
+      // 等待可能的重定向完成
+      await this.page.waitForTimeout(2000);
 
       return { success: true };
     } catch (error) {
