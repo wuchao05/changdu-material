@@ -87,12 +87,50 @@ export class JuliangService {
   private isInitialized = false;
   private mainWindow: BrowserWindow | null = null;
   private progressCallback: ((progress: JuliangUploadProgress) => void) | null = null;
+  private logs: Array<{ time: string; message: string }> = [];
+  private maxLogs = 500; // 最多保存 500 条日志
 
   /**
    * 获取用户数据目录
    */
   private getUserDataDir(): string {
     return join(app.getPath("userData"), "juliang-browser-data");
+  }
+
+  /**
+   * 记录日志并发送到前端
+   */
+  private log(message: string) {
+    const time = new Date().toLocaleTimeString();
+    const logEntry = { time, message };
+
+    // 保存到日志数组
+    this.logs.push(logEntry);
+    if (this.logs.length > this.maxLogs) {
+      this.logs.shift();
+    }
+
+    // 打印到控制台
+    this.log(`${message}`);
+
+    // 发送到前端
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send("juliang:log", logEntry);
+    }
+  }
+
+  /**
+   * 获取所有日志
+   */
+  getLogs(): Array<{ time: string; message: string }> {
+    return [...this.logs];
+  }
+
+  /**
+   * 清空日志
+   */
+  clearLogs() {
+    this.logs = [];
   }
 
   /**
@@ -115,7 +153,7 @@ export class JuliangService {
 
       for (const browserPath of windowsPaths) {
         if (fs.existsSync(browserPath)) {
-          console.log(`[Juliang] 找到系统浏览器: ${browserPath}`);
+          this.log(`找到系统浏览器: ${browserPath}`);
           return browserPath;
         }
       }
@@ -128,7 +166,7 @@ export class JuliangService {
         );
         const match = regQuery.match(/REG_SZ\s+(.+)/);
         if (match && match[1] && fs.existsSync(match[1].trim())) {
-          console.log(`[Juliang] 通过注册表找到 Chrome: ${match[1].trim()}`);
+          this.log(`通过注册表找到 Chrome: ${match[1].trim()}`);
           return match[1].trim();
         }
       } catch {
@@ -146,7 +184,7 @@ export class JuliangService {
 
       for (const browserPath of macPaths) {
         if (fs.existsSync(browserPath)) {
-          console.log(`[Juliang] 找到系统浏览器: ${browserPath}`);
+          this.log(`找到系统浏览器: ${browserPath}`);
           return browserPath;
         }
       }
@@ -164,7 +202,7 @@ export class JuliangService {
 
       for (const browserPath of linuxPaths) {
         if (fs.existsSync(browserPath)) {
-          console.log(`[Juliang] 找到系统浏览器: ${browserPath}`);
+          this.log(`找到系统浏览器: ${browserPath}`);
           return browserPath;
         }
       }
@@ -220,12 +258,12 @@ export class JuliangService {
   async initialize(): Promise<{ success: boolean; error?: string }> {
     try {
       if (this.isInitialized && this.context) {
-        console.log("[Juliang] 浏览器已初始化，跳过");
+        this.log("浏览器已初始化，跳过");
         return { success: true };
       }
 
       const userDataDir = this.getUserDataDir();
-      console.log(`[Juliang] 正在初始化浏览器，数据目录: ${userDataDir}`);
+      this.log(`正在初始化浏览器，数据目录: ${userDataDir}`);
 
       // 确保目录存在
       if (!fs.existsSync(userDataDir)) {
@@ -241,7 +279,7 @@ export class JuliangService {
         };
       }
 
-      console.log(`[Juliang] 使用系统浏览器: ${executablePath}`);
+      this.log(`使用系统浏览器: ${executablePath}`);
 
       // 使用持久化上下文，保存登录状态
       this.context = await chromium.launchPersistentContext(userDataDir, {
@@ -259,10 +297,10 @@ export class JuliangService {
       await this.page.bringToFront();
 
       this.isInitialized = true;
-      console.log("[Juliang] 浏览器初始化成功");
+      this.log("浏览器初始化成功");
 
       // 初始化后导航到巨量主页，用于检查登录状态
-      console.log("[Juliang] 导航到巨量主页检查登录状态...");
+      this.log("导航到巨量主页检查登录状态...");
       await this.page.goto("https://ad.oceanengine.com/", { waitUntil: "domcontentloaded", timeout: 15000 });
       // 等待可能的重定向完成
       await this.page.waitForTimeout(2000);
@@ -298,7 +336,7 @@ export class JuliangService {
       }
 
       this.isInitialized = false;
-      console.log("[Juliang] 浏览器已关闭（登录状态已保存）");
+      this.log("浏览器已关闭（登录状态已保存）");
     } catch (error) {
       console.error(`[Juliang] 关闭浏览器失败: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -314,12 +352,12 @@ export class JuliangService {
 
     try {
       const url = this.config.baseUploadUrl.replace("{accountId}", accountId);
-      console.log(`[Juliang] 导航到上传页面: ${url}`);
+      this.log(`导航到上传页面: ${url}`);
 
       await this.page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
       await this.randomDelay(1000, 2000);
 
-      console.log("[Juliang] 页面加载完成");
+      this.log("页面加载完成");
       return { success: true };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -339,13 +377,13 @@ export class JuliangService {
     try {
       // 获取当前页面 URL
       const currentUrl = this.page.url();
-      console.log(`[Juliang] 当前页面 URL: ${currentUrl}`);
+      this.log(`当前页面 URL: ${currentUrl}`);
 
       // 如果 URL 包含 login 或 sso，说明未登录（被重定向到登录页）
       const needLogin = currentUrl.includes("login") || currentUrl.includes("sso");
       const isLoggedIn = !needLogin;
 
-      console.log(`[Juliang] 登录状态: ${isLoggedIn ? "已登录" : "需要登录"}`);
+      this.log(`登录状态: ${isLoggedIn ? "已登录" : "需要登录"}`);
       return { isLoggedIn, needLogin };
     } catch (error) {
       console.error(`[Juliang] 检查登录状态失败: ${error}`);
@@ -380,46 +418,46 @@ export class JuliangService {
     for (let retry = 0; retry < maxRetries; retry++) {
       try {
         if (retry > 0) {
-          console.log(`[Juliang] 第 ${batchIndex}/${totalBatches} 批重试第 ${retry} 次`);
+          this.log(`第 ${batchIndex}/${totalBatches} 批重试第 ${retry} 次`);
           await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
           await this.randomDelay(3000, 5000);
         }
 
         // 1. 点击上传按钮
-        console.log(`[Juliang] 第 ${batchIndex}/${totalBatches} 批：查找上传按钮`);
+        this.log(`第 ${batchIndex}/${totalBatches} 批：查找上传按钮`);
         const uploadButton = this.page.locator(this.config.selectors.uploadButton).first();
         await uploadButton.waitFor({ state: "visible", timeout: 10000 });
         await this.randomDelay(500, 1000);
         await uploadButton.click();
 
-        console.log("[Juliang] 上传按钮点击成功，等待上传面板");
+        this.log("上传按钮点击成功，等待上传面板");
 
         // 2. 等待上传面板完全加载
-        console.log(`[Juliang] 等待上传面板出现: ${this.config.selectors.uploadPanel}`);
+        this.log(`等待上传面板出现: ${this.config.selectors.uploadPanel}`);
         const uploadPanel = this.page.locator(this.config.selectors.uploadPanel).first();
         await uploadPanel.waitFor({ state: "visible", timeout: 10000 });
 
         // 等待上传面板动画完成和完全准备好
-        console.log("[Juliang] 上传面板已出现，等待完全加载...");
+        this.log("上传面板已出现，等待完全加载...");
         await this.randomDelay(3000, 4000);
 
         // 3. 使用文件选择器上传
         // 先开始监听文件选择器事件（在点击之前）
-        console.log(`[Juliang] 开始监听文件选择器事件...`);
+        this.log(`开始监听文件选择器事件...`);
         const fileChooserPromise = this.page.waitForEvent("filechooser", { timeout: 15000 });
 
         // 点击上传面板触发文件选择对话框
-        console.log(`[Juliang] 点击上传面板触发文件选择`);
+        this.log(`点击上传面板触发文件选择`);
         await uploadPanel.click();
 
         // 等待文件选择器出现并设置文件
-        console.log(`[Juliang] 等待文件选择器弹出...`);
+        this.log(`等待文件选择器弹出...`);
 
         const fileChooser = await fileChooserPromise;
-        console.log(`[Juliang] 文件选择器已弹出，设置 ${files.length} 个文件`);
+        this.log(`文件选择器已弹出，设置 ${files.length} 个文件`);
         await fileChooser.setFiles(files);
 
-        console.log("[Juliang] 文件设置成功，开始上传");
+        this.log("文件设置成功，开始上传");
         await this.randomDelay(2000, 3000);
 
         // 4. 等待上传完成（简化版：等待固定时间 + 检查进度）
@@ -442,11 +480,11 @@ export class JuliangService {
               }
             }
 
-            console.log(`[Juliang] 上传进度: ${successCount}/${progressCount}`);
+            this.log(`上传进度: ${successCount}/${progressCount}`);
 
             if (successCount === progressCount && successCount >= files.length) {
               // 全部完成，点击确定
-              console.log("[Juliang] 所有文件上传完成");
+              this.log("所有文件上传完成");
               await this.randomDelay(1000, 2000);
 
               const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
@@ -490,7 +528,7 @@ export class JuliangService {
     }
 
     try {
-      console.log(`[Juliang] 开始上传任务: ${task.drama}，共 ${task.files.length} 个文件`);
+      this.log(`开始上传任务: ${task.drama}，共 ${task.files.length} 个文件`);
 
       // 发送进度：开始
       this.emitProgress({

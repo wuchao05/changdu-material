@@ -58,8 +58,13 @@ const testAccountId = ref("");
 const testDrama = ref("");
 const testFilesPath = ref("");
 
+// 日志
+const logs = ref<Array<{ time: string; message: string }>>([]);
+const showLogs = ref(false);
+
 // 进度监听器
 let unsubscribeProgress: (() => void) | null = null;
+let unsubscribeLog: (() => void) | null = null;
 
 // 初始化浏览器
 async function initializeBrowser() {
@@ -252,6 +257,34 @@ const statusType = computed(() => {
   return "success";
 });
 
+// 加载历史日志
+async function loadLogs() {
+  try {
+    logs.value = await window.api.juliangGetLogs();
+  } catch (error) {
+    console.error("加载日志失败:", error);
+  }
+}
+
+// 清空日志
+async function clearLogs() {
+  try {
+    await window.api.juliangClearLogs();
+    logs.value = [];
+    message.success("日志已清空");
+  } catch (error) {
+    message.error(`清空日志失败: ${error}`);
+  }
+}
+
+// 切换日志显示
+async function toggleLogs() {
+  showLogs.value = !showLogs.value;
+  if (showLogs.value) {
+    await loadLogs();
+  }
+}
+
 onMounted(async () => {
   // 加载配置
   await loadConfig();
@@ -264,11 +297,23 @@ onMounted(async () => {
   unsubscribeProgress = window.api.onJuliangUploadProgress((progress) => {
     currentTask.value = progress;
   });
+
+  // 监听实时日志
+  unsubscribeLog = window.api.onJuliangLog((log) => {
+    logs.value.push(log);
+    // 限制日志数量
+    if (logs.value.length > 500) {
+      logs.value.shift();
+    }
+  });
 });
 
 onUnmounted(() => {
   if (unsubscribeProgress) {
     unsubscribeProgress();
+  }
+  if (unsubscribeLog) {
+    unsubscribeLog();
   }
 });
 </script>
@@ -360,7 +405,38 @@ onUnmounted(() => {
         <NButton :disabled="!isReady" @click="checkLoginStatus">
           检查登录
         </NButton>
+        <NButton @click="toggleLogs">
+          {{ showLogs ? "隐藏日志" : "查看日志" }}
+        </NButton>
       </NSpace>
+
+      <!-- 日志面板 -->
+      <div v-if="showLogs" style="margin-bottom: 20px">
+        <NCard size="small" title="运行日志">
+          <template #header-extra>
+            <NButton size="small" @click="clearLogs">清空</NButton>
+          </template>
+          <div
+            ref="logContainer"
+            style="
+              height: 200px;
+              overflow-y: auto;
+              background: #1e1e1e;
+              color: #d4d4d4;
+              padding: 8px;
+              border-radius: 4px;
+              font-family: monospace;
+              font-size: 12px;
+            "
+          >
+            <div v-if="logs.length === 0" style="color: #888">暂无日志</div>
+            <div v-for="(log, index) in logs" :key="index">
+              <span style="color: #6a9955">[{{ log.time }}]</span>
+              <span style="margin-left: 8px">{{ log.message }}</span>
+            </div>
+          </div>
+        </NCard>
+      </div>
 
       <!-- 需要登录提示 -->
       <NAlert

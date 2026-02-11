@@ -172,6 +172,18 @@ const api = {
   juliangUpdateConfig: (config: unknown) =>
     ipcRenderer.invoke("juliang:updateConfig", config),
   juliangGetScreenshot: () => ipcRenderer.invoke("juliang:getScreenshot"),
+  juliangGetLogs: () => ipcRenderer.invoke("juliang:getLogs"),
+  juliangClearLogs: () => ipcRenderer.invoke("juliang:clearLogs"),
+  onJuliangLog: (
+    callback: (log: { time: string; message: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      log: { time: string; message: string }
+    ) => callback(log);
+    ipcRenderer.on("juliang:log", handler);
+    return () => ipcRenderer.removeListener("juliang:log", handler);
+  },
   onJuliangUploadProgress: (
     callback: (progress: {
       taskId: string;

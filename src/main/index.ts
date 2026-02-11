@@ -445,6 +445,15 @@ function registerIpcHandlers(): void {
     return buffer ? buffer.toString('base64') : null;
   });
 
+  ipcMain.handle('juliang:getLogs', async () => {
+    return juliangService.getLogs();
+  });
+
+  ipcMain.handle('juliang:clearLogs', async () => {
+    juliangService.clearLogs();
+    return { success: true };
+  });
+
   // ==================== 应用控制 ====================
   ipcMain.handle('app:minimize', () => {
     mainWindow?.minimize();
