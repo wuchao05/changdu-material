@@ -6,20 +6,17 @@ import {
   NButton,
   NSpace,
   NAlert,
-  NSpin,
   NStatistic,
   NGrid,
   NGi,
   NProgress,
   NTag,
-  NEmpty,
   NInput,
   NInputNumber,
   NSwitch,
   NCollapse,
   NCollapseItem,
-  NDescriptions,
-  NDescriptionsItem,
+  NDivider,
   useMessage,
 } from "naive-ui";
 
@@ -68,77 +65,31 @@ const currentTask = ref<{
   message: string;
 } | null>(null);
 
-// 测试用任务配置
-const testAccountId = ref("");
-const testDrama = ref("");
-const testFilesPath = ref("");
-
-// 日志
-const logs = ref<Array<{ time: string; message: string }>>([]);
+// 日志（合并调度器和上传日志）
+const logs = ref<Array<{ time: string; message: string; type?: string }>>([]);
 const showLogs = ref(false);
-const schedulerLogs = ref<Array<{ time: string; message: string }>>([]);
-const showSchedulerLogs = ref(false);
 
 // 进度监听器
 let unsubscribeProgress: (() => void) | null = null;
 let unsubscribeLog: (() => void) | null = null;
 let unsubscribeSchedulerLog: (() => void) | null = null;
 
-// 初始化浏览器
+// 初始化浏览器（调度器启动时自动调用）
 async function initializeBrowser() {
-  if (isInitializing.value) return;
+  if (isInitializing.value || isReady.value) return;
 
   isInitializing.value = true;
   try {
     const result = await window.api.juliangInitialize();
     if (result.success) {
       isReady.value = true;
-      message.success("浏览器初始化成功");
-
       // 检查登录状态
-      await checkLoginStatus();
-    } else {
-      message.error(`初始化失败: ${result.error}`);
+      const loginResult = await window.api.juliangCheckLogin();
+      needLogin.value = loginResult.needLogin;
     }
-  } catch (error) {
-    message.error(`初始化失败: ${error}`);
+    return result;
   } finally {
     isInitializing.value = false;
-  }
-}
-
-// 关闭浏览器
-async function closeBrowser() {
-  try {
-    await window.api.juliangClose();
-    isReady.value = false;
-    needLogin.value = false;
-    message.info("浏览器已关闭");
-  } catch (error) {
-    message.error(`关闭失败: ${error}`);
-  }
-}
-
-// 检查登录状态
-async function checkLoginStatus() {
-  if (!isReady.value) return;
-
-  try {
-    // 先导航到上传页面
-    if (testAccountId.value) {
-      await window.api.juliangNavigate(testAccountId.value);
-    }
-
-    const result = await window.api.juliangCheckLogin();
-    needLogin.value = result.needLogin;
-
-    if (result.isLoggedIn) {
-      message.success("已检测到登录状态");
-    } else {
-      message.warning("请在浏览器窗口中登录巨量创意后台");
-    }
-  } catch (error) {
-    message.error(`检查登录状态失败: ${error}`);
   }
 }
 
@@ -162,156 +113,24 @@ async function saveConfig() {
   }
 }
 
-// 选择文件夹
-async function selectFolder() {
-  try {
-    const folder = await window.api.selectFolder();
-    if (folder) {
-      testFilesPath.value = folder;
-    }
-  } catch (error) {
-    message.error(`选择文件夹失败: ${error}`);
-  }
-}
-
-// 开始测试上传
-async function startTestUpload() {
-  if (!isReady.value) {
-    message.warning("请先初始化浏览器");
-    return;
-  }
-
-  if (!testAccountId.value) {
-    message.warning("请输入账户 ID");
-    return;
-  }
-
-  if (!testFilesPath.value) {
-    message.warning("请选择素材文件夹");
-    return;
-  }
-
-  isUploading.value = true;
-
-  try {
-    // 扫描文件夹获取视频文件
-    const materials = await window.api.scanVideos(testFilesPath.value);
-    if (materials.length === 0) {
-      message.warning("文件夹中没有找到视频文件");
-      return;
-    }
-
-    const filePaths = materials.map((m: { filePath: string }) => m.filePath);
-
-    // 创建任务
-    const task = {
-      id: `test-${Date.now()}`,
-      drama: testDrama.value || "测试剧集",
-      date: new Date().toISOString().split("T")[0],
-      account: "测试账户",
-      accountId: testAccountId.value,
-      files: filePaths,
-      recordId: "",
-      status: "pending",
-    };
-
-    message.info(`开始上传 ${filePaths.length} 个文件`);
-
-    // 执行上传
-    const result = await window.api.juliangUploadTask(task);
-
-    if (result.success) {
-      message.success(
-        `上传完成: ${result.successCount}/${result.totalFiles} 个文件成功`
-      );
-    } else {
-      message.error(`上传失败: ${result.error}`);
-    }
-  } catch (error) {
-    message.error(`上传失败: ${error}`);
-  } finally {
-    isUploading.value = false;
-    currentTask.value = null;
-  }
-}
-
-// 获取截图
-async function getScreenshot() {
-  try {
-    const base64 = await window.api.juliangGetScreenshot();
-    if (base64) {
-      // 创建一个新窗口显示截图
-      const img = document.createElement("img");
-      img.src = `data:image/png;base64,${base64}`;
-      img.style.maxWidth = "100%";
-
-      const win = window.open("", "_blank");
-      if (win) {
-        win.document.body.appendChild(img);
-      }
-    } else {
-      message.warning("无法获取截图");
-    }
-  } catch (error) {
-    message.error(`获取截图失败: ${error}`);
-  }
-}
-
-// 状态文本
-const statusText = computed(() => {
-  if (isInitializing.value) return "正在初始化...";
-  if (!isReady.value) return "未初始化";
-  if (needLogin.value) return "需要登录";
-  if (isUploading.value) return "上传中";
-  return "就绪";
-});
-
-// 状态类型
-const statusType = computed(() => {
-  if (isInitializing.value) return "info";
-  if (!isReady.value) return "default";
-  if (needLogin.value) return "warning";
-  if (isUploading.value) return "info";
-  return "success";
-});
-
-// 加载历史日志
-async function loadLogs() {
-  try {
-    logs.value = await window.api.juliangGetLogs();
-  } catch (error) {
-    console.error("加载日志失败:", error);
-  }
-}
-
-// 清空日志
-async function clearLogs() {
-  try {
-    await window.api.juliangClearLogs();
-    logs.value = [];
-    message.success("日志已清空");
-  } catch (error) {
-    message.error(`清空日志失败: ${error}`);
-  }
-}
-
-// 切换日志显示
-async function toggleLogs() {
-  showLogs.value = !showLogs.value;
-  if (showLogs.value) {
-    await loadLogs();
-  }
-}
-
 // ==================== 调度器相关 ====================
 
 // 启动调度器
 async function startScheduler() {
   try {
+    // 先初始化浏览器
+    if (!isReady.value) {
+      const initResult = await initializeBrowser();
+      if (!initResult?.success) {
+        message.error(`浏览器初始化失败: ${initResult?.error}`);
+        return;
+      }
+    }
+
     const result = await window.api.juliangSchedulerStart();
     if (result.success) {
       schedulerStatus.value = "running";
-      showSchedulerLogs.value = true; // 自动展开日志面板
+      showLogs.value = true; // 自动展开日志
       message.success("调度器已启动");
     } else {
       message.error(`启动失败: ${result.error}`);
@@ -355,12 +174,11 @@ async function loadSchedulerConfig() {
 // 保存调度器配置
 async function saveSchedulerConfig() {
   try {
-    // 转换为普通对象，避免 Vue ref 无法序列化的问题
-    const config = {
+    const cfg = {
       fetchIntervalMinutes: schedulerConfig.value.fetchIntervalMinutes,
       localRootDir: schedulerConfig.value.localRootDir,
     };
-    await window.api.juliangSchedulerUpdateConfig(config);
+    await window.api.juliangSchedulerUpdateConfig(cfg);
     message.success("配置已保存");
   } catch (error) {
     message.error(`保存配置失败: ${error}`);
@@ -373,50 +191,100 @@ async function selectLocalRootDir() {
     const path = await window.api.selectFolder();
     if (path) {
       schedulerConfig.value.localRootDir = path;
+      // 自动保存
+      await saveSchedulerConfig();
     }
   } catch (error) {
     message.error(`选择目录失败: ${error}`);
   }
 }
 
-// 加载调度器日志
-async function loadSchedulerLogs() {
+// 清空日志
+async function clearLogs() {
   try {
-    schedulerLogs.value = await window.api.juliangSchedulerGetLogs();
-  } catch (error) {
-    console.error("加载调度器日志失败:", error);
-  }
-}
-
-// 清空调度器日志
-async function clearSchedulerLogs() {
-  try {
+    await window.api.juliangClearLogs();
     await window.api.juliangSchedulerClearLogs();
-    schedulerLogs.value = [];
-    message.success("调度器日志已清空");
+    logs.value = [];
+    message.success("日志已清空");
   } catch (error) {
     message.error(`清空日志失败: ${error}`);
   }
 }
 
-// 切换调度器日志显示
-async function toggleSchedulerLogs() {
-  showSchedulerLogs.value = !showSchedulerLogs.value;
-  if (showSchedulerLogs.value) {
-    await loadSchedulerLogs();
+// 加载历史日志
+async function loadAllLogs() {
+  try {
+    const [uploadLogs, schedulerLogs] = await Promise.all([
+      window.api.juliangGetLogs(),
+      window.api.juliangSchedulerGetLogs(),
+    ]);
+    // 合并并按时间排序
+    const allLogs = [
+      ...uploadLogs.map((l: { time: string; message: string }) => ({ ...l, type: "upload" })),
+      ...schedulerLogs.map((l: { time: string; message: string }) => ({ ...l, type: "scheduler" })),
+    ].sort((a, b) => a.time.localeCompare(b.time));
+    logs.value = allLogs;
+  } catch (error) {
+    console.error("加载日志失败:", error);
   }
 }
+
+// 切换日志显示
+async function toggleLogs() {
+  showLogs.value = !showLogs.value;
+  if (showLogs.value) {
+    await loadAllLogs();
+  }
+}
+
+// 调度器状态文本
+const schedulerStatusText = computed(() => {
+  switch (schedulerStatus.value) {
+    case "running":
+      return "运行中";
+    case "stopped":
+      return "已停止";
+    default:
+      return "未启动";
+  }
+});
+
+const schedulerStatusType = computed(() => {
+  switch (schedulerStatus.value) {
+    case "running":
+      return "success";
+    case "stopped":
+      return "error";
+    default:
+      return "default";
+  }
+});
+
+// 浏览器状态
+const browserStatusText = computed(() => {
+  if (isInitializing.value) return "初始化中...";
+  if (!isReady.value) return "未启动";
+  if (needLogin.value) return "需要登录";
+  return "已就绪";
+});
+
+const browserStatusType = computed(() => {
+  if (isInitializing.value) return "info";
+  if (!isReady.value) return "default";
+  if (needLogin.value) return "warning";
+  return "success";
+});
 
 onMounted(async () => {
   // 加载配置
   await loadConfig();
+  await loadSchedulerConfig();
 
   // 检查是否已初始化
   const ready = await window.api.juliangIsReady();
   isReady.value = ready;
 
-  // 加载调度器配置和状态
-  await loadSchedulerConfig();
+  // 刷新调度器状态
   await refreshSchedulerStatus();
 
   // 监听上传进度
@@ -424,9 +292,9 @@ onMounted(async () => {
     currentTask.value = progress;
   });
 
-  // 监听实时日志
+  // 监听上传日志
   unsubscribeLog = window.api.onJuliangLog((log) => {
-    logs.value.push(log);
+    logs.value.push({ ...log, type: "upload" });
     if (logs.value.length > 500) {
       logs.value.shift();
     }
@@ -434,9 +302,9 @@ onMounted(async () => {
 
   // 监听调度器日志
   unsubscribeSchedulerLog = window.api.onJuliangSchedulerLog((log) => {
-    schedulerLogs.value.push(log);
-    if (schedulerLogs.value.length > 500) {
-      schedulerLogs.value.shift();
+    logs.value.push({ ...log, type: "scheduler" });
+    if (logs.value.length > 500) {
+      logs.value.shift();
     }
   });
 
@@ -445,347 +313,209 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (unsubscribeProgress) {
-    unsubscribeProgress();
-  }
-  if (unsubscribeLog) {
-    unsubscribeLog();
-  }
-  if (unsubscribeSchedulerLog) {
-    unsubscribeSchedulerLog();
-  }
+  if (unsubscribeProgress) unsubscribeProgress();
+  if (unsubscribeLog) unsubscribeLog();
+  if (unsubscribeSchedulerLog) unsubscribeSchedulerLog();
 });
 </script>
 
 <template>
   <div class="juliang-page">
-    <NCard title="巨量创意上传" size="small">
-      <template #header-extra>
-        <NSpace>
-          <NTag :type="statusType">{{ statusText }}</NTag>
-        </NSpace>
-      </template>
-
-      <!-- 调度器控制 -->
-      <div style="margin-bottom: 20px">
-        <NCard size="small" title="自动调度">
-          <template #header-extra>
-            <NTag
-              :type="
-                schedulerStatus === 'running'
-                  ? 'success'
-                  : schedulerStatus === 'stopped'
-                  ? 'error'
-                  : 'default'
-              "
-            >
-              {{
-                schedulerStatus === "running"
-                  ? "运行中"
-                  : schedulerStatus === "stopped"
-                  ? "已停止"
-                  : "未启动"
-              }}
-            </NTag>
-          </template>
-
-          <NGrid :cols="6" :x-gap="12" style="margin-bottom: 16px">
-            <NGi>
-              <NStatistic label="待处理" :value="schedulerStats.pending" />
-            </NGi>
-            <NGi>
-              <NStatistic label="运行中" :value="schedulerStats.running" />
-            </NGi>
-            <NGi>
-              <NStatistic label="已完成" :value="schedulerStats.completed" />
-            </NGi>
-            <NGi>
-              <NStatistic label="已跳过" :value="schedulerStats.skipped" />
-            </NGi>
-            <NGi>
-              <NStatistic label="失败" :value="schedulerStats.failed" />
-            </NGi>
-            <NGi>
-              <NStatistic label="总计" :value="schedulerStats.total" />
-            </NGi>
-          </NGrid>
-
-          <!-- 调度器配置 -->
-          <div style="margin-bottom: 16px">
-            <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 8px">
-              <span style="width: 120px">素材根目录:</span>
-              <NInput
-                v-model:value="schedulerConfig.localRootDir"
-                placeholder="选择本地素材导出的根目录"
-                style="flex: 1"
-                readonly
-              />
-              <NButton @click="selectLocalRootDir">选择</NButton>
-              <NButton @click="saveSchedulerConfig">保存配置</NButton>
-            </div>
-            <div style="font-size: 12px; color: #999">
-              目录结构示例: 根目录/2.9导出/剧名/视频.mp4
-            </div>
-          </div>
-
-          <NSpace>
-            <NButton
-              type="primary"
-              :disabled="schedulerStatus === 'running' || !schedulerConfig.localRootDir"
-              @click="startScheduler"
-            >
-              启动调度
-            </NButton>
-            <NButton
-              :disabled="schedulerStatus !== 'running'"
-              @click="stopScheduler"
-            >
-              停止调度
-            </NButton>
-            <NButton @click="toggleSchedulerLogs">
-              {{ showSchedulerLogs ? "隐藏日志" : "调度日志" }}
-            </NButton>
-          </NSpace>
-
-          <!-- 调度器日志 -->
-          <div v-if="showSchedulerLogs" style="margin-top: 16px">
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px">
-              <NButton size="small" @click="clearSchedulerLogs">清空</NButton>
-            </div>
-            <div
-              style="
-                height: 200px;
-                overflow-y: auto;
-                background: #1e1e1e;
-                color: #d4d4d4;
-                padding: 8px;
-                border-radius: 4px;
-                font-family: monospace;
-                font-size: 12px;
-              "
-            >
-              <div v-if="schedulerLogs.length === 0" style="color: #888">暂无日志</div>
-              <div v-for="(log, index) in schedulerLogs" :key="index">
-                <span style="color: #6a9955">[{{ log.time }}]</span>
-                <span style="margin-left: 8px">{{ log.message }}</span>
-              </div>
-            </div>
-          </div>
-        </NCard>
+    <!-- 状态概览 -->
+    <div class="status-bar">
+      <div class="status-item">
+        <span class="status-label">调度状态</span>
+        <NTag :type="schedulerStatusType" size="small">{{ schedulerStatusText }}</NTag>
       </div>
+      <div class="status-item">
+        <span class="status-label">浏览器</span>
+        <NTag :type="browserStatusType" size="small">{{ browserStatusText }}</NTag>
+      </div>
+      <div class="status-item" v-if="currentTask">
+        <span class="status-label">当前任务</span>
+        <span class="status-value">{{ currentTask.drama }}</span>
+      </div>
+    </div>
 
-      <!-- 状态统计 -->
-      <NGrid :cols="4" :x-gap="12" style="margin-bottom: 20px">
+    <!-- 主控制区 -->
+    <NCard class="main-card">
+      <!-- 统计数据 -->
+      <NGrid :cols="6" :x-gap="16" class="stats-grid">
         <NGi>
-          <NStatistic label="浏览器状态">
-            <template #default>
-              <span :style="{ color: isReady ? '#18a058' : '#999' }">
-                {{ isReady ? "已就绪" : "未启动" }}
-              </span>
-            </template>
-          </NStatistic>
+          <div class="stat-item">
+            <div class="stat-value">{{ schedulerStats.pending }}</div>
+            <div class="stat-label">待处理</div>
+          </div>
         </NGi>
         <NGi>
-          <NStatistic label="登录状态">
-            <template #default>
-              <span :style="{ color: needLogin ? '#f0a020' : '#18a058' }">
-                {{ needLogin ? "需登录" : "已登录" }}
-              </span>
-            </template>
-          </NStatistic>
+          <div class="stat-item running">
+            <div class="stat-value">{{ schedulerStats.running }}</div>
+            <div class="stat-label">进行中</div>
+          </div>
         </NGi>
         <NGi>
-          <NStatistic label="当前任务">
-            <template #default>
-              {{ currentTask?.drama || "-" }}
-            </template>
-          </NStatistic>
+          <div class="stat-item success">
+            <div class="stat-value">{{ schedulerStats.completed }}</div>
+            <div class="stat-label">已完成</div>
+          </div>
         </NGi>
         <NGi>
-          <NStatistic label="上传进度">
-            <template #default>
-              {{
-                currentTask
-                  ? `${currentTask.successCount}/${currentTask.totalFiles}`
-                  : "-"
-              }}
-            </template>
-          </NStatistic>
+          <div class="stat-item">
+            <div class="stat-value">{{ schedulerStats.skipped }}</div>
+            <div class="stat-label">已跳过</div>
+          </div>
+        </NGi>
+        <NGi>
+          <div class="stat-item error">
+            <div class="stat-value">{{ schedulerStats.failed }}</div>
+            <div class="stat-label">失败</div>
+          </div>
+        </NGi>
+        <NGi>
+          <div class="stat-item">
+            <div class="stat-value">{{ schedulerStats.total }}</div>
+            <div class="stat-label">总计</div>
+          </div>
         </NGi>
       </NGrid>
 
-      <!-- 当前任务进度 -->
-      <div v-if="currentTask" style="margin-bottom: 20px">
-        <NAlert type="info" :title="`正在上传: ${currentTask.drama}`">
-          <div style="margin-top: 8px">
-            <div>{{ currentTask.message }}</div>
-            <div style="margin-top: 8px">
-              批次进度: {{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}
-            </div>
-            <NProgress
-              type="line"
-              :percentage="
-                currentTask.totalFiles > 0
-                  ? Math.round(
-                      (currentTask.successCount / currentTask.totalFiles) * 100
-                    )
-                  : 0
-              "
-              :indicator-placement="'inside'"
-              style="margin-top: 8px"
-            />
-          </div>
-        </NAlert>
+      <NDivider style="margin: 16px 0" />
+
+      <!-- 素材目录配置 -->
+      <div class="config-row">
+        <span class="config-label">素材根目录</span>
+        <NInput
+          v-model:value="schedulerConfig.localRootDir"
+          placeholder="选择本地素材导出的根目录"
+          readonly
+          class="config-input"
+        />
+        <NButton @click="selectLocalRootDir">选择目录</NButton>
       </div>
+      <div class="config-hint">目录结构: 根目录/M.D导出/剧名/视频文件</div>
+
+      <NDivider style="margin: 16px 0" />
 
       <!-- 控制按钮 -->
-      <NSpace style="margin-bottom: 20px">
+      <div class="control-buttons">
         <NButton
           type="primary"
+          size="large"
+          :disabled="schedulerStatus === 'running' || !schedulerConfig.localRootDir"
           :loading="isInitializing"
-          :disabled="isReady"
-          @click="initializeBrowser"
+          @click="startScheduler"
         >
-          启动浏览器
+          {{ isInitializing ? '初始化中...' : '启动调度' }}
         </NButton>
-        <NButton :disabled="!isReady" @click="closeBrowser"> 关闭浏览器 </NButton>
-        <NButton :disabled="!isReady" @click="checkLoginStatus">
-          检查登录
+        <NButton
+          size="large"
+          :disabled="schedulerStatus !== 'running'"
+          @click="stopScheduler"
+        >
+          停止调度
         </NButton>
-        <NButton @click="toggleLogs">
-          {{ showLogs ? "隐藏日志" : "查看日志" }}
+        <NButton size="large" @click="toggleLogs">
+          {{ showLogs ? '隐藏日志' : '查看日志' }}
         </NButton>
-      </NSpace>
-
-      <!-- 日志面板 -->
-      <div v-if="showLogs" style="margin-bottom: 20px">
-        <NCard size="small" title="运行日志">
-          <template #header-extra>
-            <NButton size="small" @click="clearLogs">清空</NButton>
-          </template>
-          <div
-            ref="logContainer"
-            style="
-              height: 200px;
-              overflow-y: auto;
-              background: #1e1e1e;
-              color: #d4d4d4;
-              padding: 8px;
-              border-radius: 4px;
-              font-family: monospace;
-              font-size: 12px;
-            "
-          >
-            <div v-if="logs.length === 0" style="color: #888">暂无日志</div>
-            <div v-for="(log, index) in logs" :key="index">
-              <span style="color: #6a9955">[{{ log.time }}]</span>
-              <span style="margin-left: 8px">{{ log.message }}</span>
-            </div>
-          </div>
-        </NCard>
       </div>
-
-      <!-- 需要登录提示 -->
-      <NAlert
-        v-if="isReady && needLogin"
-        type="warning"
-        title="需要登录"
-        style="margin-bottom: 20px"
-      >
-        请在弹出的浏览器窗口中登录巨量创意后台，登录完成后点击"检查登录"按钮。
-      </NAlert>
-
-      <!-- 测试上传 -->
-      <NCollapse>
-        <NCollapseItem title="测试上传" name="test">
-          <NSpace vertical style="width: 100%">
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 80px">账户 ID:</span>
-              <NInput
-                v-model:value="testAccountId"
-                placeholder="输入巨量创意账户 ID"
-                style="flex: 1"
-              />
-            </div>
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 80px">剧集名称:</span>
-              <NInput
-                v-model:value="testDrama"
-                placeholder="输入剧集名称（可选）"
-                style="flex: 1"
-              />
-            </div>
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 80px">素材目录:</span>
-              <NInput
-                v-model:value="testFilesPath"
-                placeholder="选择素材文件夹"
-                style="flex: 1"
-                readonly
-              />
-              <NButton @click="selectFolder">选择</NButton>
-            </div>
-            <NButton
-              type="primary"
-              :disabled="!isReady || needLogin || isUploading"
-              @click="startTestUpload"
-            >
-              {{ isUploading ? "上传中..." : "开始上传" }}
-            </NButton>
-          </NSpace>
-        </NCollapseItem>
-
-        <NCollapseItem title="上传配置" name="config">
-          <NSpace vertical style="width: 100%">
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 120px">每批文件数:</span>
-              <NInputNumber
-                v-model:value="config.batchSize"
-                :min="1"
-                :max="50"
-                style="width: 120px"
-              />
-            </div>
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 120px">批次间隔(ms):</span>
-              <NInputNumber
-                v-model:value="config.batchDelayMin"
-                :min="1000"
-                :max="30000"
-                :step="1000"
-                style="width: 120px"
-              />
-              <span>-</span>
-              <NInputNumber
-                v-model:value="config.batchDelayMax"
-                :min="1000"
-                :max="30000"
-                :step="1000"
-                style="width: 120px"
-              />
-            </div>
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 120px">操作延迟(ms):</span>
-              <NInputNumber
-                v-model:value="config.slowMo"
-                :min="0"
-                :max="500"
-                :step="10"
-                style="width: 120px"
-              />
-            </div>
-            <div style="display: flex; gap: 12px; align-items: center">
-              <span style="width: 120px">无头模式:</span>
-              <NSwitch v-model:value="config.headless" />
-              <span style="color: #999; font-size: 12px">
-                (开启后浏览器窗口不可见)
-              </span>
-            </div>
-            <NButton type="primary" @click="saveConfig">保存配置</NButton>
-          </NSpace>
-        </NCollapseItem>
-      </NCollapse>
     </NCard>
+
+    <!-- 当前任务进度 -->
+    <NCard v-if="currentTask" class="progress-card">
+      <div class="progress-header">
+        <span class="progress-title">{{ currentTask.drama }}</span>
+        <span class="progress-status">{{ currentTask.message }}</span>
+      </div>
+      <div class="progress-info">
+        <span>批次: {{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}</span>
+        <span>文件: {{ currentTask.successCount }}/{{ currentTask.totalFiles }}</span>
+      </div>
+      <NProgress
+        type="line"
+        :percentage="currentTask.totalFiles > 0 ? Math.round((currentTask.successCount / currentTask.totalFiles) * 100) : 0"
+        :indicator-placement="'inside'"
+        :height="24"
+        :border-radius="4"
+      />
+    </NCard>
+
+    <!-- 需要登录提示 -->
+    <NAlert
+      v-if="isReady && needLogin"
+      type="warning"
+      title="需要登录"
+      class="login-alert"
+    >
+      请在弹出的浏览器窗口中登录巨量创意后台。登录后系统会自动检测并继续上传任务。
+    </NAlert>
+
+    <!-- 日志面板 -->
+    <NCard v-if="showLogs" class="log-card">
+      <template #header>
+        <span>运行日志</span>
+      </template>
+      <template #header-extra>
+        <NButton size="small" quaternary @click="clearLogs">清空</NButton>
+      </template>
+      <div class="log-container">
+        <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
+        <div v-for="(log, index) in logs" :key="index" class="log-item">
+          <span class="log-time">[{{ log.time }}]</span>
+          <span class="log-message">{{ log.message }}</span>
+        </div>
+      </div>
+    </NCard>
+
+    <!-- 高级配置 -->
+    <NCollapse class="advanced-config">
+      <NCollapseItem title="高级配置" name="config">
+        <div class="config-grid">
+          <div class="config-row">
+            <span class="config-label">每批文件数</span>
+            <NInputNumber
+              v-model:value="config.batchSize"
+              :min="1"
+              :max="50"
+              style="width: 120px"
+            />
+          </div>
+          <div class="config-row">
+            <span class="config-label">批次间隔(ms)</span>
+            <NInputNumber
+              v-model:value="config.batchDelayMin"
+              :min="1000"
+              :max="30000"
+              :step="1000"
+              style="width: 100px"
+            />
+            <span style="margin: 0 8px">-</span>
+            <NInputNumber
+              v-model:value="config.batchDelayMax"
+              :min="1000"
+              :max="30000"
+              :step="1000"
+              style="width: 100px"
+            />
+          </div>
+          <div class="config-row">
+            <span class="config-label">操作延迟(ms)</span>
+            <NInputNumber
+              v-model:value="config.slowMo"
+              :min="0"
+              :max="500"
+              :step="10"
+              style="width: 120px"
+            />
+          </div>
+          <div class="config-row">
+            <span class="config-label">无头模式</span>
+            <NSwitch v-model:value="config.headless" />
+            <span class="config-hint" style="margin-left: 8px">(开启后浏览器窗口不可见)</span>
+          </div>
+        </div>
+        <NButton type="primary" style="margin-top: 16px" @click="saveConfig">保存配置</NButton>
+      </NCollapseItem>
+    </NCollapse>
   </div>
 </template>
 
@@ -794,5 +524,188 @@ onUnmounted(() => {
   padding: 20px;
   height: 100%;
   overflow-y: auto;
+  background: #f5f7fa;
+}
+
+.status-bar {
+  display: flex;
+  gap: 24px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-label {
+  color: #666;
+  font-size: 13px;
+}
+
+.status-value {
+  color: #333;
+  font-weight: 500;
+}
+
+.main-card {
+  margin-bottom: 16px;
+}
+
+.stats-grid {
+  margin-bottom: 8px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 12px 0;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 600;
+  color: #333;
+  line-height: 1.2;
+}
+
+.stat-item.running .stat-value {
+  color: #2080f0;
+}
+
+.stat-item.success .stat-value {
+  color: #18a058;
+}
+
+.stat-item.error .stat-value {
+  color: #d03050;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.config-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.config-label {
+  width: 80px;
+  flex-shrink: 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.config-input {
+  flex: 1;
+}
+
+.config-hint {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
+  margin-left: 92px;
+}
+
+.control-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.progress-card {
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.progress-card :deep(.n-card__content) {
+  padding: 16px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.progress-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.progress-status {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.progress-info {
+  display: flex;
+  gap: 24px;
+  font-size: 13px;
+  margin-bottom: 12px;
+  opacity: 0.9;
+}
+
+.progress-card :deep(.n-progress) {
+  --n-fill-color: rgba(255, 255, 255, 0.9);
+  --n-rail-color: rgba(255, 255, 255, 0.3);
+}
+
+.login-alert {
+  margin-bottom: 16px;
+}
+
+.log-card {
+  margin-bottom: 16px;
+}
+
+.log-container {
+  height: 250px;
+  overflow-y: auto;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 12px;
+  border-radius: 6px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-empty {
+  color: #666;
+  text-align: center;
+  padding: 20px;
+}
+
+.log-item {
+  margin-bottom: 2px;
+}
+
+.log-time {
+  color: #6a9955;
+}
+
+.log-message {
+  margin-left: 8px;
+}
+
+.advanced-config {
+  background: #fff;
+  border-radius: 8px;
+}
+
+.config-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 </style>
