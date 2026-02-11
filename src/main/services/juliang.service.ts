@@ -798,6 +798,20 @@ export class JuliangService {
             );
           }
         } else {
+          // 检查是否是取消导致的失败
+          if (this.isCancelled) {
+            this.log(`上传已取消: ${task.drama}`);
+            // 取消时不保存进度，不发送失败消息
+            return {
+              success: false,
+              taskId: task.id,
+              drama: task.drama,
+              successCount: totalSuccess,
+              totalFiles: task.files.length,
+              error: "上传已取消",
+            };
+          }
+
           // 上传失败，保存进度
           if (task.recordId) {
             this.progressManager.updateProgress(
