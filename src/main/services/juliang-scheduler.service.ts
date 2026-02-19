@@ -299,7 +299,7 @@ export class JuliangSchedulerService {
       // 如果浏览器未初始化，先初始化
       if (!juliangService.isReady()) {
         this.log("浏览器未初始化，正在初始化...");
-        const initResult = await juliangService.initialize(this.mainWindow!);
+        const initResult = await juliangService.initialize();
         if (!initResult.success) {
           return { success: false, count: 0, error: `浏览器初始化失败: ${initResult.error}` };
         }
@@ -747,7 +747,29 @@ export class JuliangSchedulerService {
       task.updatedAt = new Date();
       this.log(`开始处理任务: ${task.drama} (${task.date})`);
 
-      // 1. 扫描本地目录
+      // 1. 确保浏览器可用（可能在上一个任务中被关闭或崩溃）
+      if (!juliangService.isReady()) {
+        this.log("浏览器不可用，正在重新初始化...");
+        const initResult = await juliangService.initialize();
+        if (!initResult.success) {
+          task.status = "failed";
+          task.error = `浏览器初始化失败: ${initResult.error}`;
+          this.log(`任务失败: ${task.drama} - ${task.error}`);
+          this.addCompletedTask(task, 'failed', taskStartTime);
+          return false;
+        }
+        // 重新检查登录状态
+        const loginStatus = await juliangService.checkLoginStatus();
+        if (loginStatus.needLogin) {
+          task.status = "failed";
+          task.error = "巨量创意后台未登录";
+          this.log(`任务失败: ${task.drama} - ${task.error}`);
+          this.addCompletedTask(task, 'failed', taskStartTime);
+          return false;
+        }
+      }
+
+      // 2. 扫描本地目录
       const dateDir = this.formatDateDir(task.date);
       const basePath = `${this.config.localRootDir}/${dateDir}`;
       const dramaPath = `${basePath}/${task.drama}`;
@@ -785,7 +807,7 @@ export class JuliangSchedulerService {
       task.mp4Files = dramaFiles;
       this.log(`找到 ${dramaFiles.length} 个视频文件`);
 
-      // 2. 更新飞书状态为"上传中"
+      // 3. 更新飞书状态为"上传中"
       const updateToUploading = await this.apiService.updateFeishuRecordStatus(
         task.recordId,
         "上传中",
@@ -803,7 +825,7 @@ export class JuliangSchedulerService {
         return false;
       }
 
-      // 3. 执行上传
+      // 4. 执行上传
       const uploadTask: JuliangTask = {
         id: task.id,
         drama: task.drama,
@@ -849,7 +871,7 @@ export class JuliangSchedulerService {
 
       this.log(`上传完成: ${uploadResult.successCount}/${uploadResult.totalFiles} 个文件成功`);
 
-      // 4. 更新飞书状态为"待搭建"
+      // 5. 更新飞书状态为"待搭建"
       const updateSuccess = await this.apiService.updateFeishuRecordStatus(
         task.recordId,
         "待搭建",
@@ -863,7 +885,7 @@ export class JuliangSchedulerService {
         this.log(`飞书状态更新失败，但上传已成功`);
       }
 
-      // 5. 删除本地素材目录（无论飞书更新是否成功）
+      // 6. 删除本地素材目录（无论飞书更新是否成功）
       if (task.localPath) {
         const deleteSuccess = await this.fileService.deleteFolder(task.localPath);
         if (deleteSuccess.success) {

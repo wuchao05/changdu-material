@@ -263,9 +263,26 @@ export class JuliangService {
       // 重置取消标志
       this.isCancelled = false;
 
-      if (this.isInitialized && this.context) {
+      // 如果已初始化且页面仍然可用，跳过
+      if (this.isInitialized && this.context && this.page && !this.page.isClosed()) {
         this.log("浏览器已初始化，跳过");
         return { success: true };
+      }
+
+      // 如果之前的 context 还在但 page 已关闭，先清理
+      if (this.context) {
+        this.log("检测到浏览器上下文残留，先清理...");
+        try {
+          if (this.page && !this.page.isClosed()) {
+            await this.page.close();
+          }
+          await this.context.close();
+        } catch {
+          // 忽略清理错误
+        }
+        this.page = null;
+        this.context = null;
+        this.isInitialized = false;
       }
 
       const userDataDir = this.getUserDataDir();
@@ -320,10 +337,10 @@ export class JuliangService {
   }
 
   /**
-   * 检查是否已初始化
+   * 检查是否已初始化且页面可用
    */
   isReady(): boolean {
-    return this.isInitialized && this.context !== null && this.page !== null;
+    return this.isInitialized && this.context !== null && this.page !== null && !this.page.isClosed();
   }
 
   /**
@@ -335,12 +352,22 @@ export class JuliangService {
       this.isCancelled = true;
 
       if (this.page) {
-        await this.page.close();
+        try {
+          if (!this.page.isClosed()) {
+            await this.page.close();
+          }
+        } catch {
+          // 页面可能已经关闭，忽略
+        }
         this.page = null;
       }
 
       if (this.context) {
-        await this.context.close();
+        try {
+          await this.context.close();
+        } catch {
+          // context 可能已经关闭，忽略
+        }
         this.context = null;
       }
 
@@ -348,6 +375,10 @@ export class JuliangService {
       this.log("浏览器已关闭（登录状态已保存）");
     } catch (error) {
       console.error(`[Juliang] 关闭浏览器失败: ${error instanceof Error ? error.message : String(error)}`);
+      // 即使关闭失败，也要重置状态，避免后续无法重新初始化
+      this.page = null;
+      this.context = null;
+      this.isInitialized = false;
     }
   }
 
@@ -369,8 +400,8 @@ export class JuliangService {
    * 导航到上传页面
    */
   async navigateToUploadPage(accountId: string): Promise<{ success: boolean; error?: string }> {
-    if (!this.page) {
-      return { success: false, error: "浏览器未初始化" };
+    if (!this.page || this.page.isClosed()) {
+      return { success: false, error: "浏览器页面已关闭" };
     }
 
     try {
@@ -692,14 +723,14 @@ export class JuliangService {
    * 执行上传任务
    */
   async uploadTask(task: JuliangTask): Promise<JuliangUploadResult> {
-    if (!this.page) {
+    if (!this.page || this.page.isClosed()) {
       return {
         success: false,
         taskId: task.id,
         drama: task.drama,
         successCount: 0,
         totalFiles: task.files.length,
-        error: "浏览器未初始化",
+        error: "浏览器页面已关闭",
       };
     }
 
