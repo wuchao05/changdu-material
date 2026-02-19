@@ -649,8 +649,8 @@ onUnmounted(() => {
 
 .progress-card {
   margin-bottom: 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  background: #fff;
+  border-left: 3px solid #2080f0;
 }
 
 .progress-card :deep(.n-card__content) {
@@ -667,11 +667,12 @@ onUnmounted(() => {
 .progress-title {
   font-size: 16px;
   font-weight: 600;
+  color: #333;
 }
 
 .progress-status {
   font-size: 13px;
-  opacity: 0.9;
+  color: #666;
 }
 
 .progress-info {
@@ -679,16 +680,16 @@ onUnmounted(() => {
   gap: 24px;
   font-size: 13px;
   margin-bottom: 12px;
-  opacity: 0.9;
+  color: #888;
 }
 
 .progress-card :deep(.n-progress) {
-  --n-fill-color: rgba(255, 255, 255, 0.9);
-  --n-rail-color: rgba(255, 255, 255, 0.3);
+  --n-fill-color: #2080f0;
+  --n-rail-color: #e8e8e8;
 }
 
 .progress-card.cancelled {
-  background: linear-gradient(135deg, #666 0%, #888 100%);
+  border-left-color: #999;
 }
 
 .login-alert {
