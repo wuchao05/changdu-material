@@ -24,7 +24,7 @@ export interface CompletedTask {
   fileCount: number;
   status: 'completed' | 'failed' | 'skipped';
   error?: string;
-  completedAt: string;
+  duration: string;
 }
 
 // 内部任务
@@ -194,14 +194,18 @@ export class JuliangSchedulerService {
   /**
    * 记录已完成任务
    */
-  private addCompletedTask(task: InternalTask, status: 'completed' | 'failed' | 'skipped') {
+  private addCompletedTask(task: InternalTask, status: 'completed' | 'failed' | 'skipped', startTime: number) {
+    const elapsed = Date.now() - startTime;
+    const minutes = Math.floor(elapsed / 60000);
+    const seconds = Math.floor((elapsed % 60000) / 1000);
+    const duration = minutes > 0 ? `${minutes}分${seconds}秒` : `${seconds}秒`;
     this.completedTasks.unshift({
       drama: task.drama,
       date: task.date,
       fileCount: task.mp4Files?.length || 0,
       status,
       error: task.error,
-      completedAt: new Date().toLocaleString(),
+      duration,
     });
     if (this.completedTasks.length > this.maxCompletedTasks) {
       this.completedTasks.pop();
@@ -735,6 +739,8 @@ export class JuliangSchedulerService {
       return false;
     }
 
+    const taskStartTime = Date.now();
+
     try {
       // 标记为运行中
       task.status = "running";
@@ -771,7 +777,7 @@ export class JuliangSchedulerService {
           this.log(`更新飞书状态失败: ${task.drama}`);
         }
 
-        this.addCompletedTask(task, 'skipped');
+        this.addCompletedTask(task, 'skipped', taskStartTime);
         return true; // 返回 true 表示被跳过
       }
 
@@ -837,7 +843,7 @@ export class JuliangSchedulerService {
         }
 
         // 不删除本地素材目录，等待下次重试
-        this.addCompletedTask(task, 'failed');
+        this.addCompletedTask(task, 'failed', taskStartTime);
         return false;
       }
 
@@ -870,7 +876,7 @@ export class JuliangSchedulerService {
       task.status = "completed";
       task.updatedAt = new Date();
       this.log(`任务完成: ${task.drama}`);
-      this.addCompletedTask(task, 'completed');
+      this.addCompletedTask(task, 'completed', taskStartTime);
       return false; // 正常完成
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -886,7 +892,7 @@ export class JuliangSchedulerService {
         this.configService,
         task.tableId
       );
-      this.addCompletedTask(task, 'failed');
+      this.addCompletedTask(task, 'failed', taskStartTime);
       return false; // 失败但不是跳过
     }
   }

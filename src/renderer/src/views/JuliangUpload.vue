@@ -77,7 +77,7 @@ const completedTasks = ref<Array<{
   fileCount: number;
   status: 'completed' | 'failed' | 'skipped';
   error?: string;
-  completedAt: string;
+  duration: string;
 }>>([]);
 
 // 上传计时
@@ -563,7 +563,7 @@ onUnmounted(() => {
                 <th>飞书日期</th>
                 <th>素材数</th>
                 <th>状态</th>
-                <th>完成时间</th>
+                <th>耗时</th>
               </tr>
             </thead>
             <tbody>
@@ -576,7 +576,7 @@ onUnmounted(() => {
                   <NTag v-else-if="task.status === 'failed'" type="error" size="small">失败</NTag>
                   <NTag v-else type="warning" size="small">跳过</NTag>
                 </td>
-                <td>{{ task.completedAt }}</td>
+                <td>{{ task.duration }}</td>
               </tr>
             </tbody>
           </table>
