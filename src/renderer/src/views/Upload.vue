@@ -1299,7 +1299,7 @@ onUnmounted(() => {
     <div
       style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px"
     >
-      <h2 class="page-title" style="margin-bottom: 0">素材上传</h2>
+      <h2 class="page-title" style="margin-bottom: 0">形天上传</h2>
       <NButton text @click="showHelpModal = true" style="padding: 4px">
         <template #icon>
           <NIcon size="20" color="#666">
@@ -1642,7 +1642,7 @@ onUnmounted(() => {
     <NModal
       v-model:show="showHelpModal"
       preset="card"
-      title="素材上传操作说明"
+      title="形天上传操作说明"
       style="width: 600px"
       :bordered="false"
       :segmented="{ content: true }"

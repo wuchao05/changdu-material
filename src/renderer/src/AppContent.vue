@@ -43,19 +43,19 @@ const menuOptions = computed(() => {
   // 管理员可以看到所有菜单
   const isAdmin = authStore.isAdmin;
 
-  // 素材上传 - 管理员或有上传权限的达人可见
+  // 形天上传 - 管理员或有上传权限的达人可见
   if (isAdmin || darenStore.canUpload) {
     options.push({
-      label: "素材上传",
+      label: "形天上传",
       key: "upload",
       icon: () => h(NIcon, null, { default: () => h(CloudUploadOutline) }),
     });
   }
 
-  // 素材下载 - 管理员或有下载权限的达人可见
+  // 剧目下载 - 管理员或有下载权限的达人可见
   if (isAdmin || darenStore.canDownload) {
     options.push({
-      label: "素材下载",
+      label: "剧目下载",
       key: "download",
       icon: () => h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
     });

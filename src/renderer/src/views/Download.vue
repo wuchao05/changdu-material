@@ -1563,7 +1563,7 @@ const columns: DataTableColumns<DownloadTask> = [
     <div
       style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px"
     >
-      <h2 class="page-title" style="margin-bottom: 0">素材下载</h2>
+      <h2 class="page-title" style="margin-bottom: 0">剧目下载</h2>
       <NButton text @click="showHelpModal = true" style="padding: 4px">
         <template #icon>
           <NIcon size="20" color="#666">
@@ -1739,7 +1739,7 @@ const columns: DataTableColumns<DownloadTask> = [
     <NModal
       v-model:show="showHelpModal"
       preset="card"
-      title="素材下载操作说明"
+      title="剧目下载操作说明"
       style="width: 600px"
       :bordered="false"
       :segmented="{ content: true }"
