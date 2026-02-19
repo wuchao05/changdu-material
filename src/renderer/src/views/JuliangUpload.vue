@@ -17,6 +17,7 @@ import {
   NCollapse,
   NCollapseItem,
   NDivider,
+  NDataTable,
   useMessage,
 } from "naive-ui";
 
@@ -68,6 +69,21 @@ const currentTask = ref<{
 // 日志（合并调度器和上传日志）
 const logs = ref<Array<{ time: string; message: string; type?: string }>>([]);
 const showLogs = ref(false);
+
+// 已完成任务列表
+const completedTasks = ref<Array<{
+  drama: string;
+  date: string;
+  fileCount: number;
+  status: 'completed' | 'failed' | 'skipped';
+  error?: string;
+  completedAt: string;
+}>>([]);
+
+// 上传计时
+const uploadStartTime = ref<number | null>(null);
+const uploadElapsedMinutes = ref('0.0');
+let uploadTimerInterval: ReturnType<typeof setInterval> | null = null;
 
 // 进度监听器
 let unsubscribeProgress: (() => void) | null = null;
@@ -245,6 +261,36 @@ async function clearLogs() {
   }
 }
 
+// 刷新已完成任务列表
+async function refreshCompletedTasks() {
+  try {
+    completedTasks.value = await window.api.juliangSchedulerGetCompletedTasks();
+  } catch (error) {
+    console.error("刷新已完成任务失败:", error);
+  }
+}
+
+// 启动上传计时
+function startUploadTimer() {
+  if (uploadTimerInterval) return;
+  uploadStartTime.value = Date.now();
+  uploadElapsedMinutes.value = '0.0';
+  uploadTimerInterval = setInterval(() => {
+    if (uploadStartTime.value) {
+      const elapsed = (Date.now() - uploadStartTime.value) / 60000;
+      uploadElapsedMinutes.value = elapsed.toFixed(1);
+    }
+  }, 1000);
+}
+
+// 停止上传计时
+function stopUploadTimer() {
+  if (uploadTimerInterval) {
+    clearInterval(uploadTimerInterval);
+    uploadTimerInterval = null;
+  }
+}
+
 // 加载历史日志
 async function loadAllLogs() {
   try {
@@ -321,9 +367,21 @@ onMounted(async () => {
   // 刷新调度器状态
   await refreshSchedulerStatus();
 
+  // 加载已完成任务
+  await refreshCompletedTasks();
+
   // 监听上传进度
   unsubscribeProgress = window.api.onJuliangUploadProgress((progress) => {
+    const wasNull = currentTask.value === null;
     currentTask.value = progress;
+    // 有新任务开始时启动计时
+    if (wasNull && progress.status !== 'skipped') {
+      startUploadTimer();
+    }
+    // 任务结束时停止计时
+    if (progress.status === 'skipped' || progress.status === 'completed' || progress.status === 'failed') {
+      stopUploadTimer();
+    }
   });
 
   // 监听上传日志
@@ -342,14 +400,18 @@ onMounted(async () => {
     }
   });
 
-  // 定时刷新调度器状态
-  setInterval(refreshSchedulerStatus, 5000);
+  // 定时刷新调度器状态和已完成任务
+  setInterval(() => {
+    refreshSchedulerStatus();
+    refreshCompletedTasks();
+  }, 5000);
 });
 
 onUnmounted(() => {
   if (unsubscribeProgress) unsubscribeProgress();
   if (unsubscribeLog) unsubscribeLog();
   if (unsubscribeSchedulerLog) unsubscribeSchedulerLog();
+  stopUploadTimer();
 });
 </script>
 
@@ -478,6 +540,7 @@ onUnmounted(() => {
       <div v-if="currentTask.status !== 'skipped'" class="progress-info">
         <span>批次: {{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}</span>
         <span>文件: {{ currentTask.successCount }}/{{ currentTask.totalFiles }}</span>
+        <span v-if="uploadStartTime" class="upload-timer">已用时: {{ uploadElapsedMinutes }} 分钟</span>
       </div>
       <NProgress
         v-if="currentTask.status !== 'skipped'"
@@ -488,6 +551,38 @@ onUnmounted(() => {
         :border-radius="4"
       />
     </NCard>
+
+    <!-- 已上传列表 -->
+    <NCollapse v-if="completedTasks.length > 0" class="completed-collapse">
+      <NCollapseItem :title="`已上传列表 (${completedTasks.length})`" name="completed">
+        <div class="completed-table">
+          <table>
+            <thead>
+              <tr>
+                <th>剧名</th>
+                <th>飞书日期</th>
+                <th>素材数</th>
+                <th>状态</th>
+                <th>完成时间</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(task, index) in completedTasks" :key="index">
+                <td>{{ task.drama }}</td>
+                <td>{{ task.date }}</td>
+                <td>{{ task.fileCount }}</td>
+                <td>
+                  <NTag v-if="task.status === 'completed'" type="success" size="small">成功</NTag>
+                  <NTag v-else-if="task.status === 'failed'" type="error" size="small">失败</NTag>
+                  <NTag v-else type="warning" size="small">跳过</NTag>
+                </td>
+                <td>{{ task.completedAt }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </NCollapseItem>
+    </NCollapse>
 
     <!-- 需要登录提示 -->
     <NAlert
@@ -690,6 +785,48 @@ onUnmounted(() => {
 
 .progress-card.cancelled {
   border-left-color: #999;
+}
+
+.upload-timer {
+  color: #2080f0;
+  font-weight: 500;
+}
+
+.completed-collapse {
+  margin-bottom: 16px;
+  background: #fff;
+  border-radius: 8px;
+}
+
+.completed-collapse :deep(.n-collapse-item__header) {
+  padding: 12px 16px !important;
+}
+
+.completed-table {
+  overflow-x: auto;
+}
+
+.completed-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.completed-table th,
+.completed-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.completed-table th {
+  color: #888;
+  font-weight: 500;
+  background: #fafafa;
+}
+
+.completed-table tr:hover td {
+  background: #f9f9f9;
 }
 
 .login-alert {

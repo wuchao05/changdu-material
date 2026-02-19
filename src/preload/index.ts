@@ -192,6 +192,8 @@ const api = {
     ipcRenderer.invoke("juliang:scheduler:fetchNow"),
   juliangSchedulerCancelAll: () =>
     ipcRenderer.invoke("juliang:scheduler:cancelAll"),
+  juliangSchedulerGetCompletedTasks: () =>
+    ipcRenderer.invoke("juliang:scheduler:getCompletedTasks"),
   onJuliangSchedulerLog: (
     callback: (log: { time: string; message: string }) => void
   ) => {

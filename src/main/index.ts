@@ -502,6 +502,10 @@ function registerIpcHandlers(): void {
     return await juliangScheduler.cancelAll();
   });
 
+  ipcMain.handle('juliang:scheduler:getCompletedTasks', async () => {
+    return juliangScheduler.getCompletedTasks();
+  });
+
   // ==================== 应用控制 ====================
   ipcMain.handle('app:minimize', () => {
     mainWindow?.minimize();
