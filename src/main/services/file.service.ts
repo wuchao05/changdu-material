@@ -327,11 +327,34 @@ export class FileService {
         `[FileService] zip 文件大小: ${stats.size} bytes (${(stats.size / 1024 / 1024).toFixed(2)} MB)`
       );
 
-      // 验证是否为有效的 zip 文件（检查文件头，只读取前 4 个字节）
-      const fileHandle = await fs.promises.open(zipPath, "r");
+      // 验证是否为有效的 zip 文件（检查文件头，带重试机制应对 EPERM）
+      let fileHandle: fs.promises.FileHandle | null = null;
       const headerBuffer = Buffer.alloc(4);
-      await fileHandle.read(headerBuffer, 0, 4, 0);
-      await fileHandle.close();
+      const maxRetries = 3;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          fileHandle = await fs.promises.open(zipPath, "r");
+          await fileHandle.read(headerBuffer, 0, 4, 0);
+          await fileHandle.close();
+          fileHandle = null;
+          break;
+        } catch (openError: unknown) {
+          if (fileHandle) {
+            try { await fileHandle.close(); } catch { /* ignore */ }
+            fileHandle = null;
+          }
+          const errCode = (openError as NodeJS.ErrnoException).code;
+          if ((errCode === "EPERM" || errCode === "EBUSY") && attempt < maxRetries) {
+            console.log(
+              `[FileService] 文件被占用 (${errCode})，${attempt}/${maxRetries} 次重试，等待 2 秒...`
+            );
+            await new Promise((r) => setTimeout(r, 2000));
+          } else {
+            throw openError;
+          }
+        }
+      }
 
       const isPKZip =
         headerBuffer[0] === 0x50 &&
@@ -354,8 +377,23 @@ export class FileService {
 
       console.log("[FileService] 解压目标目录:", extractDir);
 
-      // 使用 extract-zip 库解压（跨平台，纯 Node.js 实现）
-      await extract(zipPath, { dir: path.resolve(extractDir) });
+      // 使用 extract-zip 库解压（带重试机制应对文件占用）
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          await extract(zipPath, { dir: path.resolve(extractDir) });
+          break;
+        } catch (extractError: unknown) {
+          const errCode = (extractError as NodeJS.ErrnoException).code;
+          if ((errCode === "EPERM" || errCode === "EBUSY") && attempt < maxRetries) {
+            console.log(
+              `[FileService] 解压时文件被占用 (${errCode})，${attempt}/${maxRetries} 次重试，等待 2 秒...`
+            );
+            await new Promise((r) => setTimeout(r, 2000));
+          } else {
+            throw extractError;
+          }
+        }
+      }
 
       console.log("[FileService] ✓ 解压成功");
 

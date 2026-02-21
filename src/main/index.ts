@@ -71,6 +71,18 @@ app.commandLine.appendSwitch('no-proxy-server');
 // 禁用自动代理检测
 app.commandLine.appendSwitch('winhttp-proxy-resolver');
 
+// 全局异常捕获：防止未捕获的异常弹出原生错误对话框导致应用阻塞
+process.on('uncaughtException', (error) => {
+  console.error('[Main] 未捕获的异常:', error.message);
+  console.error(error.stack);
+  // 不退出进程，让应用继续运行
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Main] 未处理的 Promise 拒绝:', reason);
+  // 不退出进程，让应用继续运行
+});
+
 // 服务导入
 import { ConfigService } from './services/config.service';
 import { FileService } from './services/file.service';
