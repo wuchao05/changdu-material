@@ -613,18 +613,27 @@ export class JuliangService {
             continue;
           }
 
-          // 如果进度条数量少于预期，且不是刚开始就少（说明有文件上传失败），立即取消并重试
+          // 如果进度条数量少于预期，判断是否达到 90% 阈值
           const elapsedTime = Date.now() - startTime;
           if (progressCount < files.length && elapsedTime > 20000) {
-            this.log(
-              `检测到进度条数量不足：${progressCount}/${files.length}，立即取消并准备重试`
-            );
+            const ratio = progressCount / files.length;
+            if (ratio < 0.9) {
+              // 不足 90%，立即取消并重试
+              this.log(
+                `检测到进度条数量严重不足：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% < 90%），立即取消并准备重试`
+              );
 
-            // 点击取消按钮
-            await this.clickCancelButton();
+              // 点击取消按钮
+              await this.clickCancelButton();
 
-            // 返回不足额状态，让外层重试
-            return { success: false, successCount: progressCount };
+              // 返回不足额状态，让外层重试
+              return { success: false, successCount: progressCount };
+            } else {
+              // >= 90%，允许继续上传，但记录差异
+              this.log(
+                `进度条数量略少：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% >= 90%），继续等待上传完成`
+              );
+            }
           }
 
           this.log(`找到 ${progressCount} 个进度条（期望 ${files.length} 个）`);
@@ -647,16 +656,44 @@ export class JuliangService {
             finalSuccessCount = successCount;
 
             if (progressCount < files.length) {
-              // 进度条数量少于预期，说明有文件上传失败
-              this.log(
-                `上传完成但数量不足：${progressCount}/${files.length}（第 ${retryCount + 1} 次尝试）`
-              );
+              const ratio = progressCount / files.length;
+              if (ratio >= 0.9) {
+                // 进度条 >= 90% 且全部成功，视为成功
+                this.log(
+                  `上传完成：${progressCount}/${files.length} 个进度条全部成功（${(ratio * 100).toFixed(0)}% >= 90%），视为成功`
+                );
+                await this.randomDelay(1000, 2000);
 
-              // 点击取消按钮
-              await this.clickCancelButton();
+                // 点击确定按钮
+                this.log("点击确定按钮");
+                const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
+                await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+                await this.randomDelay(500, 1000);
+                await confirmButton.click();
 
-              // 返回不足额状态，让外层决定
-              return { success: false, successCount: finalSuccessCount };
+                this.log("确定按钮点击成功");
+
+                // 批次间延迟
+                if (batchIndex < totalBatches) {
+                  this.log("等待页面准备下一批上传...");
+                  await this.randomDelay(5000, 8000);
+                } else {
+                  await this.randomDelay(this.config.batchDelayMin, this.config.batchDelayMax);
+                }
+
+                return { success: true, successCount: finalSuccessCount };
+              } else {
+                // 进度条不足 90%，取消并重试
+                this.log(
+                  `上传完成但数量不足：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% < 90%）`
+                );
+
+                // 点击取消按钮
+                await this.clickCancelButton();
+
+                // 返回不足额状态，让外层决定
+                return { success: false, successCount: finalSuccessCount };
+              }
             } else {
               // 进度条数量符合预期，全部上传成功
               this.log("所有素材上传完成（所有进度条显示成功状态）");
