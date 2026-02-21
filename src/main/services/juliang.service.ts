@@ -55,6 +55,7 @@ export interface JuliangConfig {
   batchDelayMax: number;
   headless: boolean;
   slowMo: number;
+  progressBarThreshold: number; // 进度条数量容许比例（0-1），如 0.8 表示允许缺失 20%
   selectors: {
     uploadButton: string;
     uploadPanel: string;
@@ -72,6 +73,7 @@ const DEFAULT_CONFIG: JuliangConfig = {
   batchDelayMax: 5000,
   headless: false,
   slowMo: 50,
+  progressBarThreshold: 0.9, // 默认允许缺失 10%
   selectors: {
     uploadButton: "button:has(span:text('上传视频'))",
     uploadPanel: ".material-center-v2-oc-create-upload-select-wrapper",
@@ -613,14 +615,15 @@ export class JuliangService {
             continue;
           }
 
-          // 如果进度条数量少于预期，判断是否达到 90% 阈值
+          // 如果进度条数量少于预期，判断是否达到容许阈值
           const elapsedTime = Date.now() - startTime;
           if (progressCount < files.length && elapsedTime > 20000) {
             const ratio = progressCount / files.length;
-            if (ratio < 0.9) {
-              // 不足 90%，立即取消并重试
+            const threshold = this.config.progressBarThreshold;
+            if (ratio < threshold) {
+              // 不足阈值，立即取消并重试
               this.log(
-                `检测到进度条数量严重不足：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% < 90%），立即取消并准备重试`
+                `检测到进度条数量严重不足：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% < ${(threshold * 100).toFixed(0)}%），立即取消并准备重试`
               );
 
               // 点击取消按钮
@@ -629,9 +632,9 @@ export class JuliangService {
               // 返回不足额状态，让外层重试
               return { success: false, successCount: progressCount };
             } else {
-              // >= 90%，允许继续上传，但记录差异
+              // >= 阈值，允许继续上传，但记录差异
               this.log(
-                `进度条数量略少：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% >= 90%），继续等待上传完成`
+                `进度条数量略少：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% >= ${(threshold * 100).toFixed(0)}%），继续等待上传完成`
               );
             }
           }
@@ -657,10 +660,11 @@ export class JuliangService {
 
             if (progressCount < files.length) {
               const ratio = progressCount / files.length;
-              if (ratio >= 0.9) {
-                // 进度条 >= 90% 且全部成功，视为成功
+              const threshold = this.config.progressBarThreshold;
+              if (ratio >= threshold) {
+                // 进度条 >= 阈值且全部成功，视为成功
                 this.log(
-                  `上传完成：${progressCount}/${files.length} 个进度条全部成功（${(ratio * 100).toFixed(0)}% >= 90%），视为成功`
+                  `上传完成：${progressCount}/${files.length} 个进度条全部成功（${(ratio * 100).toFixed(0)}% >= ${(threshold * 100).toFixed(0)}%），视为成功`
                 );
                 await this.randomDelay(1000, 2000);
 
@@ -683,9 +687,9 @@ export class JuliangService {
 
                 return { success: true, successCount: finalSuccessCount };
               } else {
-                // 进度条不足 90%，取消并重试
+                // 进度条不足阈值，取消并重试
                 this.log(
-                  `上传完成但数量不足：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% < 90%）`
+                  `上传完成但数量不足：${progressCount}/${files.length}（${(ratio * 100).toFixed(0)}% < ${(threshold * 100).toFixed(0)}%）`
                 );
 
                 // 点击取消按钮

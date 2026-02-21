@@ -52,6 +52,7 @@ const config = ref({
   batchDelayMax: 5000,
   headless: false,
   slowMo: 50,
+  progressBarThreshold: 90, // UI 上用百分比展示，保存时转为小数
 });
 
 // 当前任务
@@ -114,6 +115,10 @@ async function loadConfig() {
   try {
     const cfg = await window.api.juliangGetConfig();
     config.value = { ...config.value, ...cfg };
+    // 后端存的是小数，前端展示百分比
+    if (cfg.progressBarThreshold !== undefined) {
+      config.value.progressBarThreshold = Math.round(cfg.progressBarThreshold * 100);
+    }
   } catch (error) {
     console.error("加载配置失败:", error);
   }
@@ -126,6 +131,7 @@ async function saveConfig() {
     const cfg = {
       batchSize: config.value.batchSize,
       headless: config.value.headless,
+      progressBarThreshold: config.value.progressBarThreshold / 100, // 百分比转小数
     };
     await window.api.juliangUpdateConfig(cfg);
     message.success("配置已保存");
@@ -630,6 +636,19 @@ onUnmounted(() => {
               <span class="config-label">无头模式</span>
               <NSwitch v-model:value="config.headless" />
               <span class="config-desc">开启后浏览器窗口不可见</span>
+            </div>
+            <div class="config-row">
+              <span class="config-label">进度条容许率</span>
+              <NInputNumber
+                v-model:value="config.progressBarThreshold"
+                :min="50"
+                :max="100"
+                :step="5"
+                style="width: 120px"
+              >
+                <template #suffix>%</template>
+              </NInputNumber>
+              <span class="config-desc">进度条数量达到此比例即继续上传，如 80% 表示允许缺失 20%</span>
             </div>
           </div>
           <div class="config-actions">
