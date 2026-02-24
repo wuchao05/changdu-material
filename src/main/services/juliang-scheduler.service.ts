@@ -395,6 +395,7 @@ export class JuliangSchedulerService {
 
       // 获取达人配置
       const darenConfig = await this.configService.getDarenConfig();
+      this.log(`所有达人配置: ${JSON.stringify(darenConfig.darenList.map(d => ({ id: d.id, label: d.label, enableJuliang: d.enableJuliang, feishuDramaStatusTableId: d.feishuDramaStatusTableId })))}`);
       const enabledDarens = darenConfig.darenList.filter((d) => d.enableJuliang);
 
       if (enabledDarens.length === 0) {
@@ -406,6 +407,7 @@ export class JuliangSchedulerService {
 
       for (const daren of enabledDarens) {
         this.log(`处理达人: ${daren.label} (${daren.id})`);
+        this.log(`达人配置详情: ${JSON.stringify({ id: daren.id, label: daren.label, feishuDramaStatusTableId: daren.feishuDramaStatusTableId, changduConfigType: daren.changduConfigType })}`);
 
         if (!daren.feishuDramaStatusTableId) {
           this.log(`达人 ${daren.label} 未配置飞书表格 ID，跳过`);
