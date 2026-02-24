@@ -64,12 +64,10 @@ export class ApiService {
   /**
    * 查询待上传的剧集列表
    * @param tableId 可选的表格 ID，如果不传则使用系统配置
-   * @param options.filterMeiri 是否过滤每日主体，默认 true
    */
   async getPendingUploadDramas(
     configService: ConfigService,
-    tableId?: string,
-    options?: { filterMeiri?: boolean }
+    tableId?: string
   ): Promise<{
     code: number
     msg?: string
