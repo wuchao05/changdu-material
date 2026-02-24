@@ -81,7 +81,6 @@ export class ApiService {
     }
   }> {
     const apiConfig = await configService.getApiConfig()
-    const filterMeiri = options?.filterMeiri ?? true
 
     // 如果没有传入 tableId，使用系统配置
     const finalTableId = tableId || apiConfig.feishuDramaStatusTableId
@@ -92,7 +91,7 @@ export class ApiService {
 
     const token = await this.getFeishuToken(apiConfig)
 
-    // 构建过滤条件
+    // 构建过滤条件 - 只过滤待上传状态
     const conditions: Array<{ field_name: string; operator: string; value: string[] }> = [
       {
         field_name: '当前状态',
@@ -101,98 +100,29 @@ export class ApiService {
       }
     ]
 
-    // 如果需要过滤每日主体
-    if (filterMeiri) {
-      conditions.push({
-        field_name: '主体',
-        operator: 'isNot',
-        value: ['每日']
-      })
+    const response = await axios.post(
+      `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
+      {
+        field_names: ['剧名', '日期', '当前状态', '账户'],
+        page_size: 100,
+        filter: {
+          conjunction: 'and',
+          conditions
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      }
+    )
+
+    if (response.data.code !== 0) {
+      throw new Error(response.data.msg || '查询待上传剧集失败')
     }
 
-    try {
-      const response = await axios.post(
-        `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
-        {
-          field_names: ['剧名', '日期', '当前状态', '账户'],
-          page_size: 100,
-          filter: {
-            conjunction: 'and',
-            conditions
-          }
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        }
-      )
-
-      if (response.data.code !== 0) {
-        throw new Error(response.data.msg || '查询待上传剧集失败')
-      }
-
-      return response.data
-    } catch (error: any) {
-      // 如果是 InvalidFilter 错误且正在过滤"主体"字段，尝试不过滤
-      if (error.response?.data?.msg === 'InvalidFilter' && filterMeiri) {
-        console.log('[ApiService] 检测到 InvalidFilter 错误，尝试不过滤"主体"字段')
-
-        const response = await axios.post(
-          `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
-          {
-            field_names: ['剧名', '日期', '当前状态', '账户'],
-            page_size: 100,
-            filter: {
-              conjunction: 'and',
-              conditions: [
-                {
-                  field_name: '当前状态',
-                  operator: 'is',
-                  value: ['待上传']
-                }
-              ]
-            }
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            }
-          }
-        )
-
-        if (response.data.code !== 0) {
-          throw new Error(response.data.msg || '查询待上传剧集失败')
-        }
-
-        // 在客户端过滤"每日"主体
-        if (response.data.data?.items) {
-          response.data.data.items = response.data.data.items.filter((item: any) => {
-            const zhuti = item.fields['主体']
-            if (!zhuti) return true // 如果没有主体字段，保留
-
-            // 处理主体字段（可能是数组或字符串）
-            if (Array.isArray(zhuti)) {
-              return !zhuti.some((z: any) => z === '每日' || z?.text === '每日')
-            }
-            if (typeof zhuti === 'string') {
-              return zhuti !== '每日'
-            }
-            if (zhuti?.text) {
-              return zhuti.text !== '每日'
-            }
-            return true
-          })
-          console.log(`[ApiService] 客户端过滤后剩余: ${response.data.data.items.length} 条记录`)
-        }
-
-        return response.data
-      }
-
-      throw error
-    }
+    return response.data
   }
 
   /**
