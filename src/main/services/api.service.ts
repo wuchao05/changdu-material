@@ -174,11 +174,6 @@ export class ApiService {
               field_name: '当前状态',
               operator: 'is',
               value: ['待上传']
-            },
-            {
-              field_name: '主体',
-              operator: 'isNot',
-              value: ['每日']
             }
           ]
         }
