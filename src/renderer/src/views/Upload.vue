@@ -1041,13 +1041,18 @@ onMounted(() => {
 
       // 单剧集维度：检查该剧集的所有视频是否都已完成（成功或失败）
       const dramaName = video.dramaName;
+
+      // 获取该剧集所有已选中的视频
       const selectedDramaVideos = videoMaterials.value.filter(
         (v) => v.dramaName === dramaName && selectedVideos.value.has(v.fileName)
       );
 
-      // 检查是否所有视频都已完成（成功或最终失败，不包括上传中）
+      // 检查是否所有已选中的视频都已完成（成功或最终失败，不包括上传中）
+      // 注意：只有当该剧集没有任何视频处于 uploading 状态时，才认为完成
+      const hasUploadingVideos = selectedDramaVideos.some((v) => v.status === "uploading");
       const dramaAllCompleted =
         selectedDramaVideos.length > 0 &&
+        !hasUploadingVideos &&
         selectedDramaVideos.every((v) => v.status === "success" || v.status === "error");
 
       if (dramaAllCompleted && !feishuBuiltPendingSet.value.has(dramaName)) {
