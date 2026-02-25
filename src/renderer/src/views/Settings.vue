@@ -74,9 +74,6 @@ const defaultApiConfig = {
   feishuAppId: "cli_a870f7611b7b1013",
   feishuAppSecret: "NTwHbZG8rpOQyMEnXGPV6cNQ84KEqE8z",
   feishuAppToken: "WdWvbGUXXaokk8sAS94c00IZnsf",
-  // TOS 存储配置
-  tosBucket: "ylc-material-beijing",
-  tosRegion: "cn-beijing",
 };
 
 const apiForm = ref({
@@ -85,11 +82,6 @@ const apiForm = ref({
   feishuAppSecret: defaultApiConfig.feishuAppSecret,
   feishuAppToken: defaultApiConfig.feishuAppToken,
   feishuDramaStatusTableId: "",
-  // TOS 存储配置（AccessKeyId/Secret 通过 API 动态获取，无需配置）
-  tosAccessKeyId: "",
-  tosAccessKeySecret: "",
-  tosBucket: defaultApiConfig.tosBucket,
-  tosRegion: defaultApiConfig.tosRegion,
 });
 
 // 加载数据
@@ -107,9 +99,6 @@ onMounted(async () => {
       loadedConfig.feishuAppSecret || defaultApiConfig.feishuAppSecret,
     feishuAppToken:
       loadedConfig.feishuAppToken || defaultApiConfig.feishuAppToken,
-    // TOS配置
-    tosBucket: loadedConfig.tosBucket || defaultApiConfig.tosBucket,
-    tosRegion: loadedConfig.tosRegion || defaultApiConfig.tosRegion,
   };
 
   // 标记配置已加载完成，启用自动保存
@@ -424,37 +413,6 @@ const darenColumns: DataTableColumns<DarenInfo> = [
               <NInput
                 v-model:value="apiForm.feishuDramaStatusTableId"
                 placeholder="飞书剧集状态表 ID（管理员用）"
-              />
-            </NFormItem>
-          </NForm>
-        </NCard>
-
-        <NCard title="TOS 存储配置（可选）" style="margin-top: 16px">
-          <NForm :model="apiForm" label-placement="left" label-width="140px">
-            <NFormItem label="Access Key ID">
-              <NInput
-                v-model:value="apiForm.tosAccessKeyId"
-                placeholder="TOS Access Key ID（通常不需要填写）"
-              />
-            </NFormItem>
-            <NFormItem label="Access Key Secret">
-              <NInput
-                v-model:value="apiForm.tosAccessKeySecret"
-                type="password"
-                show-password-on="click"
-                placeholder="TOS Access Key Secret（通常不需要填写）"
-              />
-            </NFormItem>
-            <NFormItem label="Bucket">
-              <NInput
-                v-model:value="apiForm.tosBucket"
-                placeholder="TOS Bucket 名称（通常不需要填写）"
-              />
-            </NFormItem>
-            <NFormItem label="Region">
-              <NInput
-                v-model:value="apiForm.tosRegion"
-                placeholder="TOS Region（通常不需要填写）"
               />
             </NFormItem>
           </NForm>
