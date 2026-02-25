@@ -47,6 +47,9 @@ const api = {
   saveApiConfig: (config: unknown) =>
     ipcRenderer.invoke("config:saveApiConfig", config),
 
+  // 远程 Auth 配置获取
+  fetchAuthConfig: () => ipcRenderer.invoke("config:fetchAuthConfig"),
+
   // 远程配置同步
   syncRemoteConfig: () => ipcRenderer.invoke("config:syncFromRemote"),
   pushRemoteConfig: () => ipcRenderer.invoke("config:pushToRemote"),

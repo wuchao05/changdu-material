@@ -240,6 +240,11 @@ function registerIpcHandlers(): void {
     return await configService.saveApiConfig(config);
   });
 
+  // Auth 配置获取（从 cxyy.top）
+  ipcMain.handle('config:fetchAuthConfig', async () => {
+    return await configService.fetchAuthConfig();
+  });
+
   // 远程配置同步
   ipcMain.handle('config:syncFromRemote', async () => {
     return await configService.syncFromRemote();
@@ -575,6 +580,11 @@ app.whenReady().then(() => {
 
   createWindow();
   createTray();
+
+  // 启动时静默获取 Auth 配置，失败不阻塞
+  configService.fetchAuthConfig().catch((err) => {
+    console.error('[Main] 启动时获取 Auth 配置失败:', err);
+  });
 
   // 全局快捷键：F12 打开开发者工具（用于调试打包后的应用）
   globalShortcut.register('F12', () => {

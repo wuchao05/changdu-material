@@ -71,6 +71,9 @@ interface Api {
   deleteDaren: (id: string) => Promise<void>;
   getApiConfig: () => Promise<ApiConfig>;
   saveApiConfig: (config: ApiConfig) => Promise<void>;
+  fetchAuthConfig: () => Promise<{ success: boolean; error?: string }>;
+  syncRemoteConfig: () => Promise<{ synced: boolean; version?: number; error?: string }>;
+  pushRemoteConfig: () => Promise<{ success: boolean; error?: string }>;
 
   // 文件系统
   scanVideos: (date: string, userId: string) => Promise<VideoMaterial[]>;

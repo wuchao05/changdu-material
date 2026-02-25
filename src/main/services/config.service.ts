@@ -57,6 +57,62 @@ export class ConfigService {
     this.remoteConfigService = new RemoteConfigService();
   }
 
+  // ==================== Auth 配置获取 ====================
+
+  /**
+   * 从 cxyy.top/api/auth/config 获取常读配置和素材库 Token
+   * 只覆盖常读配置和 xtToken，不影响飞书、TOS 等其他配置
+   */
+  async fetchAuthConfig(): Promise<{ success: boolean; error?: string }> {
+    try {
+      console.log("[ConfigService] 开始获取 Auth 配置...");
+      const axios = (await import("axios")).default;
+      const response = await axios.get("https://cxyy.top/api/auth/config", {
+        timeout: 15000,
+      });
+
+      const data = response.data;
+      if (!data) {
+        return { success: false, error: "响应数据为空" };
+      }
+
+      // 读取当前本地配置
+      const localConfig = await this.getApiConfig();
+
+      // 映射 tokens.xh → xtToken
+      if (data.tokens?.xh) {
+        localConfig.xtToken = data.tokens.xh;
+      }
+
+      // 映射 platforms.changdu.sr → sanrouChangdu
+      const sr = data.platforms?.changdu?.sr;
+      if (sr) {
+        if (sr.cookie) localConfig.sanrouChangdu.cookie = sr.cookie;
+        if (sr.distributorId) localConfig.sanrouChangdu.distributorId = sr.distributorId;
+        if (sr.appId) localConfig.sanrouChangdu.changduAppId = sr.appId;
+        if (sr.adUserId) localConfig.sanrouChangdu.changduAdUserId = sr.adUserId;
+        if (sr.rootAdUserId) localConfig.sanrouChangdu.changduRootAdUserId = sr.rootAdUserId;
+      }
+
+      // 映射 platforms.changdu.mr → meiriChangdu
+      const mr = data.platforms?.changdu?.mr;
+      if (mr) {
+        if (mr.cookie) localConfig.meiriChangdu.cookie = mr.cookie;
+        if (mr.distributorId) localConfig.meiriChangdu.distributorId = mr.distributorId;
+        if (mr.appId) localConfig.meiriChangdu.changduAppId = mr.appId;
+        if (mr.adUserId) localConfig.meiriChangdu.changduAdUserId = mr.adUserId;
+        if (mr.rootAdUserId) localConfig.meiriChangdu.changduRootAdUserId = mr.rootAdUserId;
+      }
+
+      await this.saveApiConfig(localConfig);
+      console.log("[ConfigService] Auth 配置获取并保存成功");
+      return { success: true };
+    } catch (error) {
+      console.error("[ConfigService] Auth 配置获取失败:", error);
+      return { success: false, error: String(error) };
+    }
+  }
+
   // ==================== 远程配置同步 ====================
 
   /**

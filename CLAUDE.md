@@ -1,29 +1,13 @@
-# AI 编码规则
+# 项目规则
 
-## 代码提交
+## 语言
 
-每次修改代码后，必须自动提交并推送到远程仓库：
+- 始终使用中文回复
 
-```bash
-git add -A && git commit -m "提交信息" && git push
-```
+## 代码提交规范
 
-## 技术栈
+- 每次修改完代码后，自动执行 git commit 并 push 到远程仓库
 
-- Electron + Vue 3 + TypeScript
-- Naive UI 组件库
-- Playwright（浏览器自动化）
-- 飞书 API
+## 任务完成后
 
-## 目录结构
-
-- `src/main/` - Electron 主进程
-  - `services/` - 业务服务
-  - `index.ts` - 主入口
-- `src/renderer/` - Vue 前端
-  - `views/` - 页面组件
-- `src/preload/` - 预加载脚本
-
-## 关联项目
-
-- `juliang-upload` - 巨量上传独立项目，可作为参考实现
+- 每次解决完问题后，简要说明接下来可能需要的改动和优化建议
