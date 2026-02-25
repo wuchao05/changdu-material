@@ -146,8 +146,16 @@ async function handleRefresh() {
   
   try {
     console.log("[AppContent] 开始刷新...");
-    
-    // 1. 同步远程配置
+
+    // 1. 获取 Auth 配置（常读配置 + 素材库 Token）
+    const authResult = await window.api.fetchAuthConfig();
+    if (authResult.success) {
+      console.log("[AppContent] ✓ Auth 配置获取成功");
+    } else {
+      console.warn("[AppContent] Auth 配置获取失败:", authResult.error);
+    }
+
+    // 2. 同步远程配置
     const syncResult = await window.api.syncRemoteConfig();
     if (syncResult.synced) {
       console.log("[AppContent] ✓ 远程配置同步成功，版本:", syncResult.version);
