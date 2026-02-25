@@ -2,8 +2,6 @@
 import { ref, onMounted, h } from "vue";
 import {
   NCard,
-  NTabs,
-  NTabPane,
   NForm,
   NFormItem,
   NInput,
@@ -241,33 +239,28 @@ const darenColumns: DataTableColumns<DarenInfo> = [
 
 <template>
   <div class="settings-page">
-    <h2 class="page-title">系统设置</h2>
+    <h2 class="page-title">达人配置</h2>
 
-    <NTabs v-model:value="activeTab" type="line">
-      <!-- 达人配置 -->
-      <NTabPane name="daren" tab="达人配置">
-        <NCard>
-          <template #header>
-            <NSpace justify="space-between" align="center">
-              <span>达人列表</span>
-              <NButton
-                v-if="authStore.isAdmin"
-                type="primary"
-                @click="openDarenModal()"
-              >
-                添加达人
-              </NButton>
-            </NSpace>
-          </template>
+    <NCard>
+      <template #header>
+        <NSpace justify="space-between" align="center">
+          <span>达人列表</span>
+          <NButton
+            v-if="authStore.isAdmin"
+            type="primary"
+            @click="openDarenModal()"
+          >
+            添加达人
+          </NButton>
+        </NSpace>
+      </template>
 
-          <NDataTable
-            :columns="darenColumns"
-            :data="darenStore.darenList"
-            :bordered="false"
-          />
-        </NCard>
-      </NTabPane>
-    </NTabs>
+      <NDataTable
+        :columns="darenColumns"
+        :data="darenStore.darenList"
+        :bordered="false"
+      />
+    </NCard>
 
     <!-- 达人编辑弹窗 -->
     <NModal

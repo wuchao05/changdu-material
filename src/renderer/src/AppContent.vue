@@ -73,7 +73,7 @@ const menuOptions = computed(() => {
   // 系统设置 - 仅管理员可见
   if (isAdmin) {
     options.push({
-      label: "系统设置",
+      label: "达人配置",
       key: "settings",
       icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
     });
