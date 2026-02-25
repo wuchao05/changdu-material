@@ -151,17 +151,11 @@ async function handleRefresh() {
     const authResult = await window.api.fetchAuthConfig();
     if (authResult.success) {
       console.log("[AppContent] ✓ Auth 配置获取成功");
+      message.info("配置已更新");
     } else {
       console.warn("[AppContent] Auth 配置获取失败:", authResult.error);
     }
 
-    // 2. 同步远程配置
-    const syncResult = await window.api.syncRemoteConfig();
-    if (syncResult.synced) {
-      console.log("[AppContent] ✓ 远程配置同步成功，版本:", syncResult.version);
-      message.info("配置已更新");
-    }
-    
     // 2. 重新加载达人配置（强制刷新）
     await darenStore.loadFromServer(true);
     console.log("[AppContent] ✓ 达人配置已刷新");
@@ -184,20 +178,17 @@ onMounted(async () => {
     return;
   }
 
-  // 同步远程配置（刷新页面时也会执行）
+  // 获取 Auth 配置
   try {
-    console.log("[AppContent] 同步远程配置...");
-    const syncResult = await window.api.syncRemoteConfig();
-    if (syncResult.synced) {
-      console.log("[AppContent] ✓ 远程配置同步成功，版本:", syncResult.version);
+    console.log("[AppContent] 获取 Auth 配置...");
+    const authResult = await window.api.fetchAuthConfig();
+    if (authResult.success) {
+      console.log("[AppContent] ✓ Auth 配置获取成功");
     } else {
-      console.log(
-        "[AppContent] 远程配置同步跳过:",
-        syncResult.error || "无更新"
-      );
+      console.log("[AppContent] Auth 配置获取失败:", authResult.error);
     }
   } catch (error) {
-    console.warn("[AppContent] 远程配置同步失败:", error);
+    console.warn("[AppContent] Auth 配置获取失败:", error);
   }
 
   // 加载达人配置（强制刷新，避免缓存导致新达人不可见）
