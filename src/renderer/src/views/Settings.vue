@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, h, watch } from "vue";
+import { ref, onMounted, h } from "vue";
 import {
   NCard,
   NTabs,
@@ -20,39 +20,12 @@ import {
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import { useDarenStore, type DarenInfo } from "../stores/daren";
-import { useApiConfigStore } from "../stores/apiConfig";
 import { useAuthStore } from "../stores/auth";
 
 const message = useMessage();
 const dialog = useDialog();
 const darenStore = useDarenStore();
-const apiConfigStore = useApiConfigStore();
 const authStore = useAuthStore();
-
-// 当前标签页
-const activeTab = ref("daren");
-const syncingAuth = ref(false);
-
-// 同步远程 Auth 配置
-async function syncAuthConfig() {
-  syncingAuth.value = true;
-  try {
-    const result = await window.api.fetchAuthConfig();
-    if (result.success) {
-      // 重新加载配置到表单
-      await apiConfigStore.loadConfig();
-      const loadedConfig = apiConfigStore.config;
-      apiForm.value = { ...apiForm.value, ...loadedConfig };
-      message.success("远程配置同步成功");
-    } else {
-      message.error("同步失败: " + (result.error || "未知错误"));
-    }
-  } catch (error) {
-    message.error("同步失败: " + (error instanceof Error ? error.message : "未知错误"));
-  } finally {
-    syncingAuth.value = false;
-  }
-}
 
 // 达人表单
 const showDarenModal = ref(false);
@@ -68,41 +41,9 @@ const darenForm = ref<DarenInfo>({
   changduConfigType: "sanrou", // 默认使用散柔配置
 });
 
-// API 配置表单（包含默认值）
-const defaultApiConfig = {
-  // 飞书配置
-  feishuAppId: "cli_a870f7611b7b1013",
-  feishuAppSecret: "NTwHbZG8rpOQyMEnXGPV6cNQ84KEqE8z",
-  feishuAppToken: "WdWvbGUXXaokk8sAS94c00IZnsf",
-};
-
-const apiForm = ref({
-  // 飞书配置
-  feishuAppId: defaultApiConfig.feishuAppId,
-  feishuAppSecret: defaultApiConfig.feishuAppSecret,
-  feishuAppToken: defaultApiConfig.feishuAppToken,
-  feishuDramaStatusTableId: "",
-});
-
 // 加载数据
 onMounted(async () => {
   await darenStore.loadFromServer(true);
-  await apiConfigStore.loadConfig();
-  // 合并配置，后端空值时使用默认值
-  const loadedConfig = apiConfigStore.config;
-  apiForm.value = {
-    ...apiForm.value,
-    ...loadedConfig,
-    // 飞书配置
-    feishuAppId: loadedConfig.feishuAppId || defaultApiConfig.feishuAppId,
-    feishuAppSecret:
-      loadedConfig.feishuAppSecret || defaultApiConfig.feishuAppSecret,
-    feishuAppToken:
-      loadedConfig.feishuAppToken || defaultApiConfig.feishuAppToken,
-  };
-
-  // 标记配置已加载完成，启用自动保存
-  configLoaded.value = true;
 });
 
 // 打开达人编辑弹窗
@@ -192,58 +133,6 @@ function confirmDeleteDaren(daren: DarenInfo) {
     },
   });
 }
-
-// 保存 API 配置
-async function saveApiConfig(showMessage = true) {
-  try {
-    await apiConfigStore.saveConfig(apiForm.value);
-
-    // 推送到远程服务器
-    console.log("[Settings] 推送配置到远程服务器...");
-    const pushResult = await window.api.pushRemoteConfig();
-    if (pushResult.success) {
-      console.log("[Settings] ✓ 配置推送成功");
-      if (showMessage) {
-        message.success("配置已保存并同步到服务器");
-      }
-    } else {
-      console.warn("[Settings] 配置推送失败:", pushResult.error);
-      if (showMessage) {
-        message.warning("配置已保存，但同步到服务器失败");
-      }
-    }
-  } catch (error) {
-    console.error("[Settings] 保存失败:", error);
-    if (showMessage) {
-      message.error("保存失败");
-    }
-  }
-}
-
-// 自动保存：防抖定时器
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-const configLoaded = ref(false); // 标记配置是否已加载完成
-
-// 监听 API 配置变化，自动保存
-watch(
-  apiForm,
-  () => {
-    // 配置加载完成后才启用自动保存
-    if (!configLoaded.value) return;
-
-    // 清除之前的定时器
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-    }
-
-    // 延迟 1 秒后自动保存（防抖）
-    autoSaveTimer = setTimeout(() => {
-      console.log("[Settings] 配置变化，自动保存...");
-      saveApiConfig(false); // 静默保存，不显示消息
-    }, 1000);
-  },
-  { deep: true }
-);
 
 // 达人表格列
 const darenColumns: DataTableColumns<DarenInfo> = [
@@ -377,50 +266,6 @@ const darenColumns: DataTableColumns<DarenInfo> = [
             :bordered="false"
           />
         </NCard>
-      </NTabPane>
-
-      <!-- API 配置 -->
-      <NTabPane v-if="authStore.isAdmin" name="api" tab="API 配置">
-        <NSpace style="margin-bottom: 16px">
-          <NButton type="info" :loading="syncingAuth" @click="syncAuthConfig">
-            同步远程配置
-          </NButton>
-        </NSpace>
-
-        <NCard title="飞书配置">
-          <NForm :model="apiForm" label-placement="left" label-width="140px">
-            <NFormItem label="App ID">
-              <NInput
-                v-model:value="apiForm.feishuAppId"
-                placeholder="飞书应用 App ID"
-              />
-            </NFormItem>
-            <NFormItem label="App Secret">
-              <NInput
-                v-model:value="apiForm.feishuAppSecret"
-                type="password"
-                show-password-on="click"
-                placeholder="飞书应用 App Secret"
-              />
-            </NFormItem>
-            <NFormItem label="App Token">
-              <NInput
-                v-model:value="apiForm.feishuAppToken"
-                placeholder="飞书多维表格 App Token"
-              />
-            </NFormItem>
-            <NFormItem label="状态表 ID">
-              <NInput
-                v-model:value="apiForm.feishuDramaStatusTableId"
-                placeholder="飞书剧集状态表 ID（管理员用）"
-              />
-            </NFormItem>
-          </NForm>
-        </NCard>
-
-        <div style="margin-top: 20px; text-align: right">
-          <NButton type="primary" @click="saveApiConfig"> 保存配置 </NButton>
-        </div>
       </NTabPane>
     </NTabs>
 
