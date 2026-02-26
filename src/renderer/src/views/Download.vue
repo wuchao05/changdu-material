@@ -590,13 +590,14 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
       if (extractResult.success) {
         console.log(`[Download] ✓ 解压成功: ${extractResult.extractedPath}`);
         console.log(
-          `[Download] 下载完成，准备更新飞书状态，task.id = ${task.id}`
+          `[Download] 下载完成，准备更新飞书状态，task.id = ${task.id}, task.tableId = ${task.tableId}`
         );
         task.status = "success";
         task.localPath = extractResult.extractedPath;
 
         // 更新飞书状态
         await updateFeishuStatus(task, "待剪辑");
+        console.log(`[Download] ✓ 飞书状态更新调用完成: ${task.dramaName} -> 待剪辑`);
 
         const duration = ((Date.now() - taskStartTime) / 1000).toFixed(1);
         console.log(`[Download] ${task.dramaName} 完成，耗时 ${duration}秒`);
