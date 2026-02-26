@@ -40,6 +40,7 @@ export interface InternalTask {
   mp4Files?: string[];
   status: TaskStatus;
   error?: string;
+  retryCount?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -848,25 +849,46 @@ export class JuliangSchedulerService {
       }
 
       if (!uploadResult.success) {
-        task.status = "failed";
-        task.error = uploadResult.error || "上传失败";
-        this.log(`任务失败: ${task.drama} - ${task.error}`);
+        // 重试机制：最多重试 15 次
+        const MAX_UPLOAD_RETRIES = 15;
+        task.retryCount = (task.retryCount || 0) + 1;
 
-        // 上传失败，将飞书状态改回"待上传"
+        if (task.retryCount < MAX_UPLOAD_RETRIES) {
+          this.log(`任务失败: ${task.drama} - ${uploadResult.error || "上传失败"}，准备重试 (${task.retryCount}/${MAX_UPLOAD_RETRIES})`);
+
+          // 重置状态为 pending，等待下次处理
+          task.status = "pending";
+          task.error = undefined;
+          task.updatedAt = new Date();
+
+          // 等待一段时间后重试
+          const waitTime = Math.min(task.retryCount * 5000, 30000);
+          this.log(`等待 ${waitTime / 1000} 秒后重试...`);
+          await new Promise((resolve) => setTimeout(resolve, waitTime));
+
+          return false;
+        }
+
+        // 重试次数用尽，标记为上传失败
+        task.status = "failed";
+        task.error = `上传失败（重试 ${task.retryCount} 次后仍失败）: ${uploadResult.error || "未知错误"}`;
+        this.log(`任务最终失败: ${task.drama} - ${task.error}`);
+
+        // 将飞书状态改为"上传失败"
         const revertSuccess = await this.apiService.updateFeishuRecordStatus(
           task.recordId,
-          "待上传",
+          "上传失败",
           this.configService,
           task.tableId
         );
 
         if (revertSuccess) {
-          this.log(`已将飞书状态恢复为"待上传"，保留本地素材目录，等待下次重试`);
+          this.log(`已将飞书状态更新为"上传失败": ${task.drama}`);
         } else {
-          this.log(`恢复飞书状态为"待上传"失败`);
+          this.log(`更新飞书状态为"上传失败"失败: ${task.drama}`);
         }
 
-        // 不删除本地素材目录，等待下次重试
+        // 不删除本地素材目录
         this.addCompletedTask(task, 'failed', taskStartTime);
         return false;
       }
@@ -904,15 +926,28 @@ export class JuliangSchedulerService {
       return false; // 正常完成
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      task.status = "failed";
-      task.error = errorMsg;
-      task.updatedAt = new Date();
       this.log(`任务异常: ${task.drama} - ${errorMsg}`);
 
-      // 异常情况，将飞书状态改回"待上传"
+      // 重试机制
+      const MAX_UPLOAD_RETRIES = 15;
+      task.retryCount = (task.retryCount || 0) + 1;
+
+      if (task.retryCount < MAX_UPLOAD_RETRIES) {
+        this.log(`准备重试 (${task.retryCount}/${MAX_UPLOAD_RETRIES})`);
+        task.status = "pending";
+        task.error = undefined;
+        task.updatedAt = new Date();
+        return false;
+      }
+
+      task.status = "failed";
+      task.error = `异常（重试 ${task.retryCount} 次后仍失败）: ${errorMsg}`;
+      task.updatedAt = new Date();
+
+      // 异常情况，将飞书状态改为"上传失败"
       await this.apiService.updateFeishuRecordStatus(
         task.recordId,
-        "待上传",
+        "上传失败",
         this.configService,
         task.tableId
       );
