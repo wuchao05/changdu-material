@@ -438,7 +438,7 @@ export class JuliangSchedulerService {
           // 先解析所有记录
           const tasks: InternalTask[] = [];
           for (const item of result.data.items) {
-            this.log(`解析记录: ${item.record_id}, 剧名=${item.fields['剧名']}, 日期=${item.fields['日期']}`);
+            this.log(`解析记录: ${item.record_id}, 剧名原始值=${JSON.stringify(item.fields['剧名'])}, 日期=${item.fields['日期']}`);
             const task = this.parseFeishuRecord(item, daren);
             if (task) {
               tasks.push(task);
@@ -515,6 +515,7 @@ export class JuliangSchedulerService {
 
       // 解析剧名
       const drama = this.parseFieldValue(fields["剧名"]);
+      this.log(`parseFeishuRecord: 剧名解析结果="${drama}", 原始值类型=${typeof fields["剧名"]}, isArray=${Array.isArray(fields["剧名"])}`);
 
       // 解析日期
       let date = fields["日期"];
