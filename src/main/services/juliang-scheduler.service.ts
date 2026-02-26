@@ -850,7 +850,7 @@ export class JuliangSchedulerService {
 
       if (!uploadResult.success) {
         // 重试机制：最多重试 15 次
-        const MAX_UPLOAD_RETRIES = 15;
+        const MAX_UPLOAD_RETRIES = 3;
         task.retryCount = (task.retryCount || 0) + 1;
 
         if (task.retryCount < MAX_UPLOAD_RETRIES) {
