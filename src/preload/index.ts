@@ -57,6 +57,8 @@ const api = {
   // ==================== 文件系统 ====================
   scanVideos: (basePath: string) =>
     ipcRenderer.invoke("file:scanVideos", basePath),
+  listExportDirs: (rootPath: string) =>
+    ipcRenderer.invoke("file:listExportDirs", rootPath),
   getVideoInfo: (filePath: string) =>
     ipcRenderer.invoke("file:getVideoInfo", filePath),
   deleteFolder: (folderPath: string) =>

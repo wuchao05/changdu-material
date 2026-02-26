@@ -259,6 +259,10 @@ function registerIpcHandlers(): void {
     return await fileService.scanVideos(basePath);
   });
 
+  ipcMain.handle('file:listExportDirs', async (_event, rootPath) => {
+    return fileService.listExportDirs(rootPath);
+  });
+
   ipcMain.handle('file:getVideoInfo', async (_event, filePath) => {
     return await fileService.getVideoInfo(filePath);
   });

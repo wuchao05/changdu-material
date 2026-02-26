@@ -38,6 +38,22 @@ export class FileService {
   }> = [];
   private isExtracting = false;
 
+  /**
+   * 列出指定目录下所有以"导出"结尾的子目录名
+   */
+  listExportDirs(rootPath: string): string[] {
+    try {
+      if (!fs.existsSync(rootPath)) return [];
+      return fs
+        .readdirSync(rootPath, { withFileTypes: true })
+        .filter((d) => d.isDirectory() && d.name.endsWith("导出"))
+        .map((d) => d.name);
+    } catch (error) {
+      console.error("[FileService] 列出导出目录失败:", error);
+      return [];
+    }
+  }
+
   async scanVideos(basePath: string): Promise<VideoMaterial[]> {
     const materials: VideoMaterial[] = [];
 

@@ -77,6 +77,7 @@ interface Api {
 
   // 文件系统
   scanVideos: (date: string, userId: string) => Promise<VideoMaterial[]>;
+  listExportDirs: (rootPath: string) => Promise<string[]>;
   getVideoInfo: (filePath: string) => Promise<VideoInfo>;
   deleteFolder: (
     folderPath: string

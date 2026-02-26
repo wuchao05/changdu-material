@@ -173,31 +173,6 @@ function formatDateForPath(timestamp: number): string {
   return dayjs(timestamp).format("M.D");
 }
 
-// 生成自动上传的日期列表：昨天、今天、往后3天（共5天）
-function getAutoUploadDates(): number[] {
-  const dates: number[] = [];
-  const today = dayjs().startOf("day");
-
-  // 昨天
-  dates.push(today.subtract(1, "day").valueOf());
-  // 今天
-  dates.push(today.valueOf());
-  // 往后3天
-  for (let i = 1; i <= 3; i++) {
-    dates.push(today.add(i, "day").valueOf());
-  }
-
-  return dates;
-}
-
-// 根据日期时间戳生成扫描目录路径
-function getScanFolderForDate(dateTimestamp: number): string {
-  if (!rootFolder.value) return "";
-  const dateStr = formatDateForPath(dateTimestamp);
-  const sep = rootFolder.value.includes("\\") ? "\\" : "/";
-  return `${rootFolder.value}${sep}${dateStr}导出`;
-}
-
 // 格式化文件大小
 function formatSize(bytes: number): string {
   if (bytes < 1024) return bytes + " B";
@@ -807,7 +782,7 @@ function stopAutoUploadTimer() {
   message.info("自动上传已关闭");
 }
 
-// 运行自动上传循环（多日期扫描）
+// 运行自动上传循环（扫描所有导出目录）
 async function runAutoUploadCycle(): Promise<boolean> {
   if (
     !autoUploadEnabled.value ||
@@ -835,14 +810,54 @@ async function runAutoUploadCycle(): Promise<boolean> {
       currentDaren?.feishuDramaStatusTableId ||
       apiConfigStore.config.feishuDramaStatusTableId;
 
-    // 获取需要检查的日期列表
-    const datesToCheck = getAutoUploadDates();
-    console.log(
-      "[AutoUpload] 检查日期列表:",
-      datesToCheck.map((d) => formatDateForPath(d))
+    // 查询所有待上传剧集（不按日期过滤）
+    console.log("[AutoUpload] 查询所有待上传剧集...");
+    const response = await window.api.feishuGetPendingUpload(tableId);
+
+    if (
+      !response.data ||
+      !response.data.items ||
+      response.data.items.length === 0
+    ) {
+      console.log("[AutoUpload] 无待上传剧集");
+      return false;
+    }
+
+    // 提取剧名列表和飞书记录映射
+    const pendingDramas = new Set<string>();
+    const newFeishuRecordMap: Record<
+      string,
+      { recordId: string; tableId: string }
+    > = {};
+
+    response.data.items.forEach(
+      (item: { fields: Record<string, unknown>; record_id?: string }) => {
+        const dramaName = extractTextFromField(item.fields["剧名"]);
+        if (dramaName) {
+          pendingDramas.add(dramaName);
+          if (item.record_id && tableId) {
+            newFeishuRecordMap[dramaName] = {
+              recordId: item.record_id,
+              tableId,
+            };
+          }
+        }
+      }
     );
 
-    // 临时存储新找到的任务
+    if (pendingDramas.size === 0) {
+      console.log("[AutoUpload] 未找到有效剧名");
+      return false;
+    }
+
+    console.log(
+      `[AutoUpload] 找到 ${pendingDramas.size} 个待上传剧集:`,
+      Array.from(pendingDramas)
+    );
+
+    // 扫描 rootFolder 下所有"*导出"目录
+    const sep = rootFolder.value.includes("\\") ? "\\" : "/";
+
     const newMaterials: Array<{
       fileName: string;
       filePath: string;
@@ -853,115 +868,55 @@ async function runAutoUploadCycle(): Promise<boolean> {
       status: VideoStatus;
       progress: number;
     }> = [];
-    const newFeishuRecordMap: Record<
-      string,
-      { recordId: string; tableId: string }
-    > = {};
 
-    let totalFoundVideos = 0;
+    // 获取所有导出目录并扫描
+    const rootEntries = await window.api.listExportDirs(rootFolder.value);
+    console.log(`[AutoUpload] 找到 ${rootEntries.length} 个导出目录:`, rootEntries);
 
-    // 遍历每个日期
-    for (const dateTimestamp of datesToCheck) {
-      const dateStr = formatDateForPath(dateTimestamp);
-      console.log(`[AutoUpload] 正在检查日期: ${dateStr}`);
+    for (const exportDir of rootEntries) {
+      const scanPath = `${rootFolder.value}${sep}${exportDir}`;
+      console.log(`[AutoUpload] 扫描目录: ${scanPath}`);
 
+      let materials: Array<{
+        fileName: string;
+        filePath: string;
+        size: number;
+        dramaName: string;
+      }> = [];
       try {
-        // 查询该日期的待上传剧集
-        const response = await window.api.feishuGetPendingUploadByDate(
-          tableId,
-          dateTimestamp
-        );
+        materials = await window.api.scanVideos(scanPath);
+      } catch (scanError) {
+        console.log(`[AutoUpload] 目录 ${scanPath} 无法访问`);
+        continue;
+      }
 
-        if (
-          !response.data ||
-          !response.data.items ||
-          response.data.items.length === 0
-        ) {
-          console.log(`[AutoUpload] ${dateStr} 无待上传剧集`);
-          continue;
-        }
+      if (materials.length === 0) continue;
 
-        // 提取剧名列表
-        const pendingDramas = new Set<string>();
-        response.data.items.forEach(
-          (item: { fields: Record<string, unknown>; record_id?: string }) => {
-            const dramaName = extractTextFromField(item.fields["剧名"]);
-            if (dramaName) {
-              pendingDramas.add(dramaName);
-              if (item.record_id && tableId) {
-                newFeishuRecordMap[dramaName] = {
-                  recordId: item.record_id,
-                  tableId,
-                };
-              }
-            }
-          }
-        );
+      // 过滤出待上传剧集的视频
+      const filteredMaterials = materials.filter((m) =>
+        pendingDramas.has(m.dramaName)
+      );
 
-        if (pendingDramas.size === 0) {
-          console.log(`[AutoUpload] ${dateStr} 未找到有效剧名`);
-          continue;
-        }
+      if (filteredMaterials.length === 0) continue;
 
-        console.log(
-          `[AutoUpload] ${dateStr} 找到 ${pendingDramas.size} 个待上传剧集:`,
-          Array.from(pendingDramas)
-        );
+      const dateStr = exportDir.replace("导出", "");
+      console.log(
+        `[AutoUpload] ${exportDir} 找到 ${filteredMaterials.length} 个待上传视频`
+      );
 
-        // 扫描该日期的本地目录
-        const scanPath = getScanFolderForDate(dateTimestamp);
-        console.log(`[AutoUpload] 扫描目录: ${scanPath}`);
-
-        let materials: Array<{
-          fileName: string;
-          filePath: string;
-          size: number;
-          dramaName: string;
-        }> = [];
-        try {
-          materials = await window.api.scanVideos(scanPath);
-        } catch (scanError) {
-          console.log(`[AutoUpload] 目录 ${scanPath} 不存在或无法访问`);
-          continue;
-        }
-
-        if (materials.length === 0) {
-          console.log(`[AutoUpload] ${dateStr} 目录中无视频文件`);
-          continue;
-        }
-
-        // 过滤出待上传剧集的视频
-        const filteredMaterials = materials.filter((m) =>
-          pendingDramas.has(m.dramaName)
-        );
-
-        if (filteredMaterials.length === 0) {
-          console.log(`[AutoUpload] ${dateStr} 无匹配的待上传视频`);
-          continue;
-        }
-
-        console.log(
-          `[AutoUpload] ${dateStr} 找到 ${filteredMaterials.length} 个待上传视频`
-        );
-
-        // 添加到临时列表
-        const materialsForDate = filteredMaterials.map((m) => ({
+      newMaterials.push(
+        ...filteredMaterials.map((m) => ({
           ...m,
           sizeFormatted: formatSize(m.size),
           date: dateStr,
           status: "pending" as VideoStatus,
           progress: 0,
-        }));
-
-        newMaterials.push(...materialsForDate);
-        totalFoundVideos += materialsForDate.length;
-      } catch (dateError) {
-        console.error(`[AutoUpload] 处理日期 ${dateStr} 失败:`, dateError);
-      }
+        }))
+      );
     }
 
-    if (totalFoundVideos > 0) {
-      console.log(`[AutoUpload] 共找到 ${totalFoundVideos} 个待上传视频`);
+    if (newMaterials.length > 0) {
+      console.log(`[AutoUpload] 共找到 ${newMaterials.length} 个待上传视频`);
 
       // 清空旧数据并更新为新任务
       videoMaterials.value = newMaterials;
@@ -982,7 +937,7 @@ async function runAutoUploadCycle(): Promise<boolean> {
 
       return true;
     } else {
-      console.log("[AutoUpload] 所有日期都无待上传素材");
+      console.log("[AutoUpload] 所有导出目录中无待上传素材");
       return false;
     }
   } catch (error) {
