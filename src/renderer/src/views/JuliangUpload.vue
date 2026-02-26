@@ -276,9 +276,9 @@ async function refreshCompletedTasks() {
   }
 }
 
-// 启动上传计时
+// 启动上传计时（强制重置）
 function startUploadTimer() {
-  if (uploadTimerInterval) return;
+  stopUploadTimer();
   uploadStartTime.value = Date.now();
   uploadElapsedMinutes.value = '0.0';
   uploadTimerInterval = setInterval(() => {
@@ -377,18 +377,17 @@ onMounted(async () => {
   await refreshCompletedTasks();
 
   // 监听上传进度
+  let lastDrama = '';
   unsubscribeProgress = window.api.onJuliangUploadProgress((progress) => {
     currentTask.value = progress;
-    // 有任务开始时启动计时（整个上传过程只启动一次）
-    if (progress.status !== 'skipped' && !uploadTimerInterval) {
+    // 新剧集开始时重启计时器
+    if (progress.drama !== lastDrama && progress.status !== 'skipped') {
+      lastDrama = progress.drama;
       startUploadTimer();
     }
-    // 所有任务都结束时才停止计时
-    if (progress.status === 'completed' || progress.status === 'failed') {
-      // 检查是否是最后一个任务（当前批次的最后一个）
-      if (progress.currentBatch >= progress.totalBatches) {
-        stopUploadTimer();
-      }
+    // 任务结束时停止计时
+    if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'skipped') {
+      stopUploadTimer();
     }
   });
 
