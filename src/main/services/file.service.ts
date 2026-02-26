@@ -689,11 +689,35 @@ export class FileService {
         return { exists: true, valid: false, size: fileSize };
       }
 
-      // 检查 zip 文件是否损坏（通过读取文件头）
-      const fd = fs.openSync(zipPath, 'r');
+      // 检查 zip 文件是否损坏（通过读取文件头，带重试机制应对 EPERM）
+      let fd: number | null = null;
       const buffer = Buffer.alloc(4);
-      fs.readSync(fd, buffer, 0, 4, 0);
-      fs.closeSync(fd);
+      const maxRetries = 3;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          fd = fs.openSync(zipPath, 'r');
+          fs.readSync(fd, buffer, 0, 4, 0);
+          fs.closeSync(fd);
+          fd = null;
+          break;
+        } catch (openError: any) {
+          if (fd !== null) {
+            try { fs.closeSync(fd); } catch {}
+            fd = null;
+          }
+          if (openError.code === 'EPERM' && attempt < maxRetries) {
+            console.warn(`[FileService] zip 文件被占用，${attempt}/${maxRetries} 次重试...`);
+            // 同步等待
+            const waitMs = 2000 * attempt;
+            const start = Date.now();
+            while (Date.now() - start < waitMs) { /* busy wait */ }
+            continue;
+          }
+          console.warn(`[FileService] 无法读取 zip 文件头:`, openError.message);
+          return { exists: true, valid: false, size: fileSize };
+        }
+      }
 
       // 检查是否是有效的 zip 文件头（PK\x03\x04, PK\x05\x06, 或 PK\x07\x08）
       const isPKZip =
