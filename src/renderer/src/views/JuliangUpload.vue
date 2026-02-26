@@ -378,15 +378,17 @@ onMounted(async () => {
 
   // 监听上传进度
   unsubscribeProgress = window.api.onJuliangUploadProgress((progress) => {
-    const wasNull = currentTask.value === null;
     currentTask.value = progress;
-    // 有新任务开始时启动计时
-    if (wasNull && progress.status !== 'skipped') {
+    // 有任务开始时启动计时（整个上传过程只启动一次）
+    if (progress.status !== 'skipped' && !uploadTimerInterval) {
       startUploadTimer();
     }
-    // 任务结束时停止计时
-    if (progress.status === 'skipped' || progress.status === 'completed' || progress.status === 'failed') {
-      stopUploadTimer();
+    // 所有任务都结束时才停止计时
+    if (progress.status === 'completed' || progress.status === 'failed') {
+      // 检查是否是最后一个任务（当前批次的最后一个）
+      if (progress.currentBatch >= progress.totalBatches) {
+        stopUploadTimer();
+      }
     }
   });
 
