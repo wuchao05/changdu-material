@@ -895,18 +895,28 @@ export class JuliangSchedulerService {
 
       this.log(`上传完成: ${uploadResult.successCount}/${uploadResult.totalFiles} 个文件成功`);
 
-      // 5. 更新飞书状态为"待搭建"
-      const updateSuccess = await this.apiService.updateFeishuRecordStatus(
-        task.recordId,
-        "待搭建",
-        this.configService,
-        task.tableId
-      );
-
-      if (updateSuccess) {
-        this.log(`飞书状态更新成功: ${task.drama} -> 待搭建`);
-      } else {
-        this.log(`飞书状态更新失败，但上传已成功`);
+      // 5. 更新飞书状态为"待搭建"（最多重试3次）
+      const MAX_STATUS_RETRIES = 3;
+      let statusUpdated = false;
+      for (let i = 0; i < MAX_STATUS_RETRIES; i++) {
+        const updateSuccess = await this.apiService.updateFeishuRecordStatus(
+          task.recordId,
+          "待搭建",
+          this.configService,
+          task.tableId
+        );
+        if (updateSuccess) {
+          this.log(`飞书状态更新成功: ${task.drama} -> 待搭建`);
+          statusUpdated = true;
+          break;
+        }
+        this.log(`飞书状态更新失败，第${i + 1}/${MAX_STATUS_RETRIES}次重试: ${task.drama}`);
+        if (i < MAX_STATUS_RETRIES - 1) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+      if (!statusUpdated) {
+        this.log(`飞书状态更新最终失败（已重试${MAX_STATUS_RETRIES}次），但上传已成功: ${task.drama}`);
       }
 
       // 6. 删除本地素材目录（无论飞书更新是否成功）
