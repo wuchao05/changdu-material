@@ -75,7 +75,7 @@ const apiConfigStore = useApiConfigStore();
 
 // State
 const selectedDate = ref<number>(Date.now());
-const rootFolder = ref<string>(""); // 上传根目录
+const rootFolder = ref<string>(localStorage.getItem('upload-root-folder') || ""); // 上传根目录，从 localStorage 加载
 
 // 计算实际扫描路径：根目录 + "日期导出"
 const scanFolder = computed(() => {
@@ -196,6 +196,8 @@ async function selectRootFolder() {
     const folder = await window.api.selectFolder();
     if (folder) {
       rootFolder.value = folder;
+      // 保存到 localStorage
+      localStorage.setItem('upload-root-folder', folder);
       message.success(`已选择上传根目录: ${folder}`);
     }
   } catch (error) {

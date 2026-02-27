@@ -72,8 +72,8 @@ const autoDownloadEnabled = ref(false);
 const autoDownloadTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 const lastAutoDownloadTime = ref<string>("");
 const nextAutoDownloadTime = ref<string>("");
-// 默认保存路径（用户需要手动选择或修改）
-const savePath = ref("");
+// 默认保存路径（从 localStorage 加载）
+const savePath = ref(localStorage.getItem('download-save-path') || "");
 // 并行下载数量
 const concurrentDownloads = ref(3);
 // 自动下载轮询间隔（分钟）
@@ -1107,6 +1107,8 @@ async function selectSavePath() {
     // 规范化路径，确保以斜杠结尾（跨平台兼容）
     savePath.value =
       path.endsWith("/") || path.endsWith("\\") ? path : path + "/";
+    // 保存到 localStorage
+    localStorage.setItem('download-save-path', savePath.value);
     console.log("[Download] 选择保存路径:", savePath.value);
   }
 }
