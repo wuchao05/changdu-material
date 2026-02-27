@@ -912,6 +912,7 @@ export class JuliangSchedulerService {
         }
         this.log(`飞书状态更新失败，第${i + 1}/${MAX_STATUS_RETRIES}次重试: ${task.drama}`);
         if (i < MAX_STATUS_RETRIES - 1) {
+          this.apiService.clearFeishuTokenCache();
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }

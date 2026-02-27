@@ -273,6 +273,11 @@ export class ApiService {
     }
   }
 
+  clearFeishuTokenCache(): void {
+    this.feishuTokenCache = { token: null, expireTime: 0 }
+    console.log('[ApiService] 飞书 Token 缓存已清除')
+  }
+
   private async getFeishuToken(apiConfig: ApiConfig): Promise<string> {
     // 检查缓存
     if (this.feishuTokenCache.token && Date.now() < this.feishuTokenCache.expireTime) {
