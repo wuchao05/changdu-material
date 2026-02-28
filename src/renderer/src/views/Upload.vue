@@ -313,7 +313,7 @@ async function scanFromFeishu() {
   }
 }
 
-// 更新飞书“当前状态”（只更新字段：当前状态）
+// 更新飞书"当前状态"（只更新字段：当前状态）
 async function updateFeishuDramaStatus(
   dramaName: string,
   status: string,
@@ -325,12 +325,50 @@ async function updateFeishuDramaStatus(
     }
 
     const appToken = apiConfigStore.config.feishuAppToken;
-    const mapping = feishuRecordMap.value[dramaName];
+    let mapping = feishuRecordMap.value[dramaName];
     const tableId =
       mapping?.tableId ||
       darenStore.currentDaren?.feishuDramaStatusTableId ||
       apiConfigStore.config.feishuDramaStatusTableId;
-    const recordId = mapping?.recordId;
+    let recordId = mapping?.recordId;
+
+    // 如果没有缓存 recordId，实时查询飞书获取
+    if (!recordId && appToken && tableId) {
+      console.log(`[Upload] recordId 未缓存，实时查询飞书: ${dramaName}`);
+      try {
+        const searchResult = (await window.api.feishuRequest(
+          `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/search`,
+          {
+            field_names: ["剧名", "当前状态"],
+            page_size: 10,
+            filter: {
+              conjunction: "and",
+              conditions: [
+                {
+                  field_name: "剧名",
+                  operator: "is",
+                  value: [dramaName],
+                },
+              ],
+            },
+          },
+          "POST"
+        )) as {
+          code?: number;
+          data?: {
+            items?: Array<{ record_id: string; fields: Record<string, unknown> }>;
+          };
+        };
+        if (searchResult.code === 0 && searchResult.data?.items?.length) {
+          recordId = searchResult.data.items[0].record_id;
+          // 缓存起来，后续不用再查
+          feishuRecordMap.value[dramaName] = { recordId, tableId };
+          console.log(`[Upload] 查询到 recordId: ${recordId}`);
+        }
+      } catch (e) {
+        console.error(`[Upload] 查询飞书 recordId 失败:`, e);
+      }
+    }
 
     if (!appToken || !tableId || !recordId) {
       console.warn("[Upload] 缺少飞书更新所需信息，跳过状态更新:", {
