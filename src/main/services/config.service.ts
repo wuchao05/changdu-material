@@ -11,7 +11,8 @@ export interface DarenInfo {
   enableUpload?: boolean; // 启用上传功能
   enableDownload?: boolean; // 启用下载功能
   enableJuliang?: boolean; // 启用巨量上传功能
-  changduConfigType?: 'sanrou' | 'meiri'; // 常读配置类型：散柔/每日
+  changduConfigType?: 'sanrou' | 'meiri' | 'custom'; // 常读配置类型：散柔/每日/定制
+  customChangduConfig?: ChangduConfig; // 定制的常读配置（当 changduConfigType 为 'custom' 时使用）
 }
 
 export interface DarenConfig {
@@ -278,6 +279,7 @@ export class ConfigService {
       enableDownload: daren.enableDownload ?? true,
       enableJuliang: daren.enableJuliang ?? false, // 默认不启用巨量上传
       changduConfigType: daren.changduConfigType || 'sanrou', // 默认使用散柔配置
+      customChangduConfig: daren.customChangduConfig || undefined, // 定制配置
     };
   }
 

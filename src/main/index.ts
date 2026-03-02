@@ -357,13 +357,14 @@ function registerIpcHandlers(): void {
     },
   );
 
-  ipcMain.handle('api:changdu', async (_event, endpoint, params, headers, configType) => {
+  ipcMain.handle('api:changdu', async (_event, endpoint, params, headers, configType, customConfig) => {
     return await apiService.changduRequest(
       endpoint,
       params,
       headers,
       configService,
       configType || 'sanrou', // 默认使用散柔配置
+      customConfig, // 传递自定义配置
     );
   });
 

@@ -314,13 +314,21 @@ export class ApiService {
    * 常读下载中心接口请求（不需要签名）
    * 域名: www.changdunovel.com
    * @param configType 使用哪套常读配置，默认使用散柔配置
+   * @param customConfig 自定义配置（当 configType 为 'custom' 时使用）
    */
   async changduRequest(
     endpoint: string,
     params: Record<string, string | number>,
     headers: Record<string, string> = {},
     configService: ConfigService,
-    configType: 'sanrou' | 'meiri' = 'sanrou'
+    configType: 'sanrou' | 'meiri' | 'custom' = 'sanrou',
+    customConfig?: {
+      cookie: string
+      distributorId: string
+      changduAppId: string
+      changduAdUserId: string
+      changduRootAdUserId: string
+    }
   ): Promise<unknown> {
     console.log('[ApiService] 常读请求开始')
     console.log('[ApiService] Endpoint:', endpoint)
@@ -328,11 +336,17 @@ export class ApiService {
     console.log('[ApiService] Params:', JSON.stringify(params, null, 2))
 
     const apiConfig = await configService.getApiConfig()
-    
+
     // 根据 configType 选择配置
-    const changduConfig = configType === 'meiri' 
-      ? apiConfig.meiriChangdu 
-      : apiConfig.sanrouChangdu
+    let changduConfig
+    if (configType === 'custom' && customConfig) {
+      changduConfig = customConfig
+      console.log('[ApiService] 使用定制配置')
+    } else if (configType === 'meiri') {
+      changduConfig = apiConfig.meiriChangdu
+    } else {
+      changduConfig = apiConfig.sanrouChangdu
+    }
 
     const url = new URL(`https://www.changdunovel.com${endpoint}`)
     Object.entries(params).forEach(([key, value]) => {

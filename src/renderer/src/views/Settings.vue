@@ -37,6 +37,7 @@ const darenForm = ref<DarenInfo>({
   enableDownload: true,
   enableJuliang: false, // 默认不启用巨量上传
   changduConfigType: "sanrou", // 默认使用散柔配置
+  customChangduConfig: undefined, // 定制配置
 });
 
 // 加载数据
@@ -51,6 +52,13 @@ function openDarenModal(daren?: DarenInfo) {
     darenForm.value = {
       ...daren,
       changduConfigType: daren.changduConfigType || "sanrou", // 确保有默认值
+      customChangduConfig: daren.customChangduConfig || {
+        cookie: "",
+        distributorId: "",
+        changduAppId: "",
+        changduAdUserId: "",
+        changduRootAdUserId: "",
+      },
     };
   } else {
     editingDaren.value = null;
@@ -63,6 +71,13 @@ function openDarenModal(daren?: DarenInfo) {
       enableDownload: true,
       enableJuliang: false,
       changduConfigType: "sanrou", // 默认使用散柔配置
+      customChangduConfig: {
+        cookie: "",
+        distributorId: "",
+        changduAppId: "",
+        changduAdUserId: "",
+        changduRootAdUserId: "",
+      },
     };
   }
   showDarenModal.value = true;
@@ -153,11 +168,13 @@ const darenColumns: DataTableColumns<DarenInfo> = [
       const typeMap = {
         sanrou: "散柔",
         meiri: "每日",
+        custom: "定制",
       };
       const type = row.changduConfigType || "sanrou";
+      const tagType = type === "sanrou" ? "info" : type === "meiri" ? "success" : "warning";
       return h(
         NTag,
-        { type: type === "sanrou" ? "info" : "success", size: "small" },
+        { type: tagType, size: "small" },
         { default: () => typeMap[type] }
       );
     },
@@ -293,9 +310,52 @@ const darenColumns: DataTableColumns<DarenInfo> = [
             <NSpace>
               <NRadio value="sanrou">散柔-常读配置</NRadio>
               <NRadio value="meiri">每日-常读配置</NRadio>
+              <NRadio value="custom">定制配置</NRadio>
             </NSpace>
           </NRadioGroup>
         </NFormItem>
+
+        <!-- 定制配置表单 -->
+        <template v-if="darenForm.changduConfigType === 'custom'">
+          <div
+            style="border: 1px solid #e0e0e0; border-radius: 4px; padding: 16px; margin-bottom: 16px; background: #fafafa"
+          >
+            <h4 style="margin-bottom: 12px; color: #666">定制常读配置</h4>
+            <NFormItem label="Cookie" required>
+              <NInput
+                v-model:value="darenForm.customChangduConfig!.cookie"
+                type="textarea"
+                :rows="3"
+                placeholder="常读平台 Cookie"
+              />
+            </NFormItem>
+            <NFormItem label="Distributor ID" required>
+              <NInput
+                v-model:value="darenForm.customChangduConfig!.distributorId"
+                placeholder="分销商 ID"
+              />
+            </NFormItem>
+            <NFormItem label="App ID" required>
+              <NInput
+                v-model:value="darenForm.customChangduConfig!.changduAppId"
+                placeholder="常读应用 ID"
+              />
+            </NFormItem>
+            <NFormItem label="Ad User ID" required>
+              <NInput
+                v-model:value="darenForm.customChangduConfig!.changduAdUserId"
+                placeholder="广告用户 ID"
+              />
+            </NFormItem>
+            <NFormItem label="Root Ad User ID" required>
+              <NInput
+                v-model:value="darenForm.customChangduConfig!.changduRootAdUserId"
+                placeholder="根广告用户 ID"
+              />
+            </NFormItem>
+          </div>
+        </template>
+
         <NFormItem label="状态表 ID">
           <NInput
             v-model:value="darenForm.feishuDramaStatusTableId"

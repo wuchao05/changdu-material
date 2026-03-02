@@ -109,8 +109,20 @@ const api = {
     ipcRenderer.invoke("api:feishuPendingUpload", tableId),
   feishuGetPendingUploadByDate: (tableId: string | undefined, dateTimestamp: number) =>
     ipcRenderer.invoke("api:feishuPendingUploadByDate", tableId, dateTimestamp),
-  changduRequest: (endpoint: string, params: unknown, headers?: unknown, configType?: 'sanrou' | 'meiri') =>
-    ipcRenderer.invoke("api:changdu", endpoint, params, headers, configType),
+  changduRequest: (
+    endpoint: string,
+    params: unknown,
+    headers?: unknown,
+    configType?: 'sanrou' | 'meiri' | 'custom',
+    customConfig?: {
+      cookie: string
+      distributorId: string
+      changduAppId: string
+      changduAdUserId: string
+      changduRootAdUserId: string
+    }
+  ) =>
+    ipcRenderer.invoke("api:changdu", endpoint, params, headers, configType, customConfig),
   uploadToTos: (filePath: string, options: unknown) =>
     ipcRenderer.invoke("api:upload", filePath, options),
   submitMaterial: (materials: unknown) =>

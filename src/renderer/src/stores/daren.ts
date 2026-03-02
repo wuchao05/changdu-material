@@ -10,7 +10,14 @@ export interface DarenInfo {
   enableUpload?: boolean // 启用上传功能
   enableDownload?: boolean // 启用下载功能
   enableJuliang?: boolean // 启用巨量上传功能
-  changduConfigType?: 'sanrou' | 'meiri' // 常读配置类型：散柔/每日
+  changduConfigType?: 'sanrou' | 'meiri' | 'custom' // 常读配置类型：散柔/每日/定制
+  customChangduConfig?: {
+    cookie: string
+    distributorId: string
+    changduAppId: string
+    changduAdUserId: string
+    changduRootAdUserId: string
+  } // 定制的常读配置
 }
 
 export const useDarenStore = defineStore('daren', () => {

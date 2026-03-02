@@ -134,7 +134,14 @@ interface Api {
     endpoint: string,
     params: unknown,
     headers?: unknown,
-    configType?: 'sanrou' | 'meiri'
+    configType?: 'sanrou' | 'meiri' | 'custom',
+    customConfig?: {
+      cookie: string
+      distributorId: string
+      changduAppId: string
+      changduAdUserId: string
+      changduRootAdUserId: string
+    }
   ) => Promise<unknown>;
   uploadToTos: (
     filePath: string,
