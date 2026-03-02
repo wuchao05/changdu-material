@@ -59,6 +59,8 @@ export class RemoteConfigService {
    * POST https://ad-runner.cxyy.top/api/electron-config
    * 请求体: { version, updatedAt, apiConfig, darenList }
    * 返回: { code: 0, msg: "success" }
+   *
+   * 注意：推送时会过滤掉达人的 customChangduConfig 字段（敏感信息仅保存在本地）
    */
   async pushConfig(
     apiConfig: ApiConfig,
@@ -68,12 +70,18 @@ export class RemoteConfigService {
       console.log("[RemoteConfig] 推送配置到服务器...");
       console.log("[RemoteConfig] URL:", this.configUrl);
 
+      // 过滤掉敏感的 customChangduConfig 字段
+      const sanitizedDarenList = darenList.map(daren => {
+        const { customChangduConfig, ...rest } = daren;
+        return rest;
+      });
+
       // 直接发送配置对象
       const config: RemoteConfig = {
         version: Date.now(),
         updatedAt: new Date().toISOString(),
         apiConfig,
-        darenList,
+        darenList: sanitizedDarenList,
       };
 
       console.log(
@@ -89,6 +97,7 @@ export class RemoteConfigService {
           2
         )
       );
+      console.log("[RemoteConfig] 注意：已过滤掉达人的 customChangduConfig 字段（敏感信息）");
 
       const response = await axios.post(this.configUrl, config, {
         headers: { "Content-Type": "application/json" },
