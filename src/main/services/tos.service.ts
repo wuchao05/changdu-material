@@ -146,6 +146,7 @@ export class TosService {
   private async getTosCredentials(xtToken: string): Promise<TosCredentials> {
     // 调用素材库 API 获取 TOS 临时凭证
     const axios = (await import('axios')).default
+    console.log('[TosService] 获取 TOS Key，请求头 token:', xtToken)
 
     const response = await axios.get('https://splay-admin.lnkaishi.cn/material/getTosKey', {
       headers: {
