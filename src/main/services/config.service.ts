@@ -136,7 +136,13 @@ export class ConfigService {
       // 保存 API 配置
       if (remoteConfig.apiConfig) {
         console.log("[ConfigService] 同步 API 配置...");
-        await this.saveApiConfig(remoteConfig.apiConfig);
+        const localConfig = await this.getApiConfig();
+        const syncedApiConfig: ApiConfig = {
+          ...remoteConfig.apiConfig,
+          // xtToken 只允许由 fetchAuthConfig(cxyy) 更新，远程配置同步时忽略
+          xtToken: localConfig.xtToken,
+        };
+        await this.saveApiConfig(syncedApiConfig);
       }
 
       // 保存达人列表

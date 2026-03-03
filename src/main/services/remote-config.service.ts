@@ -75,12 +75,17 @@ export class RemoteConfigService {
         const { customChangduConfig, ...rest } = daren;
         return rest;
       });
+      const sanitizedApiConfig: ApiConfig = {
+        ...apiConfig,
+        // xtToken 为鉴权敏感信息，不推送到 ad-runner
+        xtToken: "",
+      };
 
       // 直接发送配置对象
       const config: RemoteConfig = {
         version: Date.now(),
         updatedAt: new Date().toISOString(),
-        apiConfig,
+        apiConfig: sanitizedApiConfig,
         darenList: sanitizedDarenList,
       };
 
@@ -97,7 +102,9 @@ export class RemoteConfigService {
           2
         )
       );
-      console.log("[RemoteConfig] 注意：已过滤掉达人的 customChangduConfig 字段（敏感信息）");
+      console.log(
+        "[RemoteConfig] 注意：已过滤掉达人的 customChangduConfig 和 apiConfig.xtToken（敏感信息）"
+      );
 
       const response = await axios.post(this.configUrl, config, {
         headers: { "Content-Type": "application/json" },
