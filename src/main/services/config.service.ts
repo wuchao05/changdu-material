@@ -81,9 +81,13 @@ export class ConfigService {
       const localConfig = await this.getApiConfig();
 
       // 映射 tokens.xh → xtToken
-      if (data.tokens?.xh) {
-        localConfig.xtToken = data.tokens.xh;
+      if (!data.tokens?.xh) {
+        localConfig.xtToken = "";
+        await this.saveApiConfig(localConfig);
+        console.warn("[ConfigService] Auth 配置缺少 tokens.xh，已清空 xtToken");
+        return { success: false, error: "Auth 配置缺少 tokens.xh" };
       }
+      localConfig.xtToken = data.tokens.xh;
 
       // 映射 platforms.changdu.sr → sanrouChangdu
       const sr = data.platforms?.changdu?.sr;
@@ -136,11 +140,10 @@ export class ConfigService {
       // 保存 API 配置
       if (remoteConfig.apiConfig) {
         console.log("[ConfigService] 同步 API 配置...");
-        const localConfig = await this.getApiConfig();
         const syncedApiConfig: ApiConfig = {
           ...remoteConfig.apiConfig,
-          // xtToken 只允许由 fetchAuthConfig(cxyy) 更新，远程配置同步时忽略
-          xtToken: localConfig.xtToken,
+          // xtToken 只允许由 fetchAuthConfig(cxyy) 更新，远程配置同步时强制清空
+          xtToken: "",
         };
         await this.saveApiConfig(syncedApiConfig);
       }
@@ -158,6 +161,11 @@ export class ConfigService {
         "[ConfigService] ✓ 远程配置同步完成，版本:",
         remoteConfig.version
       );
+      // 远程同步后，立即从 Auth 接口回填 xtToken，避免使用远程旧值
+      const authResult = await this.fetchAuthConfig();
+      if (!authResult.success) {
+        console.warn("[ConfigService] 远程同步后获取 Auth 配置失败:", authResult.error);
+      }
       return { synced: true, version: remoteConfig.version };
     } catch (error) {
       console.error("[ConfigService] ✗ 远程配置同步失败:", error);
