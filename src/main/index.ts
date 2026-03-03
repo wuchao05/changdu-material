@@ -1,49 +1,12 @@
 // Windows 控制台编码修复：在所有导入之前设置
 if (process.platform === 'win32') {
-  // 方法1：强制 stdout 和 stderr 使用 UTF-8 编码
+  // 强制 stdout 和 stderr 使用 UTF-8 编码
   if (process.stdout && typeof process.stdout.setDefaultEncoding === 'function') {
     process.stdout.setDefaultEncoding('utf8');
   }
   if (process.stderr && typeof process.stderr.setDefaultEncoding === 'function') {
     process.stderr.setDefaultEncoding('utf8');
   }
-
-  // 方法2：重写 console.log 以确保使用 UTF-8（带错误处理）
-  const originalLog = console.log;
-  const originalError = console.error;
-  const originalWarn = console.warn;
-
-  // 安全写入函数，捕获 EPIPE 错误
-  const safeWrite = (stream: NodeJS.WriteStream, message: string) => {
-    try {
-      if (stream && stream.writable && !stream.destroyed) {
-        stream.write(message + '\n', 'utf8');
-      }
-    } catch {
-      // 忽略 EPIPE 等写入错误
-    }
-  };
-
-  console.log = function (...args) {
-    const message = args
-      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)))
-      .join(' ');
-    safeWrite(process.stdout, message);
-  };
-
-  console.error = function (...args) {
-    const message = args
-      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)))
-      .join(' ');
-    safeWrite(process.stderr, message);
-  };
-
-  console.warn = function (...args) {
-    const message = args
-      .map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg, null, 2)))
-      .join(' ');
-    safeWrite(process.stderr, message);
-  };
 }
 
 import {

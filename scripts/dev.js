@@ -6,6 +6,7 @@
  */
 
 const { spawn } = require('child_process');
+const path = require('path');
 
 function startDevServer() {
   console.log('正在启动开发服务器...\n');
@@ -19,19 +20,28 @@ function startDevServer() {
   };
 
   // 启动 electron-vite
-  // 注意：Windows 下必须在同一个 cmd 进程内执行 chcp 和 dev 命令，
-  // 否则 chcp 不会影响后续子进程，中文日志仍可能乱码。
+  // 注意：Windows 下使用 node 直接启动 electron-vite CLI，避免 pnpm 在控制台转码导致乱码。
   const electronVite =
     process.platform === 'win32'
       ? spawn(
           process.env.ComSpec || 'cmd.exe',
-          ['/d', '/s', '/c', 'chcp 65001>nul && pnpm electron-vite dev'],
+          [
+            '/d',
+            '/s',
+            '/c',
+            `chcp 65001>nul && node "${path.join(
+              'node_modules',
+              'electron-vite',
+              'dist',
+              'cli.mjs'
+            )}" dev`,
+          ],
           {
             stdio: 'inherit',
             env: commonEnv,
           }
         )
-      : spawn('pnpm', ['electron-vite', 'dev'], {
+      : spawn('node', [path.join('node_modules', 'electron-vite', 'dist', 'cli.mjs'), 'dev'], {
           stdio: 'inherit',
           env: commonEnv,
         });
