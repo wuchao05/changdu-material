@@ -27,14 +27,8 @@ function startDevServer() {
           process.env.ComSpec || 'cmd.exe',
           [
             '/d',
-            '/s',
             '/c',
-            `chcp 65001>nul && node "${path.join(
-              'node_modules',
-              'electron-vite',
-              'dist',
-              'cli.mjs'
-            )}" dev`,
+            'chcp 65001>nul && node .\\node_modules\\electron-vite\\dist\\cli.mjs dev',
           ],
           {
             stdio: 'inherit',
