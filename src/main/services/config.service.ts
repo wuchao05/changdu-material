@@ -72,8 +72,12 @@ export class ConfigService {
         timeout: 15000,
       });
 
-      const data = response.data;
-      if (!data) {
+      // 兼容两种返回格式：
+      // 1) { tokens, platforms, ... }
+      // 2) { code, message, data: { tokens, platforms, ... } }
+      const raw = response.data;
+      const data = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+      if (!data || typeof data !== "object") {
         return { success: false, error: "响应数据为空" };
       }
 
