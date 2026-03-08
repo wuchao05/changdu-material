@@ -917,17 +917,13 @@ async function updateFeishuStatus(
   }
 
   const appToken = apiConfigStore.config.feishuAppToken;
-  // 优先使用任务中保存的 tableId（查询时确定的），否则回退到当前配置
-  const tableId =
-    task.tableId ||
-    darenStore.currentDaren?.feishuDramaStatusTableId ||
-    apiConfigStore.config.feishuDramaStatusTableId;
+  // 优先使用任务中保存的 tableId（查询时确定的），否则使用当前达人配置
+  const tableId = task.tableId || darenStore.currentDaren?.feishuDramaStatusTableId;
 
   console.log("[Download] 飞书配置检查:", {
     appToken: appToken ? `${appToken.substring(0, 10)}...` : "未配置",
     taskTableId: task.tableId || "未保存",
     darenTableId: darenStore.currentDaren?.feishuDramaStatusTableId || "未配置",
-    adminTableId: apiConfigStore.config.feishuDramaStatusTableId || "未配置",
     finalTableId: tableId || "未配置",
     currentDaren: darenStore.currentDaren?.label || "无",
   });

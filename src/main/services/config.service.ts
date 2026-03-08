@@ -2,6 +2,13 @@ import { app } from "electron";
 import fs from "fs/promises";
 import path from "path";
 import { RemoteConfigService } from "./remote-config.service";
+import {
+  FIXED_FEISHU_APP_ID,
+  FIXED_FEISHU_APP_SECRET,
+  FIXED_FEISHU_APP_TOKEN,
+  FIXED_TOS_BUCKET,
+  FIXED_TOS_REGION,
+} from "../constants/fixed-config";
 
 export interface DarenInfo {
   id: string; // 账户
@@ -36,7 +43,6 @@ export interface ApiConfig {
   feishuAppId: string;
   feishuAppSecret: string;
   feishuAppToken: string;
-  feishuDramaStatusTableId: string; // 管理员用的剧集状态表 ID
   // TOS 存储配置
   tosAccessKeyId: string;
   tosAccessKeySecret: string;
@@ -62,7 +68,7 @@ export class ConfigService {
 
   /**
    * 从 cxyy.top/api/auth/config 获取常读配置和素材库 Token
-   * 只覆盖常读配置和 xtToken，不影响飞书、TOS 等其他配置
+   * 只覆盖常读配置和 xtToken，不影响飞书、TOS 固定配置
    */
   async fetchAuthConfig(): Promise<{ success: boolean; error?: string }> {
     try {
@@ -141,15 +147,11 @@ export class ConfigService {
         return { synced: false, error: "远程配置为空" };
       }
 
-      // 保存 API 配置
+      // 远程 API 配置不再落地，避免覆盖本地固定值与 Auth 动态值
       if (remoteConfig.apiConfig) {
-        console.log("[ConfigService] 同步 API 配置...");
-        const syncedApiConfig: ApiConfig = {
-          ...remoteConfig.apiConfig,
-          // xtToken 只允许由 fetchAuthConfig(cxyy) 更新，远程配置同步时强制清空
-          xtToken: "",
-        };
-        await this.saveApiConfig(syncedApiConfig);
+        console.log(
+          "[ConfigService] 检测到远程 API 配置，已按策略忽略（常读/xtToken 走 Auth，飞书/TOS 走固定值）"
+        );
       }
 
       // 保存达人列表
@@ -303,50 +305,77 @@ export class ConfigService {
 
   // ==================== API 配置 ====================
 
+  private createDefaultApiConfig(): ApiConfig {
+    return {
+      // 常读平台配置（两套）
+      sanrouChangdu: {
+        cookie: "",
+        distributorId: "1842236883646506",
+        changduAppId: "40012555",
+        changduAdUserId: "380892546610362",
+        changduRootAdUserId: "380892546610362",
+      },
+      meiriChangdu: {
+        cookie: "",
+        distributorId: "",
+        changduAppId: "",
+        changduAdUserId: "",
+        changduRootAdUserId: "",
+      },
+      // 飞书配置（固定值）
+      feishuAppId: FIXED_FEISHU_APP_ID,
+      feishuAppSecret: FIXED_FEISHU_APP_SECRET,
+      feishuAppToken: FIXED_FEISHU_APP_TOKEN,
+      // TOS 存储配置（桶和地域固定；AccessKeyId/Secret 通过 API 动态获取）
+      tosAccessKeyId: "",
+      tosAccessKeySecret: "",
+      tosBucket: FIXED_TOS_BUCKET,
+      tosRegion: FIXED_TOS_REGION,
+      // 素材库配置
+      xtToken: "",
+    };
+  }
+
+  private normalizeApiConfig(config: Partial<ApiConfig>): ApiConfig {
+    const defaultConfig = this.createDefaultApiConfig();
+    return {
+      ...defaultConfig,
+      ...config,
+      sanrouChangdu: {
+        ...defaultConfig.sanrouChangdu,
+        ...(config.sanrouChangdu || {}),
+      },
+      meiriChangdu: {
+        ...defaultConfig.meiriChangdu,
+        ...(config.meiriChangdu || {}),
+      },
+      // 固定配置始终以代码常量为准，不读取远程同步值
+      feishuAppId: FIXED_FEISHU_APP_ID,
+      feishuAppSecret: FIXED_FEISHU_APP_SECRET,
+      feishuAppToken: FIXED_FEISHU_APP_TOKEN,
+      tosBucket: FIXED_TOS_BUCKET,
+      tosRegion: FIXED_TOS_REGION,
+    };
+  }
+
   async getApiConfig(): Promise<ApiConfig> {
     try {
       const data = await fs.readFile(this.apiConfigPath, "utf-8");
-      return JSON.parse(data);
+      const parsed = JSON.parse(data) as Partial<ApiConfig>;
+      return this.normalizeApiConfig(parsed);
     } catch (error) {
       // 如果文件不存在，返回默认配置
-      const defaultConfig: ApiConfig = {
-        // 常读平台配置（两套）
-        sanrouChangdu: {
-          cookie: "",
-          distributorId: "1842236883646506",
-          changduAppId: "40012555",
-          changduAdUserId: "380892546610362",
-          changduRootAdUserId: "380892546610362",
-        },
-        meiriChangdu: {
-          cookie: "",
-          distributorId: "",
-          changduAppId: "",
-          changduAdUserId: "",
-          changduRootAdUserId: "",
-        },
-        // 飞书配置
-        feishuAppId: "cli_a870f7611b7b1013",
-        feishuAppSecret: "NTwHbZG8rpOQyMEnXGPV6cNQ84KEqE8z",
-        feishuAppToken: "WdWvbGUXXaokk8sAS94c00IZnsf",
-        feishuDramaStatusTableId: "",
-        // TOS 存储配置（AccessKeyId/Secret 通过 API 动态获取）
-        tosAccessKeyId: "",
-        tosAccessKeySecret: "",
-        tosBucket: "ylc-material-beijing",
-        tosRegion: "cn-beijing",
-        // 素材库配置
-        xtToken: "",
-      };
+      const defaultConfig = this.createDefaultApiConfig();
       await this.saveApiConfig(defaultConfig);
       return defaultConfig;
     }
   }
 
   async saveApiConfig(config: ApiConfig): Promise<void> {
+    const normalizedConfig = this.normalizeApiConfig(config);
     await fs.writeFile(
       this.apiConfigPath,
-      JSON.stringify(config, null, 2),
+      JSON.stringify(normalizedConfig, null, 2),
       "utf-8"
     );
   }

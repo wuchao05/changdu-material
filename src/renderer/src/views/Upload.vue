@@ -222,16 +222,13 @@ async function scanFromFeishu() {
   feishuBuiltPendingSet.value = new Set();
 
   try {
-    // 确保已加载系统配置（获取飞书 appToken / 管理员 tableId）
-    if (!apiConfigStore.loaded) {
-      await apiConfigStore.loadConfig();
-    }
-
-    // 1. 获取当前用户的状态表 ID（达人优先，否则用管理员配置）
+    // 1. 获取当前达人的状态表 ID
     const currentDaren = darenStore.currentDaren;
-    const tableId =
-      currentDaren?.feishuDramaStatusTableId ||
-      apiConfigStore.config.feishuDramaStatusTableId;
+    const tableId = currentDaren?.feishuDramaStatusTableId?.trim();
+    if (!tableId) {
+      message.warning("当前达人未配置飞书剧集状态表 ID");
+      return;
+    }
 
     // 2. 查询飞书待上传剧集
     const response = await window.api.feishuGetPendingUpload(tableId);
@@ -328,8 +325,7 @@ async function updateFeishuDramaStatus(
     let mapping = feishuRecordMap.value[dramaName];
     const tableId =
       mapping?.tableId ||
-      darenStore.currentDaren?.feishuDramaStatusTableId ||
-      apiConfigStore.config.feishuDramaStatusTableId;
+      darenStore.currentDaren?.feishuDramaStatusTableId?.trim();
     let recordId = mapping?.recordId;
 
     // 如果没有缓存 recordId，实时查询飞书获取
@@ -839,16 +835,13 @@ async function runAutoUploadCycle(): Promise<boolean> {
   lastAutoUploadTime.value = now.toLocaleTimeString();
 
   try {
-    // 确保已加载系统配置
-    if (!apiConfigStore.loaded) {
-      await apiConfigStore.loadConfig();
-    }
-
-    // 获取当前用户的状态表 ID
+    // 获取当前达人的状态表 ID
     const currentDaren = darenStore.currentDaren;
-    const tableId =
-      currentDaren?.feishuDramaStatusTableId ||
-      apiConfigStore.config.feishuDramaStatusTableId;
+    const tableId = currentDaren?.feishuDramaStatusTableId?.trim();
+    if (!tableId) {
+      console.warn("[AutoUpload] 当前达人未配置飞书剧集状态表 ID");
+      return false;
+    }
 
     // 查询所有待上传剧集（不按日期过滤）
     console.log("[AutoUpload] 查询所有待上传剧集...");

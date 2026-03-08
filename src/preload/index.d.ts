@@ -63,6 +63,33 @@ interface ApiConfig {
   feishuAppSecret?: string;
 }
 
+interface JuliangSchedulerResult {
+  success: boolean;
+  error?: string;
+}
+
+interface JuliangSchedulerFetchResult extends JuliangSchedulerResult {
+  count: number;
+}
+
+interface JuliangSchedulerStats {
+  total: number;
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  skipped: number;
+}
+
+interface JuliangCompletedTask {
+  drama: string;
+  date: string;
+  fileCount: number;
+  status: "completed" | "failed" | "skipped";
+  error?: string;
+  duration: string;
+}
+
 interface Api {
   // 配置管理
   getDarenConfig: () => Promise<{ darenList: DarenInfo[] }>;
@@ -181,6 +208,55 @@ interface Api {
   hideWindow: () => Promise<{ success: boolean }>;
   showWindow: () => Promise<{ success: boolean }>;
   minimizeWindow: () => Promise<{ success: boolean }>;
+
+  // 巨量上传
+  juliangInitialize: () => Promise<{ success: boolean; error?: string }>;
+  juliangClose: () => Promise<{ success: boolean; error?: string }>;
+  juliangIsReady: () => Promise<boolean>;
+  juliangNavigate: (accountId: string) => Promise<{ success: boolean; error?: string }>;
+  juliangCheckLogin: () => Promise<{ needLogin: boolean }>;
+  juliangUploadTask: (task: unknown) => Promise<unknown>;
+  juliangGetConfig: () => Promise<Record<string, unknown>>;
+  juliangUpdateConfig: (config: unknown) => Promise<{ success: boolean }>;
+  juliangGetScreenshot: () => Promise<string | null>;
+  juliangGetLogs: () => Promise<Array<{ time: string; message: string }>>;
+  juliangClearLogs: () => Promise<{ success: boolean }>;
+
+  // 巨量调度器
+  juliangSchedulerStart: (darenId?: string) => Promise<JuliangSchedulerResult>;
+  juliangSchedulerStop: () => Promise<{ success: boolean }>;
+  juliangSchedulerGetStatus: () => Promise<{
+    status: "idle" | "running" | "stopped";
+    stats: JuliangSchedulerStats;
+  }>;
+  juliangSchedulerGetConfig: () => Promise<{
+    fetchIntervalMinutes: number;
+    localRootDir: string;
+  }>;
+  juliangSchedulerUpdateConfig: (config: unknown) => Promise<{ success: boolean }>;
+  juliangSchedulerGetLogs: () => Promise<Array<{ time: string; message: string }>>;
+  juliangSchedulerClearLogs: () => Promise<{ success: boolean }>;
+  juliangSchedulerFetchNow: (darenId?: string) => Promise<JuliangSchedulerFetchResult>;
+  juliangSchedulerCancelAll: () => Promise<JuliangSchedulerResult>;
+  juliangSchedulerGetCompletedTasks: () => Promise<JuliangCompletedTask[]>;
+  onJuliangSchedulerLog: (
+    callback: (log: { time: string; message: string }) => void
+  ) => () => void;
+  onJuliangLog: (
+    callback: (log: { time: string; message: string }) => void
+  ) => () => void;
+  onJuliangUploadProgress: (
+    callback: (progress: {
+      taskId: string;
+      drama: string;
+      status: string;
+      currentBatch: number;
+      totalBatches: number;
+      successCount: number;
+      totalFiles: number;
+      message: string;
+    }) => void
+  ) => () => void;
 }
 
 interface VideoMaterial {

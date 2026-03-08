@@ -18,7 +18,6 @@ export interface ApiConfig {
   feishuAppId: string;
   feishuAppSecret: string;
   feishuAppToken: string; // 飞书多维表格 App Token
-  feishuDramaStatusTableId: string; // 飞书剧集状态表 ID（管理员用）
   // TOS 存储配置
   tosAccessKeyId: string;
   tosAccessKeySecret: string;
@@ -50,7 +49,6 @@ export const useApiConfigStore = defineStore("apiConfig", () => {
     feishuAppId: "cli_a870f7611b7b1013",
     feishuAppSecret: "NTwHbZG8rpOQyMEnXGPV6cNQ84KEqE8z",
     feishuAppToken: "WdWvbGUXXaokk8sAS94c00IZnsf",
-    feishuDramaStatusTableId: "",
     // TOS 存储配置（AccessKeyId/Secret 通过 API 动态获取）
     tosAccessKeyId: "",
     tosAccessKeySecret: "",

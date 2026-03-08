@@ -2,6 +2,13 @@ import axios, { AxiosRequestConfig } from 'axios'
 import fs from 'fs'
 import FormData from 'form-data'
 import type { ConfigService, ApiConfig } from './config.service'
+import {
+  FIXED_FEISHU_APP_ID,
+  FIXED_FEISHU_APP_SECRET,
+  FIXED_FEISHU_APP_TOKEN,
+  FIXED_TOS_BUCKET,
+  FIXED_TOS_REGION,
+} from '../constants/fixed-config'
 
 export interface UploadProgress {
   fileName: string
@@ -29,8 +36,8 @@ export class ApiService {
     console.log('[ApiService] Method:', method)
     console.log('[ApiService] Request Data:', JSON.stringify(data, null, 2))
 
-    const apiConfig = await configService.getApiConfig()
-    const token = await this.getFeishuToken(apiConfig)
+    await configService.getApiConfig()
+    const token = await this.getFeishuToken()
 
     const config: AxiosRequestConfig = {
       method: method as 'GET' | 'POST' | 'PUT' | 'DELETE',
@@ -63,7 +70,7 @@ export class ApiService {
 
   /**
    * 查询待上传的剧集列表
-   * @param tableId 可选的表格 ID，如果不传则使用系统配置
+   * @param tableId 飞书表格 ID（达人配置）
    */
   async getPendingUploadDramas(
     configService: ConfigService,
@@ -78,16 +85,14 @@ export class ApiService {
       }>
     }
   }> {
-    const apiConfig = await configService.getApiConfig()
-
-    // 如果没有传入 tableId，使用系统配置
-    const finalTableId = tableId || apiConfig.feishuDramaStatusTableId
+    await configService.getApiConfig()
+    const finalTableId = tableId?.trim()
 
     if (!finalTableId) {
-      throw new Error('请先配置飞书剧集状态表 ID')
+      throw new Error('请先在达人配置中设置飞书剧集状态表 ID')
     }
 
-    const token = await this.getFeishuToken(apiConfig)
+    const token = await this.getFeishuToken()
 
     // 构建过滤条件 - 只过滤待上传状态
     const conditions: Array<{ field_name: string; operator: string; value: string[] }> = [
@@ -99,7 +104,7 @@ export class ApiService {
     ]
 
     const response = await axios.post(
-      `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
+      `https://open.feishu.cn/open-apis/bitable/v1/apps/${FIXED_FEISHU_APP_TOKEN}/tables/${finalTableId}/records/search`,
       {
         field_names: ['剧名', '日期', '当前状态', '账户'],
         page_size: 100,
@@ -143,15 +148,14 @@ export class ApiService {
       }>
     }
   }> {
-    const apiConfig = await configService.getApiConfig()
-    
-    const finalTableId = tableId || apiConfig.feishuDramaStatusTableId
+    await configService.getApiConfig()
+    const finalTableId = tableId?.trim()
     
     if (!finalTableId) {
-      throw new Error('请先配置飞书剧集状态表 ID')
+      throw new Error('请先在达人配置中设置飞书剧集状态表 ID')
     }
 
-    const token = await this.getFeishuToken(apiConfig)
+    const token = await this.getFeishuToken()
 
     // 将时间戳转换为当天 00:00:00 的时间戳（飞书日期字段使用 ExactDate 格式）
     const dateObj = new Date(dateTimestamp)
@@ -161,7 +165,7 @@ export class ApiService {
     console.log(`[ApiService] 查询日期: ${dateObj.toLocaleDateString()}, 时间戳: ${exactDateTimestamp}`)
 
     const response = await axios.post(
-      `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/search`,
+      `https://open.feishu.cn/open-apis/bitable/v1/apps/${FIXED_FEISHU_APP_TOKEN}/tables/${finalTableId}/records/search`,
       {
         field_names: ['剧名', '日期', '当前状态', '主体', '账户'],
         page_size: 100,
@@ -233,20 +237,20 @@ export class ApiService {
     tableId?: string
   ): Promise<boolean> {
     try {
-      const apiConfig = await configService.getApiConfig()
-      const finalTableId = tableId || apiConfig.feishuDramaStatusTableId
+      await configService.getApiConfig()
+      const finalTableId = tableId?.trim()
 
       if (!finalTableId) {
         console.error('[ApiService] 更新飞书状态失败: 未配置表格 ID')
         return false
       }
 
-      const token = await this.getFeishuToken(apiConfig)
+      const token = await this.getFeishuToken()
 
       console.log(`[ApiService] 更新飞书记录状态: ${recordId} -> ${newStatus}`)
 
       const response = await axios.put(
-        `https://open.feishu.cn/open-apis/bitable/v1/apps/${apiConfig.feishuAppToken}/tables/${finalTableId}/records/${recordId}`,
+        `https://open.feishu.cn/open-apis/bitable/v1/apps/${FIXED_FEISHU_APP_TOKEN}/tables/${finalTableId}/records/${recordId}`,
         {
           fields: {
             '当前状态': newStatus
@@ -278,7 +282,7 @@ export class ApiService {
     console.log('[ApiService] 飞书 Token 缓存已清除')
   }
 
-  private async getFeishuToken(apiConfig: ApiConfig): Promise<string> {
+  private async getFeishuToken(): Promise<string> {
     // 检查缓存
     if (this.feishuTokenCache.token && Date.now() < this.feishuTokenCache.expireTime) {
       return this.feishuTokenCache.token
@@ -288,8 +292,8 @@ export class ApiService {
     const response = await axios.post(
       'https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal',
       {
-        app_id: apiConfig.feishuAppId,
-        app_secret: apiConfig.feishuAppSecret
+        app_id: FIXED_FEISHU_APP_ID,
+        app_secret: FIXED_FEISHU_APP_SECRET
       },
       {
         headers: {
@@ -442,7 +446,7 @@ export class ApiService {
   }
 
   private async getTosUploadAuth(
-    apiConfig: ApiConfig,
+    _apiConfig: ApiConfig,
     fileName: string
   ): Promise<{
     uploadUrl: string
@@ -455,8 +459,8 @@ export class ApiService {
   }> {
     // 这里需要调用后端接口获取上传凭证
     // 简化示例，实际需要根据 TOS SDK 实现
-    const bucket = apiConfig.tosBucket || 'your-bucket'
-    const region = apiConfig.tosRegion || 'cn-beijing'
+    const bucket = FIXED_TOS_BUCKET
+    const region = FIXED_TOS_REGION
     const key = `uploads/${Date.now()}_${fileName}`
 
     return {

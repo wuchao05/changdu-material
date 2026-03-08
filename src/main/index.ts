@@ -442,11 +442,11 @@ function registerIpcHandlers(): void {
   });
 
   // ==================== 巨量调度器 ====================
-  ipcMain.handle('juliang:scheduler:start', async () => {
+  ipcMain.handle('juliang:scheduler:start', async (_event, darenId?: string) => {
     if (mainWindow) {
       juliangScheduler.setMainWindow(mainWindow);
     }
-    return await juliangScheduler.start();
+    return await juliangScheduler.start(darenId);
   });
 
   ipcMain.handle('juliang:scheduler:stop', async () => {
@@ -479,8 +479,8 @@ function registerIpcHandlers(): void {
     return { success: true };
   });
 
-  ipcMain.handle('juliang:scheduler:fetchNow', async () => {
-    return await juliangScheduler.fetchNow();
+  ipcMain.handle('juliang:scheduler:fetchNow', async (_event, darenId?: string) => {
+    return await juliangScheduler.fetchNow(darenId);
   });
 
   ipcMain.handle('juliang:scheduler:cancelAll', async () => {

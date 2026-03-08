@@ -20,8 +20,12 @@ import {
   NDataTable,
   useMessage,
 } from "naive-ui";
+import { useAuthStore } from "../stores/auth";
+import { useDarenStore } from "../stores/daren";
 
 const message = useMessage();
+const authStore = useAuthStore();
+const darenStore = useDarenStore();
 
 // 状态
 const isInitializing = ref(false);
@@ -42,6 +46,13 @@ const schedulerStats = ref({
 const schedulerConfig = ref({
   fetchIntervalMinutes: 20,
   localRootDir: "",
+});
+
+const currentSchedulerDarenId = computed(() => {
+  if (authStore.isAdmin) {
+    return undefined;
+  }
+  return darenStore.currentDaren?.id || authStore.currentUser?.id;
 });
 
 // 配置
@@ -153,7 +164,7 @@ async function startScheduler() {
       }
     }
 
-    const result = await window.api.juliangSchedulerStart();
+    const result = await window.api.juliangSchedulerStart(currentSchedulerDarenId.value);
     if (result.success) {
       schedulerStatus.value = "running";
       showLogs.value = true; // 自动展开日志
@@ -180,7 +191,7 @@ async function stopScheduler() {
 // 立即执行调度
 async function fetchNow() {
   try {
-    const result = await window.api.juliangSchedulerFetchNow();
+    const result = await window.api.juliangSchedulerFetchNow(currentSchedulerDarenId.value);
     if (result.success) {
       message.success(`查询完成，发现 ${result.count} 个任务`);
     } else {

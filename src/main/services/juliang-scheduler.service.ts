@@ -55,6 +55,7 @@ export class JuliangSchedulerService {
   private status: SchedulerStatus = "idle";
   private queue: InternalTask[] = [];
   private taskMap: Map<string, InternalTask> = new Map();
+  private scopedDarenId: string | null = null;
   private fetchTimer: NodeJS.Timeout | null = null;
   private isTaskProcessing = false;
   private isCancelled = false; // 取消标志
@@ -223,14 +224,21 @@ export class JuliangSchedulerService {
   /**
    * 启动调度器
    */
-  async start(): Promise<{ success: boolean; error?: string }> {
+  async start(darenId?: string): Promise<{ success: boolean; error?: string }> {
     if (this.status === "running") {
       return { success: false, error: "调度器已在运行中" };
     }
 
+    this.scopedDarenId = darenId?.trim() || null;
+
     // 重新加载配置，确保使用最新值
     this.loadConfig();
     this.log(`使用配置: localRootDir=${this.config.localRootDir}`);
+    if (this.scopedDarenId) {
+      this.log(`当前调度仅处理达人: ${this.scopedDarenId}`);
+    } else {
+      this.log("当前调度处理所有启用巨量上传的达人");
+    }
 
     if (!this.config.localRootDir) {
       return { success: false, error: "请先设置素材根目录" };
@@ -282,12 +290,15 @@ export class JuliangSchedulerService {
     await juliangService.close();
 
     this.log("调度器已停止");
+    this.scopedDarenId = null;
   }
 
   /**
    * 立即执行一次查询
    */
-  async fetchNow(): Promise<{ success: boolean; count: number; error?: string }> {
+  async fetchNow(
+    darenId?: string
+  ): Promise<{ success: boolean; count: number; error?: string }> {
     if (this.status !== "running") {
       return { success: false, count: 0, error: "调度器未运行" };
     }
@@ -304,6 +315,15 @@ export class JuliangSchedulerService {
         if (!initResult.success) {
           return { success: false, count: 0, error: `浏览器初始化失败: ${initResult.error}` };
         }
+      }
+
+      const requestDarenId = darenId?.trim() || null;
+      if (requestDarenId && this.scopedDarenId && requestDarenId !== this.scopedDarenId) {
+        return {
+          success: false,
+          count: 0,
+          error: `当前调度已绑定达人 ${this.scopedDarenId}，请停止后重新启动`,
+        };
       }
 
       this.log("手动触发：立即查询飞书任务");
@@ -397,10 +417,14 @@ export class JuliangSchedulerService {
       // 获取达人配置
       const darenConfig = await this.configService.getDarenConfig();
       this.log(`所有达人配置: ${JSON.stringify(darenConfig.darenList.map(d => ({ id: d.id, label: d.label, enableJuliang: d.enableJuliang, feishuDramaStatusTableId: d.feishuDramaStatusTableId })))}`);
-      const enabledDarens = darenConfig.darenList.filter((d) => d.enableJuliang);
+      const enabledDarens = this.getTargetDarens(darenConfig.darenList);
 
       if (enabledDarens.length === 0) {
-        this.log("没有启用巨量上传的达人");
+        if (this.scopedDarenId) {
+          this.log(`达人 ${this.scopedDarenId} 未启用巨量上传或不存在`);
+        } else {
+          this.log("没有启用巨量上传的达人");
+        }
         return 0;
       }
 
@@ -475,6 +499,19 @@ export class JuliangSchedulerService {
       this.log(`拉取飞书任务失败: ${error instanceof Error ? error.message : String(error)}`);
       return 0;
     }
+  }
+
+  /**
+   * 获取当前调度目标达人
+   */
+  private getTargetDarens(darenList: DarenInfo[]): DarenInfo[] {
+    const enabledDarens = darenList.filter((d) => d.enableJuliang);
+
+    if (!this.scopedDarenId) {
+      return enabledDarens;
+    }
+
+    return enabledDarens.filter((d) => d.id === this.scopedDarenId);
   }
 
   /**
