@@ -617,7 +617,7 @@ export class JuliangService {
 
           // 如果进度条数量少于预期，判断是否达到容许阈值
           const elapsedTime = Date.now() - startTime;
-          if (progressCount < files.length && elapsedTime > 20000) {
+          if (progressCount < files.length && elapsedTime > 10000) {
             const ratio = progressCount / files.length;
             const threshold = this.config.progressBarThreshold;
             if (ratio < threshold) {
@@ -724,8 +724,8 @@ export class JuliangService {
             }
           }
 
-          // 继续等待（30秒轮询间隔）
-          await this.page.waitForTimeout(30000);
+          // 继续等待（5秒轮询间隔）
+          await this.page.waitForTimeout(5000);
         } catch (error) {
           this.log(`检查上传状态时出错: ${error instanceof Error ? error.message : String(error)}`);
           await this.randomDelay(5000, 6000);
