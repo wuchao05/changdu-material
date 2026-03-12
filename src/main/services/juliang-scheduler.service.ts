@@ -886,6 +886,28 @@ export class JuliangSchedulerService {
       }
 
       if (!uploadResult.success) {
+        if (uploadResult.skipped) {
+          task.status = "skipped";
+          task.error = uploadResult.error || "命中不可重试错误，已跳过";
+          task.updatedAt = new Date();
+          this.log(`任务跳过: ${task.drama} - ${task.error}`);
+
+          const updateSuccess = await this.apiService.updateFeishuRecordStatus(
+            task.recordId,
+            "跳过上传",
+            this.configService,
+            task.tableId
+          );
+          if (updateSuccess) {
+            this.log(`飞书状态已更新为"跳过上传": ${task.drama}`);
+          } else {
+            this.log(`更新飞书状态失败: ${task.drama}`);
+          }
+
+          this.addCompletedTask(task, 'skipped', taskStartTime);
+          return true;
+        }
+
         // 重试机制：最多重试 15 次
         const MAX_UPLOAD_RETRIES = 3;
         task.retryCount = (task.retryCount || 0) + 1;

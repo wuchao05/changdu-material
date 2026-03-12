@@ -63,7 +63,7 @@ const config = ref({
   batchDelayMax: 5000,
   headless: false,
   slowMo: 50,
-  progressBarThreshold: 90, // UI 上用百分比展示，保存时转为小数
+  allowedMissingCount: 0,
 });
 
 // 当前任务
@@ -126,9 +126,16 @@ async function loadConfig() {
   try {
     const cfg = await window.api.juliangGetConfig();
     config.value = { ...config.value, ...cfg };
-    // 后端存的是小数，前端展示百分比
-    if (cfg.progressBarThreshold !== undefined) {
-      config.value.progressBarThreshold = Math.round(cfg.progressBarThreshold * 100);
+
+    // 兼容旧字段：历史上用比例表示缺失容忍度，默认按每批 10 个换算
+    if (
+      cfg.allowedMissingCount === undefined &&
+      typeof cfg.progressBarThreshold === "number"
+    ) {
+      config.value.allowedMissingCount = Math.max(
+        0,
+        Math.round((1 - cfg.progressBarThreshold) * 10)
+      );
     }
   } catch (error) {
     console.error("加载配置失败:", error);
@@ -142,7 +149,7 @@ async function saveConfig() {
     const cfg = {
       batchSize: config.value.batchSize,
       headless: config.value.headless,
-      progressBarThreshold: config.value.progressBarThreshold / 100, // 百分比转小数
+      allowedMissingCount: Math.max(0, Math.floor(config.value.allowedMissingCount || 0)),
     };
     await window.api.juliangUpdateConfig(cfg);
   } catch (error) {
@@ -650,18 +657,16 @@ onUnmounted(() => {
               <span class="config-desc">开启后浏览器窗口不可见</span>
             </div>
             <div class="config-row">
-              <span class="config-label">进度条容许率</span>
+              <span class="config-label">容许缺失个数</span>
               <NInputNumber
-                v-model:value="config.progressBarThreshold"
-                :min="50"
-                :max="100"
-                :step="5"
+                v-model:value="config.allowedMissingCount"
+                :min="0"
+                :max="10"
+                :step="1"
                 style="width: 120px"
                 @update:value="saveConfig"
-              >
-                <template #suffix>%</template>
-              </NInputNumber>
-              <span class="config-desc">进度条数量达到此比例即继续上传，如 80% 表示允许缺失 20%</span>
+              />
+              <span class="config-desc">例如一批 10 个文件，设置为 2，则最终剩 8 个成功进度条也会点确定继续</span>
             </div>
           </div>
         </div>
