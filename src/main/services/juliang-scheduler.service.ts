@@ -492,7 +492,9 @@ export class JuliangSchedulerService {
       }
 
       const stats = this.getQueueStats();
-      this.log(`队列状态: 总计=${stats.total}, 待处理=${stats.pending}, 运行中=${stats.running}, 已完成=${stats.completed}`);
+      this.log(
+        `队列状态: 总计=${stats.total}, 待处理=${stats.pending}, 运行中=${stats.running}, 已完成=${stats.completed}, 失败=${stats.failed}, 跳过=${stats.skipped}`
+      );
 
       return totalAdded;
     } catch (error) {
@@ -612,8 +614,25 @@ export class JuliangSchedulerService {
    * 添加任务到队列
    */
   private addTask(task: InternalTask): boolean {
-    // 防止重复入队
-    if (this.taskMap.has(task.recordId)) {
+    const existingTask = this.taskMap.get(task.recordId);
+
+    // 防止重复入队；如果本地是失败任务且飞书仍然是待上传，则恢复为待处理
+    if (existingTask) {
+      if (existingTask.status === "failed") {
+        existingTask.drama = task.drama;
+        existingTask.date = task.date;
+        existingTask.account = task.account;
+        existingTask.accountId = task.accountId;
+        existingTask.tableId = task.tableId;
+        existingTask.status = "pending";
+        existingTask.error = undefined;
+        existingTask.retryCount = 0;
+        existingTask.updatedAt = new Date();
+        this.log(`失败任务重新入队: ${task.drama} (${task.date})`);
+        return true;
+      }
+
+      this.log(`任务已存在，跳过重复入队: ${task.drama} (${task.date}), 当前状态=${existingTask.status}`);
       return false;
     }
 
