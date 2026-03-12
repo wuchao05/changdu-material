@@ -681,18 +681,6 @@ export class JuliangService {
           return { success: false, successCount: 0 };
         }
 
-        const nonRetryableError = await this.detectNonRetryableUploadError();
-        if (nonRetryableError) {
-          this.log(`检测到不可重试的上传错误: ${nonRetryableError}`);
-          await this.clickCancelButton();
-          return {
-            success: false,
-            successCount: 0,
-            skipped: true,
-            error: nonRetryableError,
-          };
-        }
-
         try {
           // 检查页面是否还有效
           if (!this.page || this.page.isClosed()) {
@@ -710,6 +698,17 @@ export class JuliangService {
           const hasSeenAllProgressBars = maxObservedProgressCount >= files.length;
 
           if (progressCount === 0) {
+            const nonRetryableError = await this.detectNonRetryableUploadError();
+            if (nonRetryableError) {
+              this.log(`检测到不可重试的上传错误: ${nonRetryableError}`);
+              await this.clickCancelButton();
+              return {
+                success: false,
+                successCount: 0,
+                skipped: true,
+                error: nonRetryableError,
+              };
+            }
             if (Date.now() - startTime >= noProgressBarTimeout) {
               const stallError = `上传卡死：${noProgressBarTimeout / 1000} 秒内未出现进度条`;
               this.log(stallError);
@@ -756,23 +755,43 @@ export class JuliangService {
 
           // 检查每个进度条是否有成功标识
           let successCount = 0;
+          let errorCount = 0;
           for (let i = 0; i < progressCount; i++) {
             const progressBar = progressBars.nth(i);
             const parent = progressBar.locator("..");
             const successElement = parent.locator(".material-center-v2-oc-upload-table-name-progress-success");
             if ((await successElement.count()) > 0) {
               successCount++;
+              continue;
+            }
+
+            const errorElement = parent.locator(
+              '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]'
+            );
+            const rowText = (await parent.innerText()).trim().replace(/\s+/g, " ");
+            const hasErrorHint =
+              (await errorElement.count()) > 0 ||
+              (
+                this.uploadErrorKeywords.test(rowText) &&
+                !this.ignoredUploadErrorTexts.some((ignoredText) => rowText.includes(ignoredText))
+              );
+            if (hasErrorHint) {
+              errorCount++;
             }
           }
 
-          this.log(`上传进度: ${successCount}/${progressCount} 个素材已完成`);
+          this.log(
+            `上传进度: 成功 ${successCount} 个，错误 ${errorCount} 个，可见进度条 ${progressCount} 个`
+          );
 
-          // 判断上传完成的条件：最终进度条数量达到最低要求，且当前可见进度条全部显示成功
-          if (successCount === progressCount && successCount > 0) {
+          const terminalCount = successCount + errorCount;
+
+          // 判断上传完成的条件：当前可见进度条都进入终态，且成功数达到最低要求
+          if (terminalCount === progressCount && progressCount > 0) {
             if (progressCount < minimumRequiredProgressCount) {
               consecutiveMissingSuccessRounds++;
               this.log(
-                `检测到进度条缺失但可见进度条均已成功：当前 ${progressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，第 ${consecutiveMissingSuccessRounds} 次确认`
+                `检测到终态进度条数量不足：当前 ${progressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，第 ${consecutiveMissingSuccessRounds} 次确认`
               );
               if (consecutiveMissingSuccessRounds < 2) {
                 await this.page.waitForTimeout(5000);
@@ -789,10 +808,35 @@ export class JuliangService {
               return { success: false, successCount: 0 };
             }
 
+            if (successCount < minimumRequiredProgressCount) {
+              this.log(
+                `当前批次已结束，但成功数不足：成功 ${successCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，点击确定后跳过任务，不再重试`
+              );
+              await this.randomDelay(1000, 2000);
+
+              this.log("点击确定按钮");
+              const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
+              await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+              await this.randomDelay(500, 1000);
+              await confirmButton.click();
+              this.log("确定按钮点击成功");
+
+              return {
+                success: false,
+                successCount,
+                skipped: true,
+                error: `成功 ${successCount}/${files.length}，低于最低要求 ${minimumRequiredProgressCount}`,
+              };
+            }
+
             consecutiveMissingSuccessRounds = 0;
             finalSuccessCount = successCount;
 
-            if (progressCount < files.length) {
+            if (errorCount > 0) {
+              this.log(
+                `检测到部分文件报错，按成功处理：成功 ${successCount} 个，错误 ${errorCount} 个，允许缺失 ${allowedMissingCount} 个`
+              );
+            } else if (progressCount < files.length) {
               this.log(
                 `按允许缺失配置视为成功：当前 ${progressCount}/${files.length} 个进度条全部成功，允许缺失 ${allowedMissingCount} 个`
               );
@@ -1055,7 +1099,9 @@ export class JuliangService {
         }
       }
 
-      const success = totalSuccess >= task.files.length * 0.9; // 90% 成功即可
+      const allowedTotalMissing = this.config.allowedMissingCount * totalBatches;
+      const minimumRequiredTotalSuccess = Math.max(task.files.length - allowedTotalMissing, 0);
+      const success = totalSuccess >= minimumRequiredTotalSuccess;
 
       // 上传完成，清除进度记录
       this.progressManager.clearProgress(task.recordId, task.drama);
@@ -1069,7 +1115,9 @@ export class JuliangService {
         totalBatches,
         successCount: totalSuccess,
         totalFiles: task.files.length,
-        message: success ? "上传完成" : "上传失败",
+        message: success
+          ? `上传完成（成功 ${totalSuccess}/${task.files.length}）`
+          : `上传失败（成功 ${totalSuccess}/${task.files.length}）`,
       });
 
       return {
