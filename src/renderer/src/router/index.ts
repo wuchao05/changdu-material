@@ -41,6 +41,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Juliang',
     component: () => import('../views/JuliangUpload.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/upload-build',
+    name: 'UploadBuild',
+    component: () => import('../views/UploadBuild.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

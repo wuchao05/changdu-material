@@ -145,10 +145,13 @@ async function loadConfig() {
 // 保存配置
 async function saveConfig() {
   try {
-    // 转换为普通对象，避免 Vue ref 无法序列化
     const cfg = {
+      baseUploadUrl: config.value.baseUploadUrl,
       batchSize: config.value.batchSize,
+      batchDelayMin: config.value.batchDelayMin,
+      batchDelayMax: config.value.batchDelayMax,
       headless: config.value.headless,
+      slowMo: config.value.slowMo,
       allowedMissingCount: Math.max(0, Math.floor(config.value.allowedMissingCount || 0)),
     };
     await window.api.juliangUpdateConfig(cfg);

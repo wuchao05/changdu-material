@@ -267,6 +267,21 @@ export class JuliangService {
    */
   updateConfig(config: Partial<JuliangConfig>) {
     const nextConfig = { ...this.config, ...config };
+    if (typeof nextConfig.batchSize === "number") {
+      nextConfig.batchSize = Math.max(1, Math.floor(nextConfig.batchSize));
+    }
+    if (typeof nextConfig.batchDelayMin === "number") {
+      nextConfig.batchDelayMin = Math.max(0, Math.floor(nextConfig.batchDelayMin));
+    }
+    if (typeof nextConfig.batchDelayMax === "number") {
+      nextConfig.batchDelayMax = Math.max(0, Math.floor(nextConfig.batchDelayMax));
+    }
+    if (nextConfig.batchDelayMax < nextConfig.batchDelayMin) {
+      nextConfig.batchDelayMax = nextConfig.batchDelayMin;
+    }
+    if (typeof nextConfig.slowMo === "number") {
+      nextConfig.slowMo = Math.max(0, Math.floor(nextConfig.slowMo));
+    }
     if (typeof nextConfig.allowedMissingCount === "number") {
       nextConfig.allowedMissingCount = Math.max(0, Math.floor(nextConfig.allowedMissingCount));
     }

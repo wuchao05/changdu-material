@@ -11,6 +11,7 @@
       "enableDramaClipEntry": false,
       "enableAutoUpload": false,
       "enableAutoDownload": false,
+      "enableUploadBuild": false,
       "videoBasePath": "D:\\短剧剪辑\\"
     }
   ]

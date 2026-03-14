@@ -52,6 +52,7 @@ interface DarenInfo {
   enableDramaClipEntry?: boolean;
   enableAutoUpload?: boolean;
   enableAutoDownload?: boolean;
+  enableUploadBuild?: boolean;
   videoBasePath?: string;
 }
 
@@ -103,7 +104,7 @@ interface Api {
   pushRemoteConfig: () => Promise<{ success: boolean; error?: string }>;
 
   // 文件系统
-  scanVideos: (date: string, userId: string) => Promise<VideoMaterial[]>;
+  scanVideos: (basePath: string) => Promise<VideoMaterial[]>;
   listExportDirs: (rootPath: string) => Promise<string[]>;
   getVideoInfo: (filePath: string) => Promise<VideoInfo>;
   deleteFolder: (

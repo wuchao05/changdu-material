@@ -18,6 +18,7 @@ import {
   RefreshOutline,
   EyeOffOutline,
   RocketOutline,
+  ConstructOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -67,6 +68,14 @@ const menuOptions = computed(() => {
       label: "巨量上传",
       key: "juliang",
       icon: () => h(NIcon, null, { default: () => h(RocketOutline) }),
+    });
+  }
+
+  if (isAdmin || darenStore.canUploadBuild) {
+    options.push({
+      label: "上传搭建",
+      key: "upload-build",
+      icon: () => h(NIcon, null, { default: () => h(ConstructOutline) }),
     });
   }
 

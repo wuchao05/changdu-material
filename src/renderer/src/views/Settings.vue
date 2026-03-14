@@ -36,6 +36,7 @@ const darenForm = ref<DarenInfo>({
   enableUpload: true,
   enableDownload: true,
   enableJuliang: false, // 默认不启用巨量上传
+  enableUploadBuild: false, // 默认不启用上传搭建
   changduConfigType: "sanrou", // 默认使用散柔配置
   customChangduConfig: undefined, // 定制配置
 });
@@ -70,6 +71,7 @@ function openDarenModal(daren?: DarenInfo) {
       enableUpload: true,
       enableDownload: true,
       enableJuliang: false,
+      enableUploadBuild: false,
       changduConfigType: "sanrou", // 默认使用散柔配置
       customChangduConfig: {
         cookie: "",
@@ -195,6 +197,7 @@ const darenColumns: DataTableColumns<DarenInfo> = [
       if (row.enableUpload) tags.push({ type: "success", text: "上传" });
       if (row.enableDownload) tags.push({ type: "success", text: "下载" });
       if (row.enableJuliang) tags.push({ type: "success", text: "巨量" });
+      if (row.enableUploadBuild) tags.push({ type: "success", text: "搭建" });
 
       if (tags.length === 0)
         return h(
@@ -377,6 +380,9 @@ const darenColumns: DataTableColumns<DarenInfo> = [
         </NFormItem>
         <NFormItem label="启用巨量上传">
           <NSwitch v-model:value="darenForm.enableJuliang" />
+        </NFormItem>
+        <NFormItem label="启用上传搭建">
+          <NSwitch v-model:value="darenForm.enableUploadBuild" />
         </NFormItem>
       </NForm>
 
