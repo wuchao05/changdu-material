@@ -399,16 +399,20 @@ async function startUpload(row: DramaUploadRow) {
   };
 
   try {
-    const result = (await window.api.juliangUploadTask({
+    const plainTask = JSON.parse(JSON.stringify({
       id: row.taskId,
       drama: row.drama,
       date: new Date().toISOString().slice(0, 10),
       account: "manual",
       accountId: row.accountId.trim(),
-      files: row.files,
+      files: [...row.files],
       recordId: "",
       status: "pending",
-    })) as JuliangUploadResult;
+    }));
+
+    const result = (await window.api.juliangUploadTask(
+      plainTask
+    )) as JuliangUploadResult;
 
     if (!result.success) {
       row.status = "failed";
