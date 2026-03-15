@@ -19,6 +19,36 @@ export interface DarenInfo {
     changduAdUserId: string
     changduRootAdUserId: string
   } // 定制的常读配置
+  uploadBuildSettings?: UploadBuildSettings // 上传搭建配置
+}
+
+export interface UploadBuildParams {
+  secretKey: string
+  source: string
+  bid: number | string
+  productId: string
+  productPlatformId: string
+  landingUrl: string
+  microAppName: string
+  microAppId: string
+  ccId: string
+  rechargeTemplateId: string
+}
+
+export interface DouyinMaterialRule {
+  id: string
+  douyinAccount: string
+  douyinAccountId: string
+  shortName: string
+  materialRange: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface UploadBuildSettings {
+  buildParams: UploadBuildParams
+  materialFilenameTemplate: string
+  douyinMaterialRules: DouyinMaterialRule[]
 }
 
 export const useDarenStore = defineStore('daren', () => {
@@ -38,7 +68,7 @@ export const useDarenStore = defineStore('daren', () => {
   // 功能权限
   const canUpload = computed(() => {
     // 管理员默认拥有所有权限
-    if (authStore.currentUser?.role === 'admin') {
+    if (authStore.isAdmin) {
       return true
     }
     // 达人根据配置判断
@@ -47,7 +77,7 @@ export const useDarenStore = defineStore('daren', () => {
 
   const canDownload = computed(() => {
     // 管理员默认拥有所有权限
-    if (authStore.currentUser?.role === 'admin') {
+    if (authStore.isAdmin) {
       return true
     }
     // 达人根据配置判断
@@ -56,7 +86,7 @@ export const useDarenStore = defineStore('daren', () => {
 
   const canJuliang = computed(() => {
     // 管理员默认拥有所有权限
-    if (authStore.currentUser?.role === 'admin') {
+    if (authStore.isAdmin) {
       return true
     }
     // 达人根据配置判断
@@ -64,7 +94,7 @@ export const useDarenStore = defineStore('daren', () => {
   })
 
   const canUploadBuild = computed(() => {
-    if (authStore.currentUser?.role === 'admin') {
+    if (authStore.isAdmin) {
       return true
     }
     return currentDaren.value?.enableUploadBuild === true

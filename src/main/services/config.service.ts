@@ -21,6 +21,7 @@ export interface DarenInfo {
   enableUploadBuild?: boolean; // 启用上传搭建功能
   changduConfigType?: 'sanrou' | 'meiri' | 'custom'; // 常读配置类型：散柔/每日/定制
   customChangduConfig?: ChangduConfig; // 定制的常读配置（当 changduConfigType 为 'custom' 时使用）
+  uploadBuildSettings?: UploadBuildSettings; // 上传搭建配置（按达人隔离）
 }
 
 export interface DarenConfig {
@@ -51,6 +52,35 @@ export interface ApiConfig {
   tosRegion: string;
   // 素材库配置
   xtToken: string;
+}
+
+export interface UploadBuildParams {
+  secretKey: string;
+  source: string;
+  bid: number | string;
+  productId: string;
+  productPlatformId: string;
+  landingUrl: string;
+  microAppName: string;
+  microAppId: string;
+  ccId: string;
+  rechargeTemplateId: string;
+}
+
+export interface DouyinMaterialRule {
+  id: string;
+  douyinAccount: string;
+  douyinAccountId: string;
+  shortName: string;
+  materialRange: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UploadBuildSettings {
+  buildParams: UploadBuildParams;
+  materialFilenameTemplate: string;
+  douyinMaterialRules: DouyinMaterialRule[];
 }
 
 export class ConfigService {
@@ -302,6 +332,71 @@ export class ConfigService {
       enableUploadBuild: daren.enableUploadBuild ?? false, // 默认不启用上传搭建
       changduConfigType: daren.changduConfigType || 'sanrou', // 默认使用散柔配置
       customChangduConfig: daren.customChangduConfig || undefined, // 定制配置
+      uploadBuildSettings: this.normalizeUploadBuildSettings(daren.uploadBuildSettings),
+    };
+  }
+
+  private createDefaultUploadBuildSettings(): UploadBuildSettings {
+    return {
+      buildParams: {
+        secretKey: "",
+        source: "",
+        bid: 5,
+        productId: "",
+        productPlatformId: "",
+        landingUrl: "",
+        microAppName: "",
+        microAppId: "",
+        ccId: "",
+        rechargeTemplateId: "",
+      },
+      materialFilenameTemplate: "{剧名}-{简称}-{序号}.mp4",
+      douyinMaterialRules: [],
+    };
+  }
+
+  private normalizeUploadBuildSettings(
+    settings?: Partial<UploadBuildSettings>
+  ): UploadBuildSettings {
+    const defaultSettings = this.createDefaultUploadBuildSettings();
+    const rules = Array.isArray(settings?.douyinMaterialRules)
+      ? settings!.douyinMaterialRules
+      : [];
+
+    return {
+      buildParams: {
+        ...defaultSettings.buildParams,
+        ...(settings?.buildParams || {}),
+      },
+      materialFilenameTemplate:
+        settings?.materialFilenameTemplate?.trim() ||
+        defaultSettings.materialFilenameTemplate,
+      douyinMaterialRules: rules
+        .map((rule) => this.normalizeDouyinMaterialRule(rule))
+        .filter(
+          (rule) =>
+            rule.douyinAccount ||
+            rule.douyinAccountId ||
+            rule.shortName ||
+            rule.materialRange
+        ),
+    };
+  }
+
+  private normalizeDouyinMaterialRule(
+    rule?: Partial<DouyinMaterialRule>
+  ): DouyinMaterialRule {
+    const now = new Date().toISOString();
+    return {
+      id:
+        rule?.id ||
+        `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      douyinAccount: rule?.douyinAccount?.trim() || "",
+      douyinAccountId: rule?.douyinAccountId?.trim() || "",
+      shortName: rule?.shortName?.trim() || "",
+      materialRange: rule?.materialRange?.trim() || "",
+      createdAt: rule?.createdAt || now,
+      updatedAt: now,
     };
   }
 

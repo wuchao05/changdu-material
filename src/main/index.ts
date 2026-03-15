@@ -53,6 +53,7 @@ import { DownloadService } from './services/download.service';
 import { ApiService } from './services/api.service';
 import { TosService } from './services/tos.service';
 import { juliangService } from './services/juliang.service';
+import { DailyBuildService } from './services/daily-build.service';
 import { getJuliangScheduler } from './services/juliang-scheduler.service';
 
 // 初始化服务
@@ -61,6 +62,7 @@ const fileService = new FileService();
 const downloadService = new DownloadService();
 const apiService = new ApiService();
 const tosService = new TosService();
+const dailyBuildService = new DailyBuildService(configService);
 const juliangScheduler = getJuliangScheduler(apiService, fileService, configService);
 
 let mainWindow: BrowserWindow | null = null;
@@ -393,6 +395,7 @@ function registerIpcHandlers(): void {
     // 设置主窗口引用
     if (mainWindow) {
       juliangService.setMainWindow(mainWindow);
+      dailyBuildService.setMainWindow(mainWindow);
     }
     return await juliangService.initialize();
   });
@@ -438,6 +441,27 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('juliang:clearLogs', async () => {
     juliangService.clearLogs();
+    return { success: true };
+  });
+
+  // ==================== 上传搭建 ====================
+  ipcMain.handle('daily-build:startTask', async (_event, task) => {
+    if (mainWindow) {
+      dailyBuildService.setMainWindow(mainWindow);
+    }
+    return await dailyBuildService.startTask(task);
+  });
+
+  ipcMain.handle('daily-build:cancelTask', async (_event, taskId) => {
+    return await dailyBuildService.cancelTask(taskId);
+  });
+
+  ipcMain.handle('daily-build:getLogs', async () => {
+    return dailyBuildService.getLogs();
+  });
+
+  ipcMain.handle('daily-build:clearLogs', async () => {
+    dailyBuildService.clearLogs();
     return { success: true };
   });
 

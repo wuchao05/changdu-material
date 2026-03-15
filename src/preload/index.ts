@@ -192,6 +192,14 @@ const api = {
   juliangGetLogs: () => ipcRenderer.invoke("juliang:getLogs"),
   juliangClearLogs: () => ipcRenderer.invoke("juliang:clearLogs"),
 
+  // ==================== 上传搭建 ====================
+  dailyBuildStartTask: (task: unknown) =>
+    ipcRenderer.invoke("daily-build:startTask", task),
+  dailyBuildCancelTask: (taskId: string) =>
+    ipcRenderer.invoke("daily-build:cancelTask", taskId),
+  dailyBuildGetLogs: () => ipcRenderer.invoke("daily-build:getLogs"),
+  dailyBuildClearLogs: () => ipcRenderer.invoke("daily-build:clearLogs"),
+
   // ==================== 巨量调度器 ====================
   juliangSchedulerStart: (darenId?: string) =>
     ipcRenderer.invoke("juliang:scheduler:start", darenId),
@@ -261,6 +269,44 @@ const api = {
     ipcRenderer.on("juliang:upload-progress", handler);
     return () =>
       ipcRenderer.removeListener("juliang:upload-progress", handler);
+  },
+  onDailyBuildProgress: (
+    callback: (progress: {
+      taskId: string;
+      drama: string;
+      status: string;
+      message: string;
+      currentRuleIndex: number;
+      totalRules: number;
+      successRuleCount: number;
+      failedRuleCount: number;
+    }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: {
+        taskId: string;
+        drama: string;
+        status: string;
+        message: string;
+        currentRuleIndex: number;
+        totalRules: number;
+        successRuleCount: number;
+        failedRuleCount: number;
+      }
+    ) => callback(progress);
+    ipcRenderer.on("daily-build:progress", handler);
+    return () => ipcRenderer.removeListener("daily-build:progress", handler);
+  },
+  onDailyBuildLog: (
+    callback: (log: { time: string; message: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      log: { time: string; message: string }
+    ) => callback(log);
+    ipcRenderer.on("daily-build:log", handler);
+    return () => ipcRenderer.removeListener("daily-build:log", handler);
   },
 };
 

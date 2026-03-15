@@ -44,24 +44,75 @@ interface TosQueueStatus {
 interface DarenInfo {
   id: string;
   label: string;
-  shortName: string;
-  douyinAccounts: string[];
+  password?: string;
   feishuDramaStatusTableId?: string;
-  feishuDramaListTableId?: string;
-  feishuAccountTableId?: string;
-  enableDramaClipEntry?: boolean;
-  enableAutoUpload?: boolean;
-  enableAutoDownload?: boolean;
+  enableUpload?: boolean;
+  enableDownload?: boolean;
+  enableJuliang?: boolean;
   enableUploadBuild?: boolean;
-  videoBasePath?: string;
+  changduConfigType?: "sanrou" | "meiri" | "custom";
+  customChangduConfig?: {
+    cookie: string;
+    distributorId: string;
+    changduAppId: string;
+    changduAdUserId: string;
+    changduRootAdUserId: string;
+  };
+  uploadBuildSettings?: UploadBuildSettings;
 }
 
 interface ApiConfig {
-  cookie: string;
-  userId: string;
-  distributorId?: string;
-  feishuAppId?: string;
-  feishuAppSecret?: string;
+  sanrouChangdu: {
+    cookie: string;
+    distributorId: string;
+    changduAppId: string;
+    changduAdUserId: string;
+    changduRootAdUserId: string;
+  };
+  meiriChangdu: {
+    cookie: string;
+    distributorId: string;
+    changduAppId: string;
+    changduAdUserId: string;
+    changduRootAdUserId: string;
+  };
+  feishuAppId: string;
+  feishuAppSecret: string;
+  feishuAppToken: string;
+  tosAccessKeyId: string;
+  tosAccessKeySecret: string;
+  tosBucket: string;
+  tosRegion: string;
+  xtToken: string;
+}
+
+interface UploadBuildParams {
+  secretKey: string;
+  source: string;
+  bid: number | string;
+  productId: string;
+  productPlatformId: string;
+  landingUrl: string;
+  microAppName: string;
+  microAppId: string;
+  ccId: string;
+  rechargeTemplateId: string;
+}
+
+interface DouyinMaterialRule {
+  id: string;
+  douyinAccount: string;
+  douyinAccountId: string;
+  shortName: string;
+  materialRange: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface UploadBuildSettings {
+  buildParams: UploadBuildParams;
+  materialFilenameTemplate: string;
+  douyinMaterialRules: DouyinMaterialRule[];
 }
 
 interface JuliangSchedulerResult {
@@ -223,6 +274,22 @@ interface Api {
   juliangGetLogs: () => Promise<Array<{ time: string; message: string }>>;
   juliangClearLogs: () => Promise<{ success: boolean }>;
 
+  // 上传搭建
+  dailyBuildStartTask: (task: unknown) => Promise<{
+    success: boolean;
+    cancelled?: boolean;
+    taskId: string;
+    drama: string;
+    totalRules: number;
+    successRuleCount: number;
+    failedRuleCount: number;
+    skippedRules: Array<{ ruleId: string; douyinAccount: string; error: string }>;
+    error?: string;
+  }>;
+  dailyBuildCancelTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
+  dailyBuildGetLogs: () => Promise<Array<{ time: string; message: string }>>;
+  dailyBuildClearLogs: () => Promise<{ success: boolean }>;
+
   // 巨量调度器
   juliangSchedulerStart: (darenId?: string) => Promise<JuliangSchedulerResult>;
   juliangSchedulerStop: () => Promise<{ success: boolean }>;
@@ -257,6 +324,21 @@ interface Api {
       totalFiles: number;
       message: string;
     }) => void
+  ) => () => void;
+  onDailyBuildProgress: (
+    callback: (progress: {
+      taskId: string;
+      drama: string;
+      status: string;
+      message: string;
+      currentRuleIndex: number;
+      totalRules: number;
+      successRuleCount: number;
+      failedRuleCount: number;
+    }) => void
+  ) => () => void;
+  onDailyBuildLog: (
+    callback: (log: { time: string; message: string }) => void
   ) => () => void;
 }
 

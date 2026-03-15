@@ -97,6 +97,7 @@ const defaultRoute = computed(() => {
   if (darenStore.canUpload) return "/upload";
   if (darenStore.canDownload) return "/download";
   if (darenStore.canJuliang) return "/juliang";
+  if (darenStore.canUploadBuild) return "/upload-build";
   return "/login";
 });
 

@@ -22,6 +22,8 @@ onMounted(async () => {
     router.replace("/download");
   } else if (darenStore.canJuliang) {
     router.replace("/juliang");
+  } else if (darenStore.canUploadBuild) {
+    router.replace("/upload-build");
   } else {
     // 没有任何权限，跳转到登录页
     router.replace("/login");

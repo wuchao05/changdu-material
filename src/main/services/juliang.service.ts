@@ -384,6 +384,22 @@ export class JuliangService {
   }
 
   /**
+   * 导出当前登录态的 Cookie 字符串，供非页面自动化接口复用
+   */
+  async getCookieHeader(): Promise<string> {
+    if (!this.context) {
+      throw new Error("巨量浏览器未初始化");
+    }
+
+    const cookies = await this.context.cookies();
+    if (!cookies.length) {
+      throw new Error("未读取到巨量 Cookie，请先登录巨量后台");
+    }
+
+    return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  }
+
+  /**
    * 关闭浏览器
    */
   async close(): Promise<void> {
@@ -483,6 +499,34 @@ export class JuliangService {
       console.error(`[Juliang] 检查登录状态失败: ${error}`);
       return { isLoggedIn: false, needLogin: true };
     }
+  }
+
+  /**
+   * 导出当前浏览器上下文中的 Cookie 字符串，供搭建流程复用登录态
+   */
+  async getCookieString(): Promise<string> {
+    if (!this.context) {
+      return "";
+    }
+
+    const cookies = await this.context.cookies([
+      "https://ad.oceanengine.com",
+      "https://business.oceanengine.com",
+      "https://aadv.oceanengine.com",
+    ]);
+
+    if (!cookies.length) {
+      return "";
+    }
+
+    const cookieMap = new Map<string, string>();
+    for (const cookie of cookies) {
+      cookieMap.set(cookie.name, cookie.value);
+    }
+
+    return Array.from(cookieMap.entries())
+      .map(([name, value]) => `${name}=${value}`)
+      .join("; ");
   }
 
   /**
@@ -1197,6 +1241,7 @@ export class JuliangService {
       return null;
     }
   }
+
 }
 
 // 单例导出

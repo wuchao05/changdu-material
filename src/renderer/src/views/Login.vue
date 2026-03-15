@@ -112,6 +112,10 @@ async function handleLogin() {
         router.push("/upload");
       } else if (daren.enableDownload) {
         router.push("/download");
+      } else if (daren.enableJuliang) {
+        router.push("/juliang");
+      } else if (daren.enableUploadBuild) {
+        router.push("/upload-build");
       } else {
         message.warning("该账号没有任何功能权限，请联系管理员");
         authStore.logout();
