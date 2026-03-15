@@ -214,6 +214,7 @@ function createDefaultBuildSettings(): UploadBuildSettings {
       rechargeTemplateId: "",
     },
     materialFilenameTemplate: "{剧名}-{序号}.mp4",
+    materialDateValue: "",
     douyinMaterialRules: [],
   };
 }
@@ -262,6 +263,7 @@ function normalizeBuildSettings(
     materialFilenameTemplate:
       settings?.materialFilenameTemplate?.trim() ||
       defaults.materialFilenameTemplate,
+    materialDateValue: settings?.materialDateValue?.trim() || "",
     douyinMaterialRules: Array.isArray(settings?.douyinMaterialRules)
       ? settings!.douyinMaterialRules.map((rule) => normalizeRule(rule))
       : [],
@@ -663,7 +665,8 @@ async function renameVideosByTemplate() {
 
     const result = await window.api.renameVideosByTemplate(
       rootDir.value,
-      buildSettings.value.materialFilenameTemplate.trim()
+      buildSettings.value.materialFilenameTemplate.trim(),
+      buildSettings.value.materialDateValue?.trim()
     );
 
     if (!result.success) {
@@ -1265,10 +1268,20 @@ onUnmounted(() => {
           <span>素材名称模板</span>
           <NInput
             v-model:value="buildSettings.materialFilenameTemplate"
-            placeholder="{剧名}-{序号}.mp4 或 {剧名}-xh-{序号}.mp4"
+            placeholder="{日期}-{剧名}-{序号}.mp4 或 {日期}-{剧名}-xh-{序号}.mp4"
           />
           <small class="field-help">
-            只需要包含 {剧名}、{序号}。如果想带简称，直接在模板里写死，例如：{剧名}-xh-{序号}.mp4
+            只需要包含 {剧名}、{序号}。{日期} 为可选占位符，可放在任意位置；如果想带简称，直接在模板里写死，例如：{日期}-{剧名}-xh-{序号}.mp4
+          </small>
+        </label>
+        <label class="build-field build-field-full">
+          <span>素材日期</span>
+          <NInput
+            v-model:value="buildSettings.materialDateValue"
+            placeholder="可选，留空默认使用当天北京时间日期，例如：3.15"
+          />
+          <small class="field-help">
+            仅当模板里使用了 {日期} 时生效。不填则自动使用当天北京时间日期。
           </small>
         </label>
         <div class="template-actions">

@@ -114,10 +114,12 @@ export class FileService {
 
   async renameVideosByTemplate(
     basePath: string,
-    template: string
+    template: string,
+    dateValue?: string
   ): Promise<RenameVideosResult> {
     try {
       const normalizedTemplate = template.trim()
+      const resolvedDateValue = this.resolveMaterialDateValue(dateValue)
       if (!normalizedTemplate) {
         throw new Error("素材名称模板不能为空")
       }
@@ -165,6 +167,7 @@ export class FileService {
           const extension = path.extname(fileName) || ".mp4"
           let targetName = normalizedTemplate
             .replaceAll("{剧名}", dramaName)
+            .replaceAll("{日期}", resolvedDateValue)
             .replaceAll("{序号}", sequence)
 
           if (!path.extname(targetName)) {
@@ -257,6 +260,25 @@ export class FileService {
       numeric: true,
       sensitivity: "base",
     })
+  }
+
+  private resolveMaterialDateValue(dateValue?: string): string {
+    const normalizedDateValue = String(dateValue || "").trim()
+    if (normalizedDateValue) {
+      return normalizedDateValue
+    }
+
+    const formatter = new Intl.DateTimeFormat("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      month: "numeric",
+      day: "numeric",
+    })
+    const parts = formatter.formatToParts(new Date())
+    const month =
+      parts.find((part) => part.type === "month")?.value || String(new Date().getMonth() + 1)
+    const day =
+      parts.find((part) => part.type === "day")?.value || String(new Date().getDate())
+    return `${month}.${day}`
   }
 
   async getVideoInfo(filePath: string, maxRetry = 3): Promise<VideoInfo> {

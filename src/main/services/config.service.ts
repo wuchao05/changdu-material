@@ -80,6 +80,7 @@ export interface DouyinMaterialRule {
 export interface UploadBuildSettings {
   buildParams: UploadBuildParams;
   materialFilenameTemplate: string;
+  materialDateValue?: string;
   douyinMaterialRules: DouyinMaterialRule[];
 }
 
@@ -351,6 +352,7 @@ export class ConfigService {
       rechargeTemplateId: "",
       },
       materialFilenameTemplate: "{剧名}-{序号}.mp4",
+      materialDateValue: "",
       douyinMaterialRules: [],
     };
   }
@@ -371,6 +373,7 @@ export class ConfigService {
       materialFilenameTemplate:
         settings?.materialFilenameTemplate?.trim() ||
         defaultSettings.materialFilenameTemplate,
+      materialDateValue: settings?.materialDateValue?.trim() || "",
       douyinMaterialRules: rules.map((rule) =>
         this.normalizeDouyinMaterialRule(rule)
       ),

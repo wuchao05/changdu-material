@@ -67,8 +67,8 @@ const api = {
     ipcRenderer.invoke("file:countMp4Files", dirPath),
   checkZipFile: (zipPath: string) =>
     ipcRenderer.invoke("file:checkZipFile", zipPath),
-  renameVideosByTemplate: (basePath: string, template: string) =>
-    ipcRenderer.invoke("file:renameVideosByTemplate", basePath, template),
+  renameVideosByTemplate: (basePath: string, template: string, dateValue?: string) =>
+    ipcRenderer.invoke("file:renameVideosByTemplate", basePath, template, dateValue),
   selectFolder: () => ipcRenderer.invoke("file:selectFolder"),
   extractZip: (
     zipPath: string,

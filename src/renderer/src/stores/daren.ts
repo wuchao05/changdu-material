@@ -48,6 +48,7 @@ export interface DouyinMaterialRule {
 export interface UploadBuildSettings {
   buildParams: UploadBuildParams
   materialFilenameTemplate: string
+  materialDateValue?: string
   douyinMaterialRules: DouyinMaterialRule[]
 }
 

@@ -244,8 +244,8 @@ function registerIpcHandlers(): void {
     return fileService.checkZipFile(zipPath);
   });
 
-  ipcMain.handle('file:renameVideosByTemplate', async (_event, basePath, template) => {
-    return await fileService.renameVideosByTemplate(basePath, template);
+  ipcMain.handle('file:renameVideosByTemplate', async (_event, basePath, template, dateValue) => {
+    return await fileService.renameVideosByTemplate(basePath, template, dateValue);
   });
 
   ipcMain.handle('file:selectFolder', async () => {

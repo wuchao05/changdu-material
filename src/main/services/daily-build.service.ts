@@ -308,17 +308,41 @@ function ensureRangeSequenceList(range: string): string[] {
   return list;
 }
 
+function resolveMaterialDateValue(dateValue?: string): string {
+  const normalizedDateValue = String(dateValue || "").trim();
+  if (normalizedDateValue) {
+    return normalizedDateValue;
+  }
+
+  const formatter = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "numeric",
+    day: "numeric",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const month =
+    parts.find((part) => part.type === "month")?.value ||
+    String(new Date().getMonth() + 1);
+  const day =
+    parts.find((part) => part.type === "day")?.value ||
+    String(new Date().getDate());
+  return `${month}.${day}`;
+}
+
 function buildExpectedMaterialNames(params: {
   template: string;
   dramaName: string;
   materialRange: string;
+  materialDateValue?: string;
 }): string[] {
-  const { template, dramaName, materialRange } = params;
+  const { template, dramaName, materialRange, materialDateValue } = params;
   const sequences = ensureRangeSequenceList(materialRange);
+  const resolvedDateValue = resolveMaterialDateValue(materialDateValue);
 
   return sequences.map((sequence) =>
     template
       .replaceAll("{剧名}", dramaName)
+      .replaceAll("{日期}", resolvedDateValue)
       .replaceAll("{简称}", "")
       .replaceAll("{序号}", sequence)
   );
@@ -1500,6 +1524,7 @@ export class DailyBuildService {
     const expectedNames = buildExpectedMaterialNames({
       template: payload.buildSettings.materialFilenameTemplate,
       dramaName: payload.drama,
+      materialDateValue: payload.buildSettings.materialDateValue,
       materialRange: rule.materialRange,
     });
     const matchedMaterials = filterMaterialsByTemplate(materials, expectedNames);

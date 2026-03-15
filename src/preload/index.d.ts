@@ -112,6 +112,7 @@ interface DouyinMaterialRule {
 interface UploadBuildSettings {
   buildParams: UploadBuildParams;
   materialFilenameTemplate: string;
+  materialDateValue?: string;
   douyinMaterialRules: DouyinMaterialRule[];
 }
 
@@ -160,7 +161,8 @@ interface Api {
   getVideoInfo: (filePath: string) => Promise<VideoInfo>;
   renameVideosByTemplate: (
     basePath: string,
-    template: string
+    template: string,
+    dateValue?: string
   ) => Promise<RenameVideosResult>;
   deleteFolder: (
     folderPath: string
