@@ -178,6 +178,10 @@ function formatBuildDate(date = new Date()): string {
   return `${year}${month}${day}`;
 }
 
+function resolveDarenName(buildSettings: UploadBuildSettings): string {
+  return String(buildSettings.darenName || "").trim() || "小鱼";
+}
+
 function parsePromotionUrl(url: string): { launchPage: string; launchParams: string } {
   if (!url) {
     return { launchPage: "", launchParams: "" };
@@ -582,11 +586,12 @@ export class DailyBuildService {
     signal: AbortSignal,
     promotionName?: string
   ): Promise<{ promotion_url: string; promotion_name: string }> {
+    const darenName = resolveDarenName(payload.buildSettings);
     const requestBody = {
       distributor_id: Number(distributorId),
       book_id: payload.dramaId.trim(),
       index: DAILY_BUILD_CONFIG.promotion.index,
-      promotion_name: promotionName || `小鱼-${sanitizeDramaName(payload.drama)}`,
+      promotion_name: promotionName || `${darenName}-${sanitizeDramaName(payload.drama)}`,
       recharge_template_id: Number(payload.buildSettings.buildParams.rechargeTemplateId),
       media_source: DAILY_BUILD_CONFIG.promotion.mediaSource,
       price: DAILY_BUILD_CONFIG.promotion.price,
@@ -1023,7 +1028,7 @@ export class DailyBuildService {
     payload: DailyBuildTaskPayload,
     cookieHeader: string,
     signal: AbortSignal
-  ): Promise<number> {
+  ): Promise<string> {
     const buildParams = payload.buildSettings.buildParams;
     const response = await fetch(
       `https://ad.oceanengine.com/superior/api/v2/project/create?aadvid=${params.accountId}`,
@@ -1085,7 +1090,11 @@ export class DailyBuildService {
     if (result?.code !== 0) {
       throw new Error(result?.msg || "创建项目失败");
     }
-    return Number(result?.data?.id);
+    const projectId = String(result?.data?.id || "").trim();
+    if (!projectId) {
+      throw new Error("创建项目失败：未返回项目ID");
+    }
+    return projectId;
   }
 
   private async getDouyinAccountInfo(
@@ -1179,7 +1188,7 @@ export class DailyBuildService {
   private async createPromotion(
     params: {
       accountId: string;
-      projectId: number;
+      projectId: string;
       adName: string;
       iesCoreId: string;
       materials: GiantMaterial[];
@@ -1292,7 +1301,7 @@ export class DailyBuildService {
         ],
       },
       name: params.adName,
-      project_id: String(params.projectId),
+      project_id: params.projectId,
       check_hash: Date.now().toString(),
       is_auto_delivery_mode: false,
     };
@@ -1308,7 +1317,7 @@ export class DailyBuildService {
         this.log(
           `创建广告参数: ${JSON.stringify({
             account_id: params.accountId,
-            project_id: String(params.projectId),
+            project_id: params.projectId,
             ad_name: params.adName,
             ies_core_user_id: params.iesCoreId,
             matched_materials: params.materials.map((material) => ({
@@ -1551,7 +1560,8 @@ export class DailyBuildService {
     cookieHeader: string,
     signal: AbortSignal
   ): Promise<void> {
-    const promotionName = `小鱼-${rule.douyinAccount}-${sanitizeDramaName(payload.drama)}-${payload.accountId}`;
+    const darenName = resolveDarenName(payload.buildSettings);
+    const promotionName = `${darenName}-${rule.douyinAccount}-${sanitizeDramaName(payload.drama)}-${payload.accountId}`;
     let promotionResult: { promotion_url: string; promotion_name: string };
     try {
       promotionResult = await this.createPromotionLink(
@@ -1587,7 +1597,7 @@ export class DailyBuildService {
       link,
     };
 
-    let projectId: number;
+    let projectId: string;
     try {
       projectId = await this.createProject(
         {
@@ -1596,7 +1606,7 @@ export class DailyBuildService {
           douyinAccountName: rule.douyinAccount,
           assetsId: initData.assets_id,
           microAppInstanceId: initData.micro_app_instance_id,
-          projectName: `小鱼-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
+          projectName: `${darenName}-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
         },
         payload,
         cookieHeader,
@@ -1666,7 +1676,7 @@ export class DailyBuildService {
         {
           accountId: payload.accountId,
           projectId,
-          adName: `小鱼-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
+          adName: `${darenName}-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
           iesCoreId: accountInfo.iesCoreId,
           materials: matchedMaterials,
           initData: nextInitData,

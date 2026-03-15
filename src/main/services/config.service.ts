@@ -79,6 +79,7 @@ export interface DouyinMaterialRule {
 
 export interface UploadBuildSettings {
   buildParams: UploadBuildParams;
+  darenName?: string;
   materialFilenameTemplate: string;
   materialDateValue?: string;
   douyinMaterialRules: DouyinMaterialRule[];
@@ -351,6 +352,7 @@ export class ConfigService {
       ccId: "",
       rechargeTemplateId: "",
       },
+      darenName: "小鱼",
       materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
       materialDateValue: "",
       douyinMaterialRules: [],
@@ -370,6 +372,7 @@ export class ConfigService {
         ...defaultSettings.buildParams,
         ...(settings?.buildParams || {}),
       },
+      darenName: settings?.darenName?.trim() || defaultSettings.darenName,
       materialFilenameTemplate:
         settings?.materialFilenameTemplate?.trim() ||
         defaultSettings.materialFilenameTemplate,

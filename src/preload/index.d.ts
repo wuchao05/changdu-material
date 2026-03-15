@@ -111,6 +111,7 @@ interface DouyinMaterialRule {
 
 interface UploadBuildSettings {
   buildParams: UploadBuildParams;
+  darenName?: string;
   materialFilenameTemplate: string;
   materialDateValue?: string;
   douyinMaterialRules: DouyinMaterialRule[];

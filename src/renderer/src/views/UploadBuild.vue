@@ -220,6 +220,7 @@ function createDefaultBuildSettings(): UploadBuildSettings {
       ccId: "",
       rechargeTemplateId: "",
     },
+    darenName: "小鱼",
     materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
     materialDateValue: "",
     douyinMaterialRules: [],
@@ -267,6 +268,7 @@ function normalizeBuildSettings(
       ...defaults.buildParams,
       ...(settings?.buildParams || {}),
     },
+    darenName: settings?.darenName?.trim() || defaults.darenName,
     materialFilenameTemplate:
       settings?.materialFilenameTemplate?.trim() ||
       defaults.materialFilenameTemplate,
@@ -1326,6 +1328,16 @@ onUnmounted(() => {
 
     <NCard class="main-card">
       <div class="template-panel">
+        <label class="build-field build-field-full">
+          <span>达人</span>
+          <NInput
+            v-model:value="buildSettings.darenName"
+            placeholder="请输入达人名称，用于生成推广链、项目和广告名称"
+          />
+          <small class="field-help">
+            这里填写的达人名称会作为推广链名称、项目名称和广告名称的统一前缀。
+          </small>
+        </label>
         <label class="build-field build-field-full">
           <span>素材名称模板</span>
           <NInput
