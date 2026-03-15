@@ -329,6 +329,14 @@ function resolveMaterialDateValue(dateValue?: string): string {
   return `${month}.${day}`;
 }
 
+function normalizeTemplateFileName(fileName: string): string {
+  return fileName
+    .replace(/-{2,}/g, "-")
+    .replace(/-+\./g, ".")
+    .replace(/^-+/g, "")
+    .trim();
+}
+
 function buildExpectedMaterialNames(params: {
   template: string;
   dramaName: string;
@@ -340,11 +348,13 @@ function buildExpectedMaterialNames(params: {
   const resolvedDateValue = resolveMaterialDateValue(materialDateValue);
 
   return sequences.map((sequence) =>
-    template
-      .replaceAll("{剧名}", dramaName)
-      .replaceAll("{日期}", resolvedDateValue)
-      .replaceAll("{简称}", "")
-      .replaceAll("{序号}", sequence)
+    normalizeTemplateFileName(
+      template
+        .replaceAll("{剧名}", dramaName)
+        .replaceAll("{日期}", resolvedDateValue)
+        .replaceAll("{简称}", "")
+        .replaceAll("{序号}", sequence)
+    )
   );
 }
 

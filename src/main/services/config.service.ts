@@ -351,7 +351,7 @@ export class ConfigService {
       ccId: "",
       rechargeTemplateId: "",
       },
-      materialFilenameTemplate: "{剧名}-{序号}.mp4",
+      materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
       materialDateValue: "",
       douyinMaterialRules: [],
     };

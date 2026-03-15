@@ -129,9 +129,6 @@ export class FileService {
       ) {
         throw new Error("素材名称模板必须包含 {剧名} 和 {序号}")
       }
-      if (normalizedTemplate.includes("{简称}")) {
-        throw new Error("素材名称模板不再支持 {简称} 占位符，请直接写固定简称或去掉简称")
-      }
       if (!fs.existsSync(basePath)) {
         throw new Error("素材目录不存在")
       }
@@ -165,10 +162,13 @@ export class FileService {
           const oldPath = path.join(dramaPath, fileName)
           const sequence = String(index + 1).padStart(2, "0")
           const extension = path.extname(fileName) || ".mp4"
-          let targetName = normalizedTemplate
-            .replaceAll("{剧名}", dramaName)
-            .replaceAll("{日期}", resolvedDateValue)
-            .replaceAll("{序号}", sequence)
+          let targetName = this.normalizeTemplateFileName(
+            normalizedTemplate
+              .replaceAll("{剧名}", dramaName)
+              .replaceAll("{日期}", resolvedDateValue)
+              .replaceAll("{简称}", "")
+              .replaceAll("{序号}", sequence)
+          )
 
           if (!path.extname(targetName)) {
             targetName += extension
@@ -279,6 +279,14 @@ export class FileService {
     const day =
       parts.find((part) => part.type === "day")?.value || String(new Date().getDate())
     return `${month}.${day}`
+  }
+
+  private normalizeTemplateFileName(fileName: string): string {
+    return fileName
+      .replace(/-{2,}/g, "-")
+      .replace(/-+\./g, ".")
+      .replace(/^-+/g, "")
+      .trim()
   }
 
   async getVideoInfo(filePath: string, maxRetry = 3): Promise<VideoInfo> {
