@@ -11,6 +11,7 @@ import {
   NEmpty,
   NInput,
   NInputNumber,
+  NModal,
   NProgress,
   NSelect,
   NSwitch,
@@ -115,6 +116,7 @@ const message = useMessage();
 const rootDir = ref("");
 const rows = ref<DramaUploadRow[]>([]);
 const isScanning = ref(false);
+const isRenaming = ref(false);
 const isInitializing = ref(false);
 const isReady = ref(false);
 const needLogin = ref(false);
@@ -123,6 +125,9 @@ const buildLogs = ref<Array<{ time: string; message: string }>>([]);
 const currentProgress = ref<JuliangUploadProgressPayload | null>(null);
 const currentBuildProgress = ref<DailyBuildProgressPayload | null>(null);
 const buildSettings = ref<UploadBuildSettings>(createDefaultBuildSettings());
+const ruleModalVisible = ref(false);
+const editingRuleId = ref<string | null>(null);
+const ruleForm = ref<DouyinMaterialRule>(createEmptyRule());
 
 const uploadConfig = ref({
   baseUploadUrl: "",
@@ -176,7 +181,6 @@ const validDouyinRules = computed(() =>
     (rule) =>
       rule.douyinAccount.trim() &&
       rule.douyinAccountId.trim() &&
-      rule.shortName.trim() &&
       rule.materialRange.trim()
   )
 );
@@ -209,7 +213,7 @@ function createDefaultBuildSettings(): UploadBuildSettings {
       ccId: "",
       rechargeTemplateId: "",
     },
-    materialFilenameTemplate: "{剧名}-{简称}-{序号}.mp4",
+    materialFilenameTemplate: "{剧名}-{序号}.mp4",
     douyinMaterialRules: [],
   };
 }
@@ -331,6 +335,20 @@ function getBuildStatusText(row: DramaUploadRow) {
   if (row.buildStatus === "building") return "搭建中";
   if (row.buildStatus === "cancelled") return "已取消";
   return "待搭建";
+}
+
+function getCombinedStatusType(row: DramaUploadRow) {
+  if (row.buildStatus !== "idle") {
+    return getBuildStatusType(row.buildStatus);
+  }
+  return getRowStatusType(row.status);
+}
+
+function getCombinedStatusText(row: DramaUploadRow) {
+  if (row.buildStatus !== "idle") {
+    return getBuildStatusText(row);
+  }
+  return getRowStatusText(row);
 }
 
 function getUploadButtonText(row: DramaUploadRow) {
@@ -474,8 +492,11 @@ async function applyUploadConfig(
     uploadConfig.value.deleteAfterUpload ? "1" : "0"
   );
 
+  const plainConfig = JSON.parse(
+    JSON.stringify(uploadConfig.value)
+  ) as typeof uploadConfig.value;
   const { deleteAfterUpload: _deleteAfterUpload, ...serviceConfig } =
-    uploadConfig.value;
+    plainConfig;
   try {
     await window.api.juliangUpdateConfig(serviceConfig);
   } catch (error) {
@@ -591,6 +612,76 @@ async function scanRootDir() {
   }
 }
 
+function getRenameTemplateError() {
+  if (!rootDir.value) {
+    return "请先选择素材目录";
+  }
+
+  const template = buildSettings.value.materialFilenameTemplate.trim();
+  if (!template) {
+    return "请先填写素材名称模板";
+  }
+  if (!template.includes("{剧名}") || !template.includes("{序号}")) {
+    return "素材名称模板必须包含 {剧名}、{序号}";
+  }
+  if (template.includes("{简称}")) {
+    return "素材名称模板不再支持 {简称} 占位符，请直接写固定简称或去掉简称";
+  }
+
+  return "";
+}
+
+async function renameVideosByTemplate() {
+  if (activeRow.value) {
+    message.warning(`当前正在上传《${activeRow.value.drama}》，请等待完成后再试`);
+    return;
+  }
+  if (activeBuildRow.value) {
+    message.warning(`当前正在搭建《${activeBuildRow.value.drama}》，请等待完成后再试`);
+    return;
+  }
+
+  const errorText = getRenameTemplateError();
+  if (errorText) {
+    message.warning(errorText);
+    return;
+  }
+
+  const confirmed = window.confirm(
+    "将按当前素材名称模板批量重命名所选目录下所有剧目录中的 mp4 文件。序号会按每部剧目录内现有文件名的自然顺序生成，是否继续？"
+  );
+  if (!confirmed) {
+    return;
+  }
+
+  isRenaming.value = true;
+  try {
+    if (typeof window.api.renameVideosByTemplate !== "function") {
+      message.error("当前应用还没有加载到批量重命名功能，请重启应用后再试");
+      return;
+    }
+
+    const result = await window.api.renameVideosByTemplate(
+      rootDir.value,
+      buildSettings.value.materialFilenameTemplate.trim()
+    );
+
+    if (!result.success) {
+      message.error(`批量重命名失败：${result.error || "未知错误"}`);
+      return;
+    }
+
+    await scanRootDir();
+    message.success(
+      `已处理 ${result.dramaCount} 部剧，重命名 ${result.renamedCount} 个文件，跳过 ${result.skippedCount} 个`
+    );
+  } catch (error) {
+    message.error(`批量重命名失败：${error}`);
+  } finally {
+    isRenaming.value = false;
+  }
+}
+
 function handleAccountInput(row: DramaUploadRow, value: string) {
   row.accountId = value.trim();
   saveStoredValue(rootDir.value, getAccountStorageKey, row.folderPath, row.accountId);
@@ -665,12 +756,79 @@ function validateMaterialRange(value: string): boolean {
   return Number(startText) <= Number(endText);
 }
 
-function addDouyinRule() {
-  buildSettings.value.douyinMaterialRules.push(createEmptyRule());
+function normalizeMaterialRange(value: string): string {
+  const normalized = value.trim();
+  if (!normalized.includes("-")) {
+    return normalized.padStart(2, "0");
+  }
+  const [startText, endText] = normalized.split("-");
+  return `${startText.padStart(2, "0")}-${endText.padStart(2, "0")}`;
 }
 
-function removeDouyinRule(index: number) {
-  buildSettings.value.douyinMaterialRules.splice(index, 1);
+function openAddRuleModal() {
+  editingRuleId.value = null;
+  ruleForm.value = createEmptyRule();
+  ruleModalVisible.value = true;
+}
+
+function openEditRuleModal(rule: DouyinMaterialRule) {
+  editingRuleId.value = rule.id;
+  ruleForm.value = normalizeRule(rule);
+  ruleModalVisible.value = true;
+}
+
+function closeRuleModal() {
+  ruleModalVisible.value = false;
+  editingRuleId.value = null;
+  ruleForm.value = createEmptyRule();
+}
+
+function saveRuleModal() {
+  const nextRule = normalizeRule(ruleForm.value);
+
+  if (!nextRule.douyinAccount) {
+    message.warning("请填写抖音号名称");
+    return;
+  }
+  if (!nextRule.douyinAccountId) {
+    message.warning("请填写抖音号ID");
+    return;
+  }
+  if (!nextRule.materialRange) {
+    message.warning("请填写序号范围");
+    return;
+  }
+  if (!validateMaterialRange(nextRule.materialRange)) {
+    message.warning("序号范围仅支持 01 或 01-03，且结束序号不能小于开始序号");
+    return;
+  }
+
+  nextRule.materialRange = normalizeMaterialRange(nextRule.materialRange);
+  nextRule.updatedAt = new Date().toISOString();
+
+  if (editingRuleId.value) {
+    const index = buildSettings.value.douyinMaterialRules.findIndex(
+      (item) => item.id === editingRuleId.value
+    );
+    if (index >= 0) {
+      nextRule.createdAt =
+        buildSettings.value.douyinMaterialRules[index].createdAt || nextRule.createdAt;
+      buildSettings.value.douyinMaterialRules.splice(index, 1, nextRule);
+    }
+  } else {
+    buildSettings.value.douyinMaterialRules.push(nextRule);
+  }
+
+  closeRuleModal();
+}
+
+function removeDouyinRule(ruleId: string) {
+  const index = buildSettings.value.douyinMaterialRules.findIndex(
+    (rule) => rule.id === ruleId
+  );
+  if (index >= 0) {
+    buildSettings.value.douyinMaterialRules.splice(index, 1);
+  }
 }
 
 function getBuildConfigError(): string {
@@ -698,12 +856,8 @@ function getBuildConfigError(): string {
   if (!template) {
     return "请先填写素材名称模板";
   }
-  if (
-    !template.includes("{剧名}") ||
-    !template.includes("{简称}") ||
-    !template.includes("{序号}")
-  ) {
-    return "素材名称模板必须包含 {剧名}、{简称}、{序号}";
+  if (!template.includes("{剧名}") || !template.includes("{序号}")) {
+    return "素材名称模板必须包含 {剧名}、{序号}";
   }
 
   if (!buildSettings.value.douyinMaterialRules.length) {
@@ -714,7 +868,6 @@ function getBuildConfigError(): string {
     if (
       !rule.douyinAccount.trim() ||
       !rule.douyinAccountId.trim() ||
-      !rule.shortName.trim() ||
       !rule.materialRange.trim()
     ) {
       return "请完善每条抖音号匹配素材规则";
@@ -1107,6 +1260,30 @@ onUnmounted(() => {
     </div>
 
     <NCard class="main-card">
+      <div class="template-panel">
+        <label class="build-field build-field-full">
+          <span>素材名称模板</span>
+          <NInput
+            v-model:value="buildSettings.materialFilenameTemplate"
+            placeholder="{剧名}-{序号}.mp4 或 {剧名}-xh-{序号}.mp4"
+          />
+          <small class="field-help">
+            只需要包含 {剧名}、{序号}。如果想带简称，直接在模板里写死，例如：{剧名}-xh-{序号}.mp4
+          </small>
+        </label>
+        <div class="template-actions">
+          <NButton
+            type="warning"
+            secondary
+            :disabled="!rootDir || !!activeRow || !!activeBuildRow"
+            :loading="isRenaming"
+            @click="renameVideosByTemplate"
+          >
+            {{ isRenaming ? "重命名中..." : "按模板批量重命名" }}
+          </NButton>
+        </div>
+      </div>
+
       <div class="toolbar">
         <div class="toolbar-main">
           <span class="toolbar-label">素材目录</span>
@@ -1166,53 +1343,73 @@ onUnmounted(() => {
       <div class="build-config-grid">
         <label class="build-field">
           <span>Secret密钥</span>
-          <NInput v-model:value="buildSettings.buildParams.secretKey" />
+          <NInput
+            v-model:value="buildSettings.buildParams.secretKey"
+            placeholder="请输入 Secret 密钥"
+          />
         </label>
         <label class="build-field">
           <span>来源</span>
-          <NInput v-model:value="buildSettings.buildParams.source" />
+          <NInput
+            v-model:value="buildSettings.buildParams.source"
+            placeholder="请输入来源，例如：泰州晴天"
+          />
         </label>
         <label class="build-field">
           <span>出价</span>
-          <NInput v-model:value="buildSettings.buildParams.bid" />
+          <NInput
+            v-model:value="buildSettings.buildParams.bid"
+            placeholder="请输入出价，例如：5"
+          />
         </label>
         <label class="build-field">
           <span>商品ID</span>
-          <NInput v-model:value="buildSettings.buildParams.productId" />
+          <NInput
+            v-model:value="buildSettings.buildParams.productId"
+            placeholder="请输入商品ID"
+          />
         </label>
         <label class="build-field">
           <span>商品库ID</span>
-          <NInput v-model:value="buildSettings.buildParams.productPlatformId" />
+          <NInput
+            v-model:value="buildSettings.buildParams.productPlatformId"
+            placeholder="请输入商品库ID"
+          />
         </label>
         <label class="build-field">
           <span>落地页 URL</span>
-          <NInput v-model:value="buildSettings.buildParams.landingUrl" />
+          <NInput
+            v-model:value="buildSettings.buildParams.landingUrl"
+            placeholder="请输入落地页 URL"
+          />
         </label>
         <label class="build-field">
           <span>小程序名称</span>
-          <NInput v-model:value="buildSettings.buildParams.microAppName" />
+          <NInput
+            v-model:value="buildSettings.buildParams.microAppName"
+            placeholder="请输入小程序名称"
+          />
         </label>
         <label class="build-field">
           <span>小程序 AppID</span>
-          <NInput v-model:value="buildSettings.buildParams.microAppId" />
+          <NInput
+            v-model:value="buildSettings.buildParams.microAppId"
+            placeholder="请输入小程序 AppID"
+          />
         </label>
         <label class="build-field">
           <span>cc_id</span>
-          <NInput v-model:value="buildSettings.buildParams.ccId" />
+          <NInput
+            v-model:value="buildSettings.buildParams.ccId"
+            placeholder="请输入 cc_id"
+          />
         </label>
         <label class="build-field">
           <span>首充模版ID</span>
-          <NInput v-model:value="buildSettings.buildParams.rechargeTemplateId" />
-        </label>
-        <label class="build-field build-field-full">
-          <span>素材名称模板</span>
           <NInput
-            v-model:value="buildSettings.materialFilenameTemplate"
-            placeholder="{剧名}-{简称}-{序号}.mp4"
+            v-model:value="buildSettings.buildParams.rechargeTemplateId"
+            placeholder="请输入首充模版ID"
           />
-          <small class="field-help">
-            仅支持 {剧名}、{简称}、{序号} 三个占位符，例如：{剧名}-xy-{序号}.mp4
-          </small>
         </label>
       </div>
     </NCard>
@@ -1227,7 +1424,7 @@ onUnmounted(() => {
 
       <div class="rule-toolbar">
         <span class="toolbar-hint">序号范围支持单个 01，或区间 01-03</span>
-        <NButton type="primary" secondary @click="addDouyinRule">添加规则</NButton>
+        <NButton type="primary" secondary @click="openAddRuleModal">添加规则</NButton>
       </div>
 
       <NEmpty
@@ -1236,44 +1433,72 @@ onUnmounted(() => {
       />
 
       <div v-else class="rule-list">
-        <div
-          v-for="(rule, index) in buildSettings.douyinMaterialRules"
-          :key="rule.id"
-          class="rule-item"
-        >
-          <div class="rule-grid">
-            <label class="build-field">
-              <span>抖音号名称</span>
-              <NInput v-model:value="rule.douyinAccount" />
-            </label>
-            <label class="build-field">
-              <span>抖音号ID</span>
-              <NInput v-model:value="rule.douyinAccountId" />
-            </label>
-            <label class="build-field">
-              <span>简称</span>
-              <NInput v-model:value="rule.shortName" placeholder="例如 xy" />
-            </label>
-            <label class="build-field">
-              <span>序号范围</span>
-              <NInput
-                v-model:value="rule.materialRange"
-                placeholder="01 或 01-03"
-              />
-              <small
-                v-if="rule.materialRange && !validateMaterialRange(rule.materialRange)"
-                class="field-help field-help-error"
-              >
-                仅支持 01 或 01-03，且结束序号不能小于开始序号
-              </small>
-            </label>
+        <div v-for="rule in buildSettings.douyinMaterialRules" :key="rule.id" class="rule-item">
+          <div class="rule-summary">
+            <div class="rule-title-row">
+              <span class="rule-name">{{ rule.douyinAccount || "未命名规则" }}</span>
+              <NTag size="small" :type="validateMaterialRange(rule.materialRange) ? 'success' : 'warning'">
+                {{ rule.materialRange || "未配置范围" }}
+              </NTag>
+            </div>
+            <div class="rule-meta">
+              <span>抖音号ID：{{ rule.douyinAccountId || "-" }}</span>
+            </div>
+            <div
+              v-if="rule.materialRange && !validateMaterialRange(rule.materialRange)"
+              class="row-error"
+            >
+              序号范围格式不正确
+            </div>
           </div>
           <div class="rule-actions">
-            <NButton type="error" tertiary @click="removeDouyinRule(index)">删除</NButton>
+            <NButton tertiary @click="openEditRuleModal(rule)">编辑</NButton>
+            <NButton type="error" tertiary @click="removeDouyinRule(rule.id)">删除</NButton>
           </div>
         </div>
       </div>
     </NCard>
+
+    <NModal
+      v-model:show="ruleModalVisible"
+      preset="card"
+      :style="{ width: 'min(560px, calc(100vw - 32px))' }"
+      :title="editingRuleId ? '编辑规则' : '添加规则'"
+      :bordered="false"
+      segmented
+    >
+      <div class="rule-modal-body">
+        <label class="build-field">
+          <span>抖音号名称</span>
+          <NInput v-model:value="ruleForm.douyinAccount" placeholder="例如：小红看剧" />
+        </label>
+        <label class="build-field">
+          <span>抖音号ID</span>
+          <NInput v-model:value="ruleForm.douyinAccountId" placeholder="请输入抖音号ID" />
+        </label>
+        <label class="build-field">
+          <span>序号范围</span>
+          <NInput
+            v-model:value="ruleForm.materialRange"
+            placeholder="请输入单个序号或范围序号，例如：01或者01-03"
+          />
+          <small
+            v-if="ruleForm.materialRange && !validateMaterialRange(ruleForm.materialRange)"
+            class="field-help field-help-error"
+          >
+            仅支持 01 或 01-03，且结束序号不能小于开始序号
+          </small>
+        </label>
+      </div>
+      <template #footer>
+        <div class="rule-modal-footer">
+          <NButton @click="closeRuleModal">取消</NButton>
+          <NButton type="primary" @click="saveRuleModal">
+            {{ editingRuleId ? "保存修改" : "确认添加" }}
+          </NButton>
+        </div>
+      </template>
+    </NModal>
 
     <NCard v-if="currentProgress && activeRow" class="progress-card">
       <div class="progress-header">
@@ -1352,8 +1577,7 @@ onUnmounted(() => {
               <th>素材数</th>
               <th>账户</th>
               <th>短剧ID</th>
-              <th>上传状态</th>
-              <th>搭建状态</th>
+              <th>状态</th>
               <th>进度</th>
               <th>操作</th>
             </tr>
@@ -1362,7 +1586,6 @@ onUnmounted(() => {
             <tr v-for="row in rows" :key="row.id">
               <td class="drama-cell">
                 <div class="drama-name">{{ row.drama }}</div>
-                <div class="drama-path">{{ row.folderPath }}</div>
                 <div v-if="row.error || row.deleteError || row.buildError" class="row-error">
                   {{ row.error || row.deleteError || row.buildError }}
                 </div>
@@ -1393,18 +1616,11 @@ onUnmounted(() => {
               </td>
               <td>
                 <div class="status-stack">
-                  <NTag :type="getRowStatusType(row.status)" size="small">
-                    {{ getRowStatusText(row) }}
+                  <NTag :type="getCombinedStatusType(row)" size="small">
+                    {{ getCombinedStatusText(row) }}
                   </NTag>
                   <NTag v-if="row.deleted" type="success" size="small" round>
                     本地已删除
-                  </NTag>
-                </div>
-              </td>
-              <td>
-                <div class="status-stack">
-                  <NTag :type="getBuildStatusType(row.buildStatus)" size="small">
-                    {{ getBuildStatusText(row) }}
                   </NTag>
                   <span v-if="row.buildMessage" class="row-hint">{{ row.buildMessage }}</span>
                 </div>
@@ -1627,7 +1843,6 @@ onUnmounted(() => {
 .toolbar-hint,
 .config-desc,
 .table-header-desc,
-.drama-path,
 .field-help,
 .row-hint {
   color: #8a94a7;
@@ -1647,6 +1862,16 @@ onUnmounted(() => {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid #eef2f6;
+}
+
+.template-panel {
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.template-actions {
+  margin-top: 12px;
 }
 
 .config-row {
@@ -1716,12 +1941,58 @@ onUnmounted(() => {
   border: 1px solid #edf1f5;
   border-radius: 14px;
   background: #fbfcfe;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
 }
 
 .rule-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 14px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.rule-summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rule-name {
+  color: #1e2430;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.rule-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  color: #667089;
+  font-size: 13px;
+}
+
+.rule-modal-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 20px;
+}
+
+.rule-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .drama-table {
@@ -1818,8 +2089,18 @@ onUnmounted(() => {
 
 @media (max-width: 960px) {
   .build-config-grid,
-  .rule-grid {
+  .rule-grid,
+  .rule-modal-body {
     grid-template-columns: 1fr;
+  }
+
+  .rule-item {
+    flex-direction: column;
+  }
+
+  .rule-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .toolbar-main {

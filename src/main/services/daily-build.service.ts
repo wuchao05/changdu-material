@@ -311,16 +311,15 @@ function ensureRangeSequenceList(range: string): string[] {
 function buildExpectedMaterialNames(params: {
   template: string;
   dramaName: string;
-  shortName: string;
   materialRange: string;
 }): string[] {
-  const { template, dramaName, shortName, materialRange } = params;
+  const { template, dramaName, materialRange } = params;
   const sequences = ensureRangeSequenceList(materialRange);
 
   return sequences.map((sequence) =>
     template
       .replaceAll("{剧名}", dramaName)
-      .replaceAll("{简称}", shortName)
+      .replaceAll("{简称}", "")
       .replaceAll("{序号}", sequence)
   );
 }
@@ -481,10 +480,9 @@ export class DailyBuildService {
 
     if (
       !materialFilenameTemplate.includes("{剧名}") ||
-      !materialFilenameTemplate.includes("{简称}") ||
       !materialFilenameTemplate.includes("{序号}")
     ) {
-      throw new Error("素材名称模板必须包含 {剧名}、{简称}、{序号}");
+      throw new Error("素材名称模板必须包含 {剧名}、{序号}");
     }
 
     if (!douyinMaterialRules.length) {
@@ -1502,7 +1500,6 @@ export class DailyBuildService {
     const expectedNames = buildExpectedMaterialNames({
       template: payload.buildSettings.materialFilenameTemplate,
       dramaName: payload.drama,
-      shortName: rule.shortName,
       materialRange: rule.materialRange,
     });
     const matchedMaterials = filterMaterialsByTemplate(materials, expectedNames);

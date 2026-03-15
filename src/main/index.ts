@@ -244,6 +244,10 @@ function registerIpcHandlers(): void {
     return fileService.checkZipFile(zipPath);
   });
 
+  ipcMain.handle('file:renameVideosByTemplate', async (_event, basePath, template) => {
+    return await fileService.renameVideosByTemplate(basePath, template);
+  });
+
   ipcMain.handle('file:selectFolder', async () => {
     const { dialog } = await import('electron');
     const result = await dialog.showOpenDialog(mainWindow!, {

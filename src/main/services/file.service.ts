@@ -25,6 +25,14 @@ export interface VideoInfo {
   duration: number;
 }
 
+export interface RenameVideosResult {
+  success: boolean;
+  dramaCount: number;
+  renamedCount: number;
+  skippedCount: number;
+  error?: string;
+}
+
 export class FileService {
   private defaultBasePath = "D:\\短剧剪辑\\";
   
@@ -104,6 +112,131 @@ export class FileService {
     }
   }
 
+  async renameVideosByTemplate(
+    basePath: string,
+    template: string
+  ): Promise<RenameVideosResult> {
+    try {
+      const normalizedTemplate = template.trim()
+      if (!normalizedTemplate) {
+        throw new Error("素材名称模板不能为空")
+      }
+      if (
+        !normalizedTemplate.includes("{剧名}") ||
+        !normalizedTemplate.includes("{序号}")
+      ) {
+        throw new Error("素材名称模板必须包含 {剧名} 和 {序号}")
+      }
+      if (normalizedTemplate.includes("{简称}")) {
+        throw new Error("素材名称模板不再支持 {简称} 占位符，请直接写固定简称或去掉简称")
+      }
+      if (!fs.existsSync(basePath)) {
+        throw new Error("素材目录不存在")
+      }
+
+      const dramaFolders = fs
+        .readdirSync(basePath, { withFileTypes: true })
+        .filter((dirent) => dirent.isDirectory())
+
+      let dramaCount = 0
+      let renamedCount = 0
+      let skippedCount = 0
+
+      for (const folder of dramaFolders) {
+        const dramaName = folder.name
+        const dramaPath = path.join(basePath, dramaName)
+        const files = fs
+          .readdirSync(dramaPath, { withFileTypes: true })
+          .filter(
+            (dirent) =>
+              dirent.isFile() && path.extname(dirent.name).toLowerCase() === ".mp4"
+          )
+          .map((dirent) => dirent.name)
+          .sort((a, b) => this.compareFileNames(a, b))
+
+        if (files.length === 0) {
+          continue
+        }
+
+        dramaCount += 1
+        const plans = files.map((fileName, index) => {
+          const oldPath = path.join(dramaPath, fileName)
+          const sequence = String(index + 1).padStart(2, "0")
+          const extension = path.extname(fileName) || ".mp4"
+          let targetName = normalizedTemplate
+            .replaceAll("{剧名}", dramaName)
+            .replaceAll("{序号}", sequence)
+
+          if (!path.extname(targetName)) {
+            targetName += extension
+          }
+
+          return {
+            fileName,
+            oldPath,
+            targetName,
+            targetPath: path.join(dramaPath, targetName),
+          }
+        })
+
+        const targetNameSet = new Set<string>()
+        for (const plan of plans) {
+          const lowerTargetName = plan.targetName.toLowerCase()
+          if (targetNameSet.has(lowerTargetName)) {
+            throw new Error(`《${dramaName}》重命名后文件名重复：${plan.targetName}`)
+          }
+          targetNameSet.add(lowerTargetName)
+        }
+
+        const originalPathSet = new Set(plans.map((plan) => plan.oldPath))
+        for (const plan of plans) {
+          if (
+            plan.oldPath !== plan.targetPath &&
+            fs.existsSync(plan.targetPath) &&
+            !originalPathSet.has(plan.targetPath)
+          ) {
+            throw new Error(`《${dramaName}》目标文件已存在：${plan.targetName}`)
+          }
+        }
+
+        const changedPlans = plans.filter((plan) => plan.fileName !== plan.targetName)
+        skippedCount += plans.length - changedPlans.length
+
+        for (let index = 0; index < changedPlans.length; index += 1) {
+          const plan = changedPlans[index]
+          const tempPath = path.join(
+            dramaPath,
+            `.__rename_tmp__${Date.now()}_${index}_${Math.random()
+              .toString(36)
+              .slice(2, 8)}${path.extname(plan.fileName)}`
+          )
+          await fs.promises.rename(plan.oldPath, tempPath)
+          plan.oldPath = tempPath
+        }
+
+        for (const plan of changedPlans) {
+          await fs.promises.rename(plan.oldPath, plan.targetPath)
+          renamedCount += 1
+        }
+      }
+
+      return {
+        success: true,
+        dramaCount,
+        renamedCount,
+        skippedCount,
+      }
+    } catch (error) {
+      return {
+        success: false,
+        dramaCount: 0,
+        renamedCount: 0,
+        skippedCount: 0,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+
   private isVideoFile(fileName: string): boolean {
     const videoExtensions = [
       ".mp4",
@@ -117,6 +250,13 @@ export class FileService {
     ];
     const ext = path.extname(fileName).toLowerCase();
     return videoExtensions.includes(ext);
+  }
+
+  private compareFileNames(a: string, b: string): number {
+    return a.localeCompare(b, "zh-Hans-CN", {
+      numeric: true,
+      sensitivity: "base",
+    })
   }
 
   async getVideoInfo(filePath: string, maxRetry = 3): Promise<VideoInfo> {

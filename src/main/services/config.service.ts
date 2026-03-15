@@ -345,12 +345,12 @@ export class ConfigService {
         productId: "",
         productPlatformId: "",
         landingUrl: "",
-        microAppName: "",
-        microAppId: "",
-        ccId: "",
-        rechargeTemplateId: "",
+      microAppName: "",
+      microAppId: "",
+      ccId: "",
+      rechargeTemplateId: "",
       },
-      materialFilenameTemplate: "{剧名}-{简称}-{序号}.mp4",
+      materialFilenameTemplate: "{剧名}-{序号}.mp4",
       douyinMaterialRules: [],
     };
   }
@@ -371,15 +371,9 @@ export class ConfigService {
       materialFilenameTemplate:
         settings?.materialFilenameTemplate?.trim() ||
         defaultSettings.materialFilenameTemplate,
-      douyinMaterialRules: rules
-        .map((rule) => this.normalizeDouyinMaterialRule(rule))
-        .filter(
-          (rule) =>
-            rule.douyinAccount ||
-            rule.douyinAccountId ||
-            rule.shortName ||
-            rule.materialRange
-        ),
+      douyinMaterialRules: rules.map((rule) =>
+        this.normalizeDouyinMaterialRule(rule)
+      ),
     };
   }
 

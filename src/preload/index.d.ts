@@ -158,6 +158,10 @@ interface Api {
   scanVideos: (basePath: string) => Promise<VideoMaterial[]>;
   listExportDirs: (rootPath: string) => Promise<string[]>;
   getVideoInfo: (filePath: string) => Promise<VideoInfo>;
+  renameVideosByTemplate: (
+    basePath: string,
+    template: string
+  ) => Promise<RenameVideosResult>;
   deleteFolder: (
     folderPath: string
   ) => Promise<{ success: boolean; error?: string }>;
@@ -369,6 +373,14 @@ interface VideoInfo {
   width: number;
   height: number;
   duration: number;
+}
+
+interface RenameVideosResult {
+  success: boolean;
+  dramaCount: number;
+  renamedCount: number;
+  skippedCount: number;
+  error?: string;
 }
 
 declare global {
