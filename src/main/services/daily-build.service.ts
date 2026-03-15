@@ -1230,89 +1230,114 @@ export class DailyBuildService {
         cover_type: 1,
       };
     });
-
-    const response = await fetch(
-      `https://ad.oceanengine.com/superior/api/v2/promotion/create_promotion?aadvid=${params.accountId}`,
-      {
-        method: "POST",
-        headers: {
-          Cookie: cookieHeader,
-          "Content-Type": "application/json",
+    const requestBody = {
+      promotion_data: {
+        client_settings: { is_comment_disable: "0" },
+        native_info: {
+          is_feed_and_fav_see: 2,
+          anchor_related_type: 0,
+          ies_core_user_id: params.iesCoreId,
         },
-        body: JSON.stringify({
-          promotion_data: {
-            client_settings: { is_comment_disable: "0" },
-            native_info: {
-              is_feed_and_fav_see: 2,
-              anchor_related_type: 0,
-              ies_core_user_id: params.iesCoreId,
-            },
-            enable_personal_action: true,
-            micro_app_info: {
-              app_id: params.initData.app_id,
-              start_path: params.initData.start_page || "",
-              micro_app_type: params.initData.app_type || 2,
-              params: params.initData.start_params || "",
-              url: params.initData.link || "",
-            },
-            source: buildParams.source.trim(),
+        enable_personal_action: true,
+        micro_app_info: {
+          app_id: params.initData.app_id,
+          start_path: params.initData.start_page || "",
+          micro_app_type: params.initData.app_type || 2,
+          params: params.initData.start_params || "",
+          url: params.initData.link || "",
+        },
+        source: buildParams.source.trim(),
+      },
+      material_group: {
+        playable_material_info: [],
+        video_material_info: videoMaterialInfo,
+        image_material_info: [],
+        aweme_photo_material_info: [],
+        external_material_info: [{ external_url: buildParams.landingUrl.trim() }],
+        component_material_info: [],
+        call_to_action_material_info: [
+          {
+            call_to_action: DAILY_BUILD_CONFIG.promotionMaterial.callToAction,
+            suggestion_usage_type: 0,
           },
-          material_group: {
-            playable_material_info: [],
-            video_material_info: videoMaterialInfo,
-            image_material_info: [],
-            aweme_photo_material_info: [],
-            external_material_info: [{ external_url: buildParams.landingUrl.trim() }],
-            component_material_info: [],
-            call_to_action_material_info: [
-              {
-                call_to_action: DAILY_BUILD_CONFIG.promotionMaterial.callToAction,
-                suggestion_usage_type: 0,
-              },
-            ],
-            product_info: {
-              product_name: {
-                name: DAILY_BUILD_CONFIG.promotionMaterial.productName,
-              },
-              product_images: [
-                {
-                  image_uri: params.initData.product_image_uri,
-                  width: params.initData.product_image_width || 108,
-                  height: params.initData.product_image_height || 108,
-                },
-              ],
-              product_selling_points: [
-                {
-                  selling_point: DAILY_BUILD_CONFIG.promotionMaterial.sellingPoint,
-                  suggestion_usage_type: 0,
-                },
-              ],
-            },
-            title_material_info: [
-              {
-                title: `#短剧推荐#${payload.drama}`,
-                word_list: [],
-                bidword_list: [],
-                dpa_word_list: [],
-                is_dynamic: 0,
-                suggestion_usage_type: 0,
-                request_id: "0",
-              },
-            ],
+        ],
+        product_info: {
+          product_name: {
+            name: DAILY_BUILD_CONFIG.promotionMaterial.productName,
           },
-          name: params.adName,
-          project_id: String(params.projectId),
-          check_hash: Date.now().toString(),
-          is_auto_delivery_mode: false,
-        }),
-        signal,
-      }
-    );
+          product_images: [
+            {
+              image_uri: params.initData.product_image_uri,
+              width: params.initData.product_image_width || 108,
+              height: params.initData.product_image_height || 108,
+            },
+          ],
+          product_selling_points: [
+            {
+              selling_point: DAILY_BUILD_CONFIG.promotionMaterial.sellingPoint,
+              suggestion_usage_type: 0,
+            },
+          ],
+        },
+        title_material_info: [
+          {
+            title: `#短剧推荐#${payload.drama}`,
+            word_list: [],
+            bidword_list: [],
+            dpa_word_list: [],
+            is_dynamic: 0,
+            suggestion_usage_type: 0,
+            request_id: "0",
+          },
+        ],
+      },
+      name: params.adName,
+      project_id: String(params.projectId),
+      check_hash: Date.now().toString(),
+      is_auto_delivery_mode: false,
+    };
 
-    const result = await parseJsonResponse<any>(response);
-    if (result?.code !== 0) {
-      throw new Error(result?.msg || "创建广告失败");
+    const maxRetries = 1;
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      try {
+        this.log(
+          `创建广告请求: ${params.adName}，项目 ${params.projectId}，素材 ${params.materials.length} 个，尝试 ${attempt + 1}/${maxRetries + 1}`
+        );
+        const response = await fetch(
+          `https://ad.oceanengine.com/superior/api/v2/promotion/create_promotion?aadvid=${params.accountId}`,
+          {
+            method: "POST",
+            headers: {
+              Cookie: cookieHeader,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(requestBody),
+            signal,
+          }
+        );
+
+        const result = await parseJsonResponse<any>(response);
+        if (result?.code !== 0) {
+          throw new Error(result?.msg || "创建广告失败");
+        }
+
+        this.log(`创建广告成功: ${params.adName}`);
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < maxRetries) {
+          this.log(
+            `创建广告失败，准备重试: ${params.adName} - ${lastError.message}`
+          );
+          await this.sleep(2000, signal);
+          continue;
+        }
+      }
     }
+
+    throw lastError || new Error("创建广告失败");
   }
 
   private async executeAssetization(
