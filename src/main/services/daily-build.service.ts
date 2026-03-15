@@ -1305,6 +1305,19 @@ export class DailyBuildService {
         this.log(
           `创建广告请求: ${params.adName}，项目 ${params.projectId}，素材 ${params.materials.length} 个，尝试 ${attempt + 1}/${maxRetries + 1}`
         );
+        this.log(
+          `创建广告参数: ${JSON.stringify({
+            account_id: params.accountId,
+            project_id: String(params.projectId),
+            ad_name: params.adName,
+            ies_core_user_id: params.iesCoreId,
+            matched_materials: params.materials.map((material) => ({
+              file_name: material.filename,
+              video_id: material.video_id,
+            })),
+            request_body: requestBody,
+          })}`
+        );
         const response = await fetch(
           `https://ad.oceanengine.com/superior/api/v2/promotion/create_promotion?aadvid=${params.accountId}`,
           {
@@ -1625,6 +1638,14 @@ export class DailyBuildService {
       materialRange: rule.materialRange,
     });
     const matchedMaterials = filterMaterialsByTemplate(materials, expectedNames);
+    this.log(
+      `素材匹配期望: ${rule.douyinAccount} -> ${expectedNames.join("、")}`
+    );
+    this.log(
+      `素材匹配结果: ${rule.douyinAccount} -> 命中 ${matchedMaterials.length} 个：${matchedMaterials
+        .map((material) => material.filename)
+        .join("、") || "无"}`
+    );
 
     if (!matchedMaterials.length) {
       throw new Error(`未匹配到素材：${expectedNames.join("、")}`);
