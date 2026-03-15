@@ -279,6 +279,19 @@ interface Api {
   juliangUpdateConfig: (config: unknown) => Promise<{ success: boolean }>;
   juliangGetScreenshot: () => Promise<string | null>;
   juliangGetLogs: () => Promise<Array<{ time: string; message: string }>>;
+  juliangGetTaskStates: () => Promise<
+    Array<{
+      taskId: string;
+      drama: string;
+      status: "pending" | "running" | "completed" | "failed" | "skipped";
+      currentBatch: number;
+      totalBatches: number;
+      successCount: number;
+      totalFiles: number;
+      message: string;
+      updatedAt: string;
+    }>
+  >;
   juliangClearLogs: () => Promise<{ success: boolean }>;
 
   // 上传搭建
@@ -295,6 +308,19 @@ interface Api {
   }>;
   dailyBuildCancelTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
   dailyBuildGetLogs: () => Promise<Array<{ time: string; message: string }>>;
+  dailyBuildGetTaskStates: () => Promise<
+    Array<{
+      taskId: string;
+      drama: string;
+      status: "assetizing" | "building" | "completed" | "failed" | "cancelled";
+      message: string;
+      currentRuleIndex: number;
+      totalRules: number;
+      successRuleCount: number;
+      failedRuleCount: number;
+      updatedAt: string;
+    }>
+  >;
   dailyBuildClearLogs: () => Promise<{ success: boolean }>;
 
   // 巨量调度器

@@ -192,6 +192,7 @@ const api = {
     ipcRenderer.invoke("juliang:updateConfig", config),
   juliangGetScreenshot: () => ipcRenderer.invoke("juliang:getScreenshot"),
   juliangGetLogs: () => ipcRenderer.invoke("juliang:getLogs"),
+  juliangGetTaskStates: () => ipcRenderer.invoke("juliang:getTaskStates"),
   juliangClearLogs: () => ipcRenderer.invoke("juliang:clearLogs"),
 
   // ==================== 上传搭建 ====================
@@ -200,6 +201,7 @@ const api = {
   dailyBuildCancelTask: (taskId: string) =>
     ipcRenderer.invoke("daily-build:cancelTask", taskId),
   dailyBuildGetLogs: () => ipcRenderer.invoke("daily-build:getLogs"),
+  dailyBuildGetTaskStates: () => ipcRenderer.invoke("daily-build:getTaskStates"),
   dailyBuildClearLogs: () => ipcRenderer.invoke("daily-build:clearLogs"),
 
   // ==================== 巨量调度器 ====================

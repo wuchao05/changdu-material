@@ -91,6 +91,14 @@ interface DailyBuildProgressPayload {
   failedRuleCount: number;
 }
 
+interface JuliangTaskStatePayload extends JuliangUploadProgressPayload {
+  updatedAt: string;
+}
+
+interface DailyBuildTaskStatePayload extends DailyBuildProgressPayload {
+  updatedAt: string;
+}
+
 interface DailyBuildResult {
   success: boolean;
   cancelled?: boolean;
@@ -107,8 +115,17 @@ interface DailyBuildResult {
   error?: string;
 }
 
+interface UploadBuildViewState {
+  rootDir: string;
+  rows: DramaUploadRow[];
+  currentProgress: JuliangUploadProgressPayload | null;
+  currentBuildProgress: DailyBuildProgressPayload | null;
+  autoRunEnabled: boolean;
+}
+
 const ROOT_DIR_STORAGE_KEY = "upload-build:root-dir";
 const DELETE_AFTER_UPLOAD_STORAGE_KEY = "upload-build:delete-after-upload";
+const VIEW_STATE_STORAGE_KEY = "upload-build:view-state";
 const BUILD_SETTINGS_SAVE_DELAY = 300;
 const COLLAPSIBLE_SECTION_NAMES = [
   "build-config",
@@ -131,6 +148,7 @@ const logs = ref<Array<{ time: string; message: string }>>([]);
 const buildLogs = ref<Array<{ time: string; message: string }>>([]);
 const currentProgress = ref<JuliangUploadProgressPayload | null>(null);
 const currentBuildProgress = ref<DailyBuildProgressPayload | null>(null);
+const autoRunEnabled = ref(false);
 const buildSettings = ref<UploadBuildSettings>(createDefaultBuildSettings());
 const ruleModalVisible = ref(false);
 const editingRuleId = ref<string | null>(null);
@@ -191,6 +209,26 @@ const validDouyinRules = computed(() =>
       rule.materialRange.trim()
   )
 );
+const autoRunDisabledReason = computed(() => {
+  if (!rows.value.length) {
+    return "请先选择素材目录并扫描剧目";
+  }
+
+  for (const row of rows.value) {
+    const dramaLabel = row.drama.trim() || "未命名剧目";
+    if (row.entryMode === "build-only" && !row.drama.trim()) {
+      return "提交搭建的剧目需要先填写剧名";
+    }
+    if (!row.accountId.trim()) {
+      return `《${dramaLabel}》还没有填写账户`;
+    }
+    if (!row.dramaId.trim()) {
+      return `《${dramaLabel}》还没有填写短剧ID`;
+    }
+  }
+
+  return "";
+});
 
 const browserStatusText = computed(() => {
   if (isInitializing.value) return "初始化中";
@@ -308,6 +346,83 @@ function saveStoredValue(
   const current = loadStoredMap(dirPath, storageKeyFactory);
   current[key] = value;
   localStorage.setItem(storageKeyFactory(dirPath), JSON.stringify(current));
+}
+
+function normalizeRow(row?: Partial<DramaUploadRow>): DramaUploadRow {
+  return {
+    id: row?.id || `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    entryMode: row?.entryMode === "build-only" ? "build-only" : "local",
+    drama: row?.drama || "",
+    folderPath: row?.folderPath || "",
+    files: Array.isArray(row?.files) ? [...row.files] : [],
+    materialCount: Number(row?.materialCount || 0),
+    accountId: row?.accountId || "",
+    dramaId: row?.dramaId || "",
+    status: (row?.status as UploadStatus) || "pending",
+    error: row?.error,
+    taskId: row?.taskId,
+    currentBatch: Number(row?.currentBatch || 0),
+    totalBatches: Number(row?.totalBatches || 0),
+    successCount: Number(row?.successCount || 0),
+    totalFiles: Number(row?.totalFiles || 0),
+    deleted: Boolean(row?.deleted),
+    deleteError: row?.deleteError,
+    buildStatus: (row?.buildStatus as BuildStatus) || "idle",
+    buildTaskId: row?.buildTaskId,
+    buildError: row?.buildError,
+    buildMessage: row?.buildMessage,
+    buildSuccessRuleCount: Number(row?.buildSuccessRuleCount || 0),
+    buildFailedRuleCount: Number(row?.buildFailedRuleCount || 0),
+    buildTotalRules: Number(row?.buildTotalRules || 0),
+    skippedRules: Array.isArray(row?.skippedRules)
+      ? row.skippedRules.map((item) => ({
+          douyinAccount: String(item?.douyinAccount || ""),
+          error: String(item?.error || ""),
+        }))
+      : [],
+  };
+}
+
+function loadPersistedViewState(): UploadBuildViewState | null {
+  try {
+    const raw = localStorage.getItem(VIEW_STATE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<UploadBuildViewState>;
+    return {
+      rootDir: parsed.rootDir || "",
+      rows: Array.isArray(parsed.rows) ? parsed.rows.map((row) => normalizeRow(row)) : [],
+      currentProgress: parsed.currentProgress || null,
+      currentBuildProgress: parsed.currentBuildProgress || null,
+      autoRunEnabled: Boolean(parsed.autoRunEnabled),
+    };
+  } catch (error) {
+    console.error("读取上传搭建页面状态失败:", error);
+    return null;
+  }
+}
+
+function persistViewState() {
+  try {
+    if (!rootDir.value && rows.value.length === 0) {
+      localStorage.removeItem(VIEW_STATE_STORAGE_KEY);
+      return;
+    }
+
+    const payload: UploadBuildViewState = {
+      rootDir: rootDir.value,
+      rows: rows.value.map((row) => normalizeRow(JSON.parse(JSON.stringify(row)))),
+      currentProgress: currentProgress.value
+        ? JSON.parse(JSON.stringify(currentProgress.value))
+        : null,
+      currentBuildProgress: currentBuildProgress.value
+        ? JSON.parse(JSON.stringify(currentBuildProgress.value))
+        : null,
+      autoRunEnabled: autoRunEnabled.value,
+    };
+    localStorage.setItem(VIEW_STATE_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.error("保存上传搭建页面状态失败:", error);
+  }
 }
 
 function getFolderPath(filePath: string): string {
@@ -438,6 +553,24 @@ watch(
   { deep: true }
 );
 
+watch(
+  [rows, currentProgress, currentBuildProgress, rootDir, autoRunEnabled],
+  () => {
+    persistViewState();
+  },
+  { deep: true }
+);
+
+watch(
+  autoRunDisabledReason,
+  (reason) => {
+    if (reason && autoRunEnabled.value) {
+      autoRunEnabled.value = false;
+      message.warning(`自动运行已关闭：${reason}`);
+    }
+  }
+);
+
 async function initializeBrowser() {
   if (isInitializing.value) return { success: false, error: "浏览器初始化中" };
 
@@ -551,7 +684,11 @@ async function scanRootDir() {
   try {
     const materials = await window.api.scanVideos(rootDir.value);
     const manualRows = rows.value.filter((row) => row.entryMode === "build-only");
-    const previousRowMap = new Map(rows.value.map((row) => [row.folderPath, row]));
+    const previousRowMap = new Map(
+      rows.value
+        .filter((row) => row.entryMode === "local")
+        .map((row) => [row.folderPath, row])
+    );
     const storedAccounts = loadStoredMap(rootDir.value, getAccountStorageKey);
     const storedDramaIds = loadStoredMap(rootDir.value, getDramaIdStorageKey);
     const grouped = new Map<
@@ -580,9 +717,7 @@ async function scanRootDir() {
         const unchanged =
           previous &&
           previous.materialCount === group.files.length &&
-          previous.files.join("|") === group.files.join("|") &&
-          previous.status !== "uploading" &&
-          previous.buildStatus !== "building";
+          previous.files.join("|") === group.files.join("|");
 
         return {
           id: `${group.folderPath}-${group.files.length}`,
@@ -597,25 +732,16 @@ async function scanRootDir() {
             previous?.dramaId ?? storedDramaIds[group.folderPath] ?? "",
           status: unchanged ? previous!.status : "pending",
           error: unchanged && previous?.status === "failed" ? previous.error : undefined,
-          taskId: undefined,
+          taskId: unchanged ? previous?.taskId : undefined,
           currentBatch: unchanged ? previous?.currentBatch || 0 : 0,
           totalBatches: unchanged ? previous?.totalBatches || 0 : 0,
-          successCount:
-            unchanged && previous?.status === "uploaded"
-              ? previous.successCount || group.files.length
-              : 0,
-          totalFiles:
-            unchanged && previous?.status === "uploaded"
-              ? previous.totalFiles || group.files.length
-              : group.files.length,
+          successCount: unchanged ? previous?.successCount || 0 : 0,
+          totalFiles: unchanged ? previous?.totalFiles || group.files.length : group.files.length,
           deleted: unchanged ? previous?.deleted || false : false,
           deleteError: unchanged ? previous?.deleteError : undefined,
           buildStatus: unchanged ? previous?.buildStatus || "idle" : "idle",
-          buildTaskId: undefined,
-          buildError:
-            unchanged && previous?.buildStatus === "failed"
-              ? previous.buildError
-              : undefined,
+          buildTaskId: unchanged ? previous?.buildTaskId : undefined,
+          buildError: unchanged ? previous?.buildError : undefined,
           buildMessage: unchanged ? previous?.buildMessage : undefined,
           buildSuccessRuleCount: unchanged ? previous?.buildSuccessRuleCount || 0 : 0,
           buildFailedRuleCount: unchanged ? previous?.buildFailedRuleCount || 0 : 0,
@@ -629,6 +755,123 @@ async function scanRootDir() {
     message.error(`扫描目录失败: ${error}`);
   } finally {
     isScanning.value = false;
+  }
+}
+
+function applyUploadTaskState(row: DramaUploadRow, state: JuliangTaskStatePayload) {
+  row.currentBatch = state.currentBatch;
+  row.totalBatches = state.totalBatches;
+  row.successCount = state.successCount;
+  row.totalFiles = state.totalFiles || row.materialCount;
+
+  if (state.status === "running" || state.status === "pending") {
+    row.status = "uploading";
+    row.error = undefined;
+    return;
+  }
+
+  row.taskId = undefined;
+
+  if (state.status === "completed") {
+    row.status = "uploaded";
+    row.error = undefined;
+    return;
+  }
+
+  if (state.status === "skipped" && state.message.includes("取消")) {
+    resetRowToPending(row);
+    return;
+  }
+
+  row.status = "failed";
+  row.error = state.message || "上传失败";
+}
+
+function applyBuildTaskState(row: DramaUploadRow, state: DailyBuildTaskStatePayload) {
+  row.buildMessage = state.message;
+  row.buildTotalRules = state.totalRules;
+  row.buildSuccessRuleCount = state.successRuleCount;
+  row.buildFailedRuleCount = state.failedRuleCount;
+
+  if (state.status === "assetizing" || state.status === "building") {
+    row.buildStatus = "building";
+    row.buildError = undefined;
+    return;
+  }
+
+  row.buildTaskId = undefined;
+
+  if (state.status === "completed") {
+    row.buildStatus = "built";
+    row.buildError = undefined;
+    return;
+  }
+
+  if (state.status === "cancelled") {
+    row.buildStatus = "cancelled";
+    row.buildError = undefined;
+    return;
+  }
+
+  row.buildStatus = "failed";
+  row.buildError = state.message || "搭建失败";
+}
+
+async function syncTaskStatesFromMain() {
+  try {
+    const [uploadStates, buildStates] = await Promise.all([
+      window.api.juliangGetTaskStates(),
+      window.api.dailyBuildGetTaskStates(),
+    ]);
+    const uploadMap = new Map(uploadStates.map((item) => [item.taskId, item]));
+    const buildMap = new Map(buildStates.map((item) => [item.taskId, item]));
+    let nextUploadProgress: JuliangUploadProgressPayload | null = null;
+    let nextBuildProgress: DailyBuildProgressPayload | null = null;
+
+    for (const row of rows.value) {
+      if (row.taskId) {
+        const uploadState = uploadMap.get(row.taskId);
+        if (uploadState) {
+          applyUploadTaskState(row, uploadState);
+          if (uploadState.status === "running" || uploadState.status === "pending") {
+            nextUploadProgress = {
+              taskId: uploadState.taskId,
+              drama: uploadState.drama,
+              status: uploadState.status,
+              currentBatch: uploadState.currentBatch,
+              totalBatches: uploadState.totalBatches,
+              successCount: uploadState.successCount,
+              totalFiles: uploadState.totalFiles,
+              message: uploadState.message,
+            };
+          }
+        }
+      }
+
+      if (row.buildTaskId) {
+        const buildState = buildMap.get(row.buildTaskId);
+        if (buildState) {
+          applyBuildTaskState(row, buildState);
+          if (buildState.status === "assetizing" || buildState.status === "building") {
+            nextBuildProgress = {
+              taskId: buildState.taskId,
+              drama: buildState.drama,
+              status: buildState.status,
+              message: buildState.message,
+              currentRuleIndex: buildState.currentRuleIndex,
+              totalRules: buildState.totalRules,
+              successRuleCount: buildState.successRuleCount,
+              failedRuleCount: buildState.failedRuleCount,
+            };
+          }
+        }
+      }
+    }
+
+    currentProgress.value = nextUploadProgress;
+    currentBuildProgress.value = nextBuildProgress;
+  } catch (error) {
+    console.error("同步上传搭建任务状态失败:", error);
   }
 }
 
@@ -895,6 +1138,71 @@ function removeDouyinRule(ruleId: string) {
   }
 }
 
+function stopAutoRun(reason?: string) {
+  if (!autoRunEnabled.value) return;
+  autoRunEnabled.value = false;
+  if (reason) {
+    message.warning(reason);
+  }
+}
+
+function getNextAutoRunRow(): DramaUploadRow | null {
+  for (const row of rows.value) {
+    if (row.status === "pending") {
+      return row;
+    }
+    if (row.status === "uploaded" && row.buildStatus === "idle") {
+      return row;
+    }
+  }
+  return null;
+}
+
+async function maybeStartNextAutoTask() {
+  if (!autoRunEnabled.value || activeRow.value || activeBuildRow.value) {
+    return;
+  }
+
+  const nextRow = getNextAutoRunRow();
+  if (!nextRow) {
+    autoRunEnabled.value = false;
+    message.success("自动运行已完成");
+    return;
+  }
+
+  if (nextRow.status === "uploaded") {
+    const disabledTip = getDisabledBuildTip(nextRow);
+    if (disabledTip) {
+      stopAutoRun(`自动运行已停止：《${nextRow.drama || "未命名剧目"}》无法开始搭建，${disabledTip}`);
+      return;
+    }
+    await startBuild(nextRow);
+    return;
+  }
+
+  const disabledTip = getDisabledUploadTip(nextRow);
+  if (disabledTip) {
+    stopAutoRun(`自动运行已停止：《${nextRow.drama || "未命名剧目"}》无法开始上传，${disabledTip}`);
+    return;
+  }
+  await startUpload(nextRow);
+}
+
+function handleAutoRunChange(value: boolean) {
+  if (!value) {
+    autoRunEnabled.value = false;
+    return;
+  }
+
+  if (autoRunDisabledReason.value) {
+    message.warning(autoRunDisabledReason.value);
+    return;
+  }
+
+  autoRunEnabled.value = true;
+  void maybeStartNextAutoTask();
+}
+
 function getBuildConfigError(): string {
   const params = buildSettings.value.buildParams;
   const fieldLabels: Array<[keyof typeof params, string]> = [
@@ -1087,6 +1395,13 @@ async function startUpload(row: DramaUploadRow) {
     row.status = "failed";
     row.error = error instanceof Error ? error.message : String(error);
     message.error(`《${row.drama}》上传失败：${row.error}`);
+    stopAutoRun(`自动运行已停止：《${row.drama}》上传失败`);
+  } finally {
+    if (autoRunEnabled.value) {
+      queueMicrotask(() => {
+        void maybeStartNextAutoTask();
+      });
+    }
   }
 }
 
@@ -1109,6 +1424,7 @@ async function cancelUpload(row: DramaUploadRow) {
   isReady.value = false;
   needLogin.value = false;
   resetRowToPending(row);
+  stopAutoRun("已手动取消上传，自动运行已关闭");
   message.info(`已取消《${row.drama}》上传`);
 }
 
@@ -1189,6 +1505,7 @@ async function startBuild(row: DramaUploadRow) {
       row.buildMessage = row.buildError;
       row.buildTaskId = undefined;
       message.error(`《${row.drama}》搭建失败：${row.buildError}`);
+      stopAutoRun(`自动运行已停止：《${row.drama}》搭建失败`);
       return;
     }
 
@@ -1209,8 +1526,14 @@ async function startBuild(row: DramaUploadRow) {
     row.buildMessage = row.buildError;
     row.buildTaskId = undefined;
     message.error(`《${row.drama}》搭建失败：${row.buildError}`);
+    stopAutoRun(`自动运行已停止：《${row.drama}》搭建失败`);
   } finally {
     currentBuildProgress.value = null;
+    if (autoRunEnabled.value) {
+      queueMicrotask(() => {
+        void maybeStartNextAutoTask();
+      });
+    }
   }
 }
 
@@ -1226,6 +1549,7 @@ async function cancelBuild(row: DramaUploadRow) {
   }
 
   row.buildMessage = "正在取消搭建";
+  stopAutoRun("已手动取消搭建，自动运行已关闭");
   message.info(`正在取消《${row.drama}》搭建`);
 }
 
@@ -1246,7 +1570,16 @@ onMounted(async () => {
 
   await loadUploadConfig();
 
-  const savedRootDir = localStorage.getItem(ROOT_DIR_STORAGE_KEY);
+  const persistedState = loadPersistedViewState();
+  if (persistedState) {
+    rows.value = persistedState.rows;
+    currentProgress.value = persistedState.currentProgress;
+    currentBuildProgress.value = persistedState.currentBuildProgress;
+    autoRunEnabled.value = persistedState.autoRunEnabled;
+  }
+
+  const savedRootDir =
+    localStorage.getItem(ROOT_DIR_STORAGE_KEY) || persistedState?.rootDir || "";
   if (savedRootDir) {
     rootDir.value = savedRootDir;
     await scanRootDir();
@@ -1283,6 +1616,11 @@ onMounted(async () => {
       buildLogs.value.shift();
     }
   });
+
+  await syncTaskStatesFromMain();
+  if (autoRunEnabled.value) {
+    void maybeStartNextAutoTask();
+  }
 });
 
 onUnmounted(() => {
@@ -1559,7 +1897,24 @@ onUnmounted(() => {
         <NCard class="table-card collapse-card">
           <div class="list-toolbar">
             <span class="toolbar-hint">如果素材已上传但本地目录不可用，可以直接提交搭建</span>
-            <NButton type="primary" secondary @click="addBuildOnlyRow">提交搭建</NButton>
+            <div class="list-actions">
+              <NTooltip v-if="autoRunDisabledReason">
+                <template #trigger>
+                  <span class="button-trigger auto-run-trigger">
+                    <div class="auto-run-switch">
+                      <span class="auto-run-label">自动运行</span>
+                      <NSwitch :value="autoRunEnabled" disabled />
+                    </div>
+                  </span>
+                </template>
+                {{ autoRunDisabledReason }}
+              </NTooltip>
+              <div v-else class="auto-run-switch">
+                <span class="auto-run-label">自动运行</span>
+                <NSwitch :value="autoRunEnabled" @update:value="handleAutoRunChange" />
+              </div>
+              <NButton type="primary" secondary @click="addBuildOnlyRow">提交搭建</NButton>
+            </div>
           </div>
 
           <NEmpty v-if="rows.length === 0" description="请选择目录并扫描剧目" />
@@ -2014,6 +2369,28 @@ onUnmounted(() => {
 
 .list-toolbar {
   margin-bottom: 16px;
+}
+
+.list-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auto-run-trigger {
+  cursor: not-allowed;
+}
+
+.auto-run-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auto-run-label {
+  color: #4a5568;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .progress-title {

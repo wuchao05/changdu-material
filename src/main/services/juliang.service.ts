@@ -25,6 +25,10 @@ export interface JuliangUploadProgress {
   message: string;
 }
 
+export interface JuliangTaskState extends JuliangUploadProgress {
+  updatedAt: string;
+}
+
 // 上传任务
 export interface JuliangTask {
   id: string;
@@ -100,6 +104,8 @@ export class JuliangService {
   private progressCallback: ((progress: JuliangUploadProgress) => void) | null = null;
   private logs: Array<{ time: string; message: string }> = [];
   private maxLogs = 500; // 最多保存 500 条日志
+  private recentTaskStates = new Map<string, JuliangTaskState>();
+  private maxRecentTaskStates = 200;
   private progressManager: JuliangProgressManager = new JuliangProgressManager();
   private isCancelled = false; // 取消标志
   private readonly nonRetryableUploadErrors = [
@@ -148,6 +154,10 @@ export class JuliangService {
    */
   getLogs(): Array<{ time: string; message: string }> {
     return [...this.logs];
+  }
+
+  getTaskStates(): JuliangTaskState[] {
+    return Array.from(this.recentTaskStates.values());
   }
 
   /**
@@ -254,6 +264,16 @@ export class JuliangService {
    * 发送进度更新
    */
   private emitProgress(progress: JuliangUploadProgress) {
+    this.recentTaskStates.set(progress.taskId, {
+      ...progress,
+      updatedAt: new Date().toISOString(),
+    });
+    if (this.recentTaskStates.size > this.maxRecentTaskStates) {
+      const oldestTaskId = this.recentTaskStates.keys().next().value;
+      if (oldestTaskId) {
+        this.recentTaskStates.delete(oldestTaskId);
+      }
+    }
     if (this.progressCallback) {
       this.progressCallback(progress);
     }

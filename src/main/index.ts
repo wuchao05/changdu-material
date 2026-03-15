@@ -443,6 +443,10 @@ function registerIpcHandlers(): void {
     return juliangService.getLogs();
   });
 
+  ipcMain.handle('juliang:getTaskStates', async () => {
+    return juliangService.getTaskStates();
+  });
+
   ipcMain.handle('juliang:clearLogs', async () => {
     juliangService.clearLogs();
     return { success: true };
@@ -462,6 +466,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('daily-build:getLogs', async () => {
     return dailyBuildService.getLogs();
+  });
+
+  ipcMain.handle('daily-build:getTaskStates', async () => {
+    return dailyBuildService.getTaskStates();
   });
 
   ipcMain.handle('daily-build:clearLogs', async () => {

@@ -69,6 +69,10 @@ export interface DailyBuildProgress {
   failedRuleCount: number;
 }
 
+export interface DailyBuildTaskState extends DailyBuildProgress {
+  updatedAt: string;
+}
+
 export interface DailyBuildSkippedRule {
   ruleId: string;
   douyinAccount: string;
@@ -406,6 +410,8 @@ export class DailyBuildService {
   private tasks = new Map<string, DailyBuildTaskRuntime>();
   private logs: Array<{ time: string; message: string }> = [];
   private maxLogs = 500;
+  private recentTaskStates = new Map<string, DailyBuildTaskState>();
+  private maxRecentTaskStates = 200;
 
   constructor(configService: ConfigService) {
     this.configService = configService;
@@ -417,6 +423,10 @@ export class DailyBuildService {
 
   getLogs(): Array<{ time: string; message: string }> {
     return [...this.logs];
+  }
+
+  getTaskStates(): DailyBuildTaskState[] {
+    return Array.from(this.recentTaskStates.values());
   }
 
   clearLogs() {
@@ -439,6 +449,16 @@ export class DailyBuildService {
   }
 
   private emitProgress(progress: DailyBuildProgress) {
+    this.recentTaskStates.set(progress.taskId, {
+      ...progress,
+      updatedAt: new Date().toISOString(),
+    });
+    if (this.recentTaskStates.size > this.maxRecentTaskStates) {
+      const oldestTaskId = this.recentTaskStates.keys().next().value;
+      if (oldestTaskId) {
+        this.recentTaskStates.delete(oldestTaskId);
+      }
+    }
     this.log(`${progress.drama} - ${progress.message}`);
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send("daily-build:progress", progress);
