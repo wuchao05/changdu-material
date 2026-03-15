@@ -121,6 +121,7 @@ interface UploadBuildViewState {
   currentProgress: JuliangUploadProgressPayload | null;
   currentBuildProgress: DailyBuildProgressPayload | null;
   autoRunEnabled: boolean;
+  removedFolderPaths: string[];
 }
 
 const ROOT_DIR_STORAGE_KEY = "upload-build:root-dir";
@@ -149,6 +150,7 @@ const buildLogs = ref<Array<{ time: string; message: string }>>([]);
 const currentProgress = ref<JuliangUploadProgressPayload | null>(null);
 const currentBuildProgress = ref<DailyBuildProgressPayload | null>(null);
 const autoRunEnabled = ref(false);
+const removedFolderPaths = ref<string[]>([]);
 const buildSettings = ref<UploadBuildSettings>(createDefaultBuildSettings());
 const ruleModalVisible = ref(false);
 const editingRuleId = ref<string | null>(null);
@@ -229,6 +231,11 @@ const autoRunDisabledReason = computed(() => {
 
   return "";
 });
+const autoRunDisabledTooltip = computed(() =>
+  autoRunDisabledReason.value
+    ? "请先完善剧集的账户、短剧ID等信息"
+    : ""
+);
 
 const browserStatusText = computed(() => {
   if (isInitializing.value) return "初始化中";
@@ -394,6 +401,11 @@ function loadPersistedViewState(): UploadBuildViewState | null {
       currentProgress: parsed.currentProgress || null,
       currentBuildProgress: parsed.currentBuildProgress || null,
       autoRunEnabled: Boolean(parsed.autoRunEnabled),
+      removedFolderPaths: Array.isArray(parsed.removedFolderPaths)
+        ? parsed.removedFolderPaths
+            .map((item) => String(item || "").trim())
+            .filter(Boolean)
+        : [],
     };
   } catch (error) {
     console.error("读取上传搭建页面状态失败:", error);
@@ -418,6 +430,7 @@ function persistViewState() {
         ? JSON.parse(JSON.stringify(currentBuildProgress.value))
         : null,
       autoRunEnabled: autoRunEnabled.value,
+      removedFolderPaths: [...removedFolderPaths.value],
     };
     localStorage.setItem(VIEW_STATE_STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
@@ -554,7 +567,7 @@ watch(
 );
 
 watch(
-  [rows, currentProgress, currentBuildProgress, rootDir, autoRunEnabled],
+  [rows, currentProgress, currentBuildProgress, rootDir, autoRunEnabled, removedFolderPaths],
   () => {
     persistViewState();
   },
@@ -666,12 +679,18 @@ async function selectRootDir() {
     const selected = await window.api.selectFolder();
     if (!selected) return;
 
+    removedFolderPaths.value = [];
     rootDir.value = selected;
     localStorage.setItem(ROOT_DIR_STORAGE_KEY, selected);
     await scanRootDir();
   } catch (error) {
     message.error(`选择目录失败: ${error}`);
   }
+}
+
+async function rescanRootDir() {
+  removedFolderPaths.value = [];
+  await scanRootDir();
 }
 
 async function scanRootDir() {
@@ -684,6 +703,7 @@ async function scanRootDir() {
   try {
     const materials = await window.api.scanVideos(rootDir.value);
     const manualRows = rows.value.filter((row) => row.entryMode === "build-only");
+    const removedFolderPathSet = new Set(removedFolderPaths.value);
     const previousRowMap = new Map(
       rows.value
         .filter((row) => row.entryMode === "local")
@@ -711,6 +731,7 @@ async function scanRootDir() {
     }
 
     rows.value = Array.from(grouped.values())
+      .filter((group) => !removedFolderPathSet.has(group.folderPath))
       .sort((a, b) => a.drama.localeCompare(b.drama, "zh-Hans-CN"))
       .map((group) => {
         const previous = previousRowMap.get(group.folderPath);
@@ -997,6 +1018,20 @@ function addBuildOnlyRow() {
     buildTotalRules: 0,
     skippedRules: [],
   });
+}
+
+function removeRow(row: DramaUploadRow) {
+  if (row.status === "uploading" || row.buildStatus === "building") {
+    message.warning("请先等待当前剧目处理完成后再移除");
+    return;
+  }
+
+  rows.value = rows.value.filter((item) => item.id !== row.id);
+  if (row.entryMode === "local" && row.folderPath) {
+    const nextRemovedFolderPaths = new Set(removedFolderPaths.value);
+    nextRemovedFolderPaths.add(row.folderPath);
+    removedFolderPaths.value = Array.from(nextRemovedFolderPaths);
+  }
 }
 
 function updateRowProgress(progress: JuliangUploadProgressPayload) {
@@ -1576,6 +1611,7 @@ onMounted(async () => {
     currentProgress.value = persistedState.currentProgress;
     currentBuildProgress.value = persistedState.currentBuildProgress;
     autoRunEnabled.value = persistedState.autoRunEnabled;
+    removedFolderPaths.value = persistedState.removedFolderPaths;
   }
 
   const savedRootDir =
@@ -1714,7 +1750,7 @@ onUnmounted(() => {
           <NButton
             :disabled="!rootDir || !!activeRow || !!activeBuildRow"
             :loading="isScanning"
-            @click="scanRootDir"
+            @click="rescanRootDir"
           >
             {{ isScanning ? "扫描中..." : "重新扫描" }}
           </NButton>
@@ -1907,7 +1943,7 @@ onUnmounted(() => {
                     </div>
                   </span>
                 </template>
-                {{ autoRunDisabledReason }}
+                {{ autoRunDisabledTooltip }}
               </NTooltip>
               <div v-else class="auto-run-switch">
                 <span class="auto-run-label">自动运行</span>
@@ -1999,49 +2035,59 @@ onUnmounted(() => {
                     </div>
                   </td>
                   <td>
-                    <NButton
-                      v-if="row.buildStatus === 'building'"
-                      type="error"
-                      @click="cancelBuild(row)"
-                    >
-                      取消搭建
-                    </NButton>
-                    <NButton v-else-if="row.buildStatus === 'built'" disabled>
-                      已搭建
-                    </NButton>
-                    <NButton
-                      v-else-if="row.status === 'uploaded' && !getDisabledBuildTip(row)"
-                      type="success"
-                      @click="startBuild(row)"
-                    >
-                      {{ getBuildButtonText(row) }}
-                    </NButton>
-                    <NTooltip v-else-if="row.status === 'uploaded' && getDisabledBuildTip(row)">
-                      <template #trigger>
-                        <span class="button-trigger">
-                          <NButton disabled>{{ getBuildButtonText(row) }}</NButton>
-                        </span>
-                      </template>
-                      {{ getDisabledBuildTip(row) }}
-                    </NTooltip>
-                    <NButton
-                      v-else-if="row.status === 'uploading'"
-                      type="error"
-                      @click="cancelUpload(row)"
-                    >
-                      取消上传
-                    </NButton>
-                    <NTooltip v-else-if="getDisabledUploadTip(row)">
-                      <template #trigger>
-                        <span class="button-trigger">
-                          <NButton disabled>{{ getUploadButtonText(row) }}</NButton>
-                        </span>
-                      </template>
-                      {{ getDisabledUploadTip(row) }}
-                    </NTooltip>
-                    <NButton v-else type="primary" @click="startUpload(row)">
-                      {{ getUploadButtonText(row) }}
-                    </NButton>
+                    <div class="operation-actions">
+                      <NButton
+                        v-if="row.buildStatus === 'building'"
+                        type="error"
+                        @click="cancelBuild(row)"
+                      >
+                        取消搭建
+                      </NButton>
+                      <NButton v-else-if="row.buildStatus === 'built'" disabled>
+                        已搭建
+                      </NButton>
+                      <NButton
+                        v-else-if="row.status === 'uploaded' && !getDisabledBuildTip(row)"
+                        type="success"
+                        @click="startBuild(row)"
+                      >
+                        {{ getBuildButtonText(row) }}
+                      </NButton>
+                      <NTooltip v-else-if="row.status === 'uploaded' && getDisabledBuildTip(row)">
+                        <template #trigger>
+                          <span class="button-trigger">
+                            <NButton disabled>{{ getBuildButtonText(row) }}</NButton>
+                          </span>
+                        </template>
+                        {{ getDisabledBuildTip(row) }}
+                      </NTooltip>
+                      <NButton
+                        v-else-if="row.status === 'uploading'"
+                        type="error"
+                        @click="cancelUpload(row)"
+                      >
+                        取消上传
+                      </NButton>
+                      <NTooltip v-else-if="getDisabledUploadTip(row)">
+                        <template #trigger>
+                          <span class="button-trigger">
+                            <NButton disabled>{{ getUploadButtonText(row) }}</NButton>
+                          </span>
+                        </template>
+                        {{ getDisabledUploadTip(row) }}
+                      </NTooltip>
+                      <NButton v-else type="primary" @click="startUpload(row)">
+                        {{ getUploadButtonText(row) }}
+                      </NButton>
+                      <NButton
+                        secondary
+                        type="default"
+                        :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
+                        @click="removeRow(row)"
+                      >
+                        移除
+                      </NButton>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -2544,6 +2590,13 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.operation-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
 
 .button-trigger {
