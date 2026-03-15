@@ -337,6 +337,14 @@ function normalizeTemplateFileName(fileName: string): string {
     .trim();
 }
 
+function formatStepError(step: string, error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith(`${step}失败：`)) {
+    return new Error(message);
+  }
+  return new Error(`${step}失败：${message}`);
+}
+
 function buildExpectedMaterialNames(params: {
   template: string;
   dramaName: string;
@@ -1314,19 +1322,34 @@ export class DailyBuildService {
     cookieHeader: string,
     signal: AbortSignal
   ): Promise<DailyBuildInitData> {
-    const avatar = await this.uploadAvatarImage(
-      payload.accountId,
-      coverImage,
-      cookieHeader,
-      signal
-    );
-    await this.saveAvatar(payload.accountId, avatar.webUri, cookieHeader, signal);
+    let avatar: { webUri: string };
+    try {
+      avatar = await this.uploadAvatarImage(
+        payload.accountId,
+        coverImage,
+        cookieHeader,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("上传头像", error);
+    }
 
-    const promotionResult = await this.createPromotionLink(
-      payload,
-      distributorId,
-      signal
-    );
+    try {
+      await this.saveAvatar(payload.accountId, avatar.webUri, cookieHeader, signal);
+    } catch (error) {
+      throw formatStepError("保存头像", error);
+    }
+
+    let promotionResult: { promotion_url: string; promotion_name: string };
+    try {
+      promotionResult = await this.createPromotionLink(
+        payload,
+        distributorId,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("创建推广链接", error);
+    }
 
     let microApp =
       (await this.queryApprovedMicroApp(
@@ -1374,19 +1397,23 @@ export class DailyBuildService {
         startParams: cleanedParams,
       });
 
-      await this.createMicroApp(
-        {
-          accountId: payload.accountId,
-          appId,
-          path: parsed.launchPage,
-          query: parsed.launchParams,
-          remark: promotionResult.promotion_name,
-          link: microAppLink,
-        },
-        payload.buildSettings,
-        cookieHeader,
-        signal
-      );
+      try {
+        await this.createMicroApp(
+          {
+            accountId: payload.accountId,
+            appId,
+            path: parsed.launchPage,
+            query: parsed.launchParams,
+            remark: promotionResult.promotion_name,
+            link: microAppLink,
+          },
+          payload.buildSettings,
+          cookieHeader,
+          signal
+        );
+      } catch (error) {
+        throw formatStepError("创建小程序", error);
+      }
 
       await this.sleep(30000, signal);
       let recheck = await this.queryMicroApp(
@@ -1423,13 +1450,18 @@ export class DailyBuildService {
     let assetsId = assetsList?.data?.micro_app?.[0]?.assets_id;
 
     if (!assetsId) {
-      const assetResult = await this.createMicroAppAsset(
-        payload.accountId,
-        microApp.micro_app_instance_id,
-        payload.buildSettings,
-        cookieHeader,
-        signal
-      );
+      let assetResult;
+      try {
+        assetResult = await this.createMicroAppAsset(
+          payload.accountId,
+          microApp.micro_app_instance_id,
+          payload.buildSettings,
+          cookieHeader,
+          signal
+        );
+      } catch (error) {
+        throw formatStepError("创建小程序资产", error);
+      }
       assetsId = assetResult.assets_id;
     }
 
@@ -1440,15 +1472,24 @@ export class DailyBuildService {
       signal
     );
     if (!eventStatus.hasPaymentEvent) {
-      await this.addPaymentEvent(payload.accountId, assetsId, cookieHeader, signal);
+      try {
+        await this.addPaymentEvent(payload.accountId, assetsId, cookieHeader, signal);
+      } catch (error) {
+        throw formatStepError("添加付费事件", error);
+      }
     }
 
-    const productImage = await this.uploadProductImage(
-      payload.accountId,
-      coverImage,
-      cookieHeader,
-      signal
-    );
+    let productImage: { width: number; height: number; webUri: string };
+    try {
+      productImage = await this.uploadProductImage(
+        payload.accountId,
+        coverImage,
+        cookieHeader,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("上传主图", error);
+    }
 
     return {
       assets_id: assetsId,
@@ -1473,12 +1514,17 @@ export class DailyBuildService {
     signal: AbortSignal
   ): Promise<void> {
     const promotionName = `小鱼-${rule.douyinAccount}-${sanitizeDramaName(payload.drama)}-${payload.accountId}`;
-    const promotionResult = await this.createPromotionLink(
-      payload,
-      distributorId,
-      signal,
-      promotionName
-    );
+    let promotionResult: { promotion_url: string; promotion_name: string };
+    try {
+      promotionResult = await this.createPromotionLink(
+        payload,
+        distributorId,
+        signal,
+        promotionName
+      );
+    } catch (error) {
+      throw formatStepError("创建推广链接", error);
+    }
     const parsed = parsePromotionUrl(promotionResult.promotion_url);
     const appId = extractAppIdFromParams(parsed.launchParams);
     if (!appId) {
@@ -1503,33 +1549,49 @@ export class DailyBuildService {
       link,
     };
 
-    const projectId = await this.createProject(
-      {
-        accountId: payload.accountId,
-        dramaName: payload.drama,
-        douyinAccountName: rule.douyinAccount,
-        assetsId: initData.assets_id,
-        microAppInstanceId: initData.micro_app_instance_id,
-        projectName: `小鱼-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
-      },
-      payload,
-      cookieHeader,
-      signal
-    );
+    let projectId: number;
+    try {
+      projectId = await this.createProject(
+        {
+          accountId: payload.accountId,
+          dramaName: payload.drama,
+          douyinAccountName: rule.douyinAccount,
+          assetsId: initData.assets_id,
+          microAppInstanceId: initData.micro_app_instance_id,
+          projectName: `小鱼-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
+        },
+        payload,
+        cookieHeader,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("创建项目", error);
+    }
 
-    const accountInfo = await this.getDouyinAccountInfo(
-      payload.accountId,
-      rule.douyinAccountId,
-      cookieHeader,
-      signal
-    );
-    const materials = await this.getMaterialList(
-      payload.accountId,
-      rule.douyinAccountId,
-      accountInfo.iesCoreId,
-      cookieHeader,
-      signal
-    );
+    let accountInfo: { iesCoreId: string };
+    try {
+      accountInfo = await this.getDouyinAccountInfo(
+        payload.accountId,
+        rule.douyinAccountId,
+        cookieHeader,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("获取抖音号信息", error);
+    }
+
+    let materials: GiantMaterial[];
+    try {
+      materials = await this.getMaterialList(
+        payload.accountId,
+        rule.douyinAccountId,
+        accountInfo.iesCoreId,
+        cookieHeader,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("获取素材列表", error);
+    }
 
     const expectedNames = buildExpectedMaterialNames({
       template: payload.buildSettings.materialFilenameTemplate,
@@ -1553,19 +1615,23 @@ export class DailyBuildService {
       throw new Error(`素材不完整，缺少：${missingNames.join("、")}`);
     }
 
-    await this.createPromotion(
-      {
-        accountId: payload.accountId,
-        projectId,
-        adName: `小鱼-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
-        iesCoreId: accountInfo.iesCoreId,
-        materials: matchedMaterials,
-        initData: nextInitData,
-      },
-      payload,
-      cookieHeader,
-      signal
-    );
+    try {
+      await this.createPromotion(
+        {
+          accountId: payload.accountId,
+          projectId,
+          adName: `小鱼-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
+          iesCoreId: accountInfo.iesCoreId,
+          materials: matchedMaterials,
+          initData: nextInitData,
+        },
+        payload,
+        cookieHeader,
+        signal
+      );
+    } catch (error) {
+      throw formatStepError("创建广告", error);
+    }
   }
 
   async startTask(payload: DailyBuildTaskPayload): Promise<DailyBuildResult> {

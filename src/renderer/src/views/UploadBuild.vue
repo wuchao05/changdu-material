@@ -29,9 +29,11 @@ import {
 
 type UploadStatus = "pending" | "uploading" | "uploaded" | "failed";
 type BuildStatus = "idle" | "building" | "built" | "failed" | "cancelled";
+type RowEntryMode = "local" | "build-only";
 
 interface DramaUploadRow {
   id: string;
+  entryMode: RowEntryMode;
   drama: string;
   folderPath: string;
   files: string[];
@@ -108,6 +110,11 @@ interface DailyBuildResult {
 const ROOT_DIR_STORAGE_KEY = "upload-build:root-dir";
 const DELETE_AFTER_UPLOAD_STORAGE_KEY = "upload-build:delete-after-upload";
 const BUILD_SETTINGS_SAVE_DELAY = 300;
+const COLLAPSIBLE_SECTION_NAMES = [
+  "build-config",
+  "douyin-rules",
+  "upload-list",
+];
 
 const authStore = useAuthStore();
 const darenStore = useDarenStore();
@@ -340,6 +347,9 @@ function getBuildStatusText(row: DramaUploadRow) {
 }
 
 function getCombinedStatusType(row: DramaUploadRow) {
+  if (row.buildStatus === "idle" && row.status === "uploaded") {
+    return getBuildStatusType("idle");
+  }
   if (row.buildStatus !== "idle") {
     return getBuildStatusType(row.buildStatus);
   }
@@ -347,6 +357,9 @@ function getCombinedStatusType(row: DramaUploadRow) {
 }
 
 function getCombinedStatusText(row: DramaUploadRow) {
+  if (row.buildStatus === "idle" && row.status === "uploaded") {
+    return getBuildStatusText(row);
+  }
   if (row.buildStatus !== "idle") {
     return getBuildStatusText(row);
   }
@@ -528,13 +541,14 @@ async function selectRootDir() {
 
 async function scanRootDir() {
   if (!rootDir.value) {
-    rows.value = [];
+    rows.value = rows.value.filter((row) => row.entryMode === "build-only");
     return;
   }
 
   isScanning.value = true;
   try {
     const materials = await window.api.scanVideos(rootDir.value);
+    const manualRows = rows.value.filter((row) => row.entryMode === "build-only");
     const previousRowMap = new Map(rows.value.map((row) => [row.folderPath, row]));
     const storedAccounts = loadStoredMap(rootDir.value, getAccountStorageKey);
     const storedDramaIds = loadStoredMap(rootDir.value, getDramaIdStorageKey);
@@ -570,6 +584,7 @@ async function scanRootDir() {
 
         return {
           id: `${group.folderPath}-${group.files.length}`,
+          entryMode: "local",
           drama: group.drama,
           folderPath: group.folderPath,
           files: [...group.files],
@@ -606,6 +621,7 @@ async function scanRootDir() {
           skippedRules: unchanged ? previous?.skippedRules || [] : [],
         } satisfies DramaUploadRow;
       });
+    rows.value = [...manualRows, ...rows.value];
   } catch (error) {
     console.error("扫描目录失败:", error);
     message.error(`扫描目录失败: ${error}`);
@@ -683,12 +699,59 @@ async function renameVideosByTemplate() {
 
 function handleAccountInput(row: DramaUploadRow, value: string) {
   row.accountId = value.trim();
-  saveStoredValue(rootDir.value, getAccountStorageKey, row.folderPath, row.accountId);
+  if (row.entryMode === "local") {
+    saveStoredValue(rootDir.value, getAccountStorageKey, row.folderPath, row.accountId);
+  }
 }
 
 function handleDramaIdInput(row: DramaUploadRow, value: string) {
   row.dramaId = value.trim();
-  saveStoredValue(rootDir.value, getDramaIdStorageKey, row.folderPath, row.dramaId);
+  if (row.entryMode === "local") {
+    saveStoredValue(rootDir.value, getDramaIdStorageKey, row.folderPath, row.dramaId);
+  }
+}
+
+function handleDramaNameInput(row: DramaUploadRow, value: string) {
+  row.drama = value.trim();
+}
+
+function addBuildOnlyRow() {
+  if (activeRow.value) {
+    message.warning(`当前正在上传《${activeRow.value.drama}》，请稍后再试`);
+    return;
+  }
+  if (activeBuildRow.value) {
+    message.warning(`当前正在搭建《${activeBuildRow.value.drama}》，请稍后再试`);
+    return;
+  }
+
+  rows.value.unshift({
+    id: `build-only-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    entryMode: "build-only",
+    drama: "",
+    folderPath: "",
+    files: [],
+    materialCount: 0,
+    accountId: "",
+    dramaId: "",
+    status: "uploaded",
+    error: undefined,
+    taskId: undefined,
+    currentBatch: 0,
+    totalBatches: 0,
+    successCount: 0,
+    totalFiles: 0,
+    deleted: false,
+    deleteError: undefined,
+    buildStatus: "idle",
+    buildTaskId: undefined,
+    buildError: undefined,
+    buildMessage: undefined,
+    buildSuccessRuleCount: 0,
+    buildFailedRuleCount: 0,
+    buildTotalRules: 0,
+    skippedRules: [],
+  });
 }
 
 function updateRowProgress(progress: JuliangUploadProgressPayload) {
@@ -895,6 +958,9 @@ function getDisabledUploadTip(row: DramaUploadRow) {
 function getDisabledBuildTip(row: DramaUploadRow) {
   if (row.status !== "uploaded") {
     return "请先完成上传";
+  }
+  if (!row.drama.trim()) {
+    return "请先填写剧名";
   }
   if (!row.accountId.trim()) {
     return "请先输入账户";
@@ -1331,132 +1397,292 @@ onUnmounted(() => {
       </div>
     </NCard>
 
-    <NCard class="build-config-card">
-      <template #header>
-        <div class="table-header">
-          <span>搭建参数配置</span>
-          <span class="table-header-desc">修改后立即生效，仅作用于当前达人</span>
-        </div>
-      </template>
+    <NCollapse
+      class="section-collapse"
+      :default-expanded-names="COLLAPSIBLE_SECTION_NAMES"
+    >
+      <NCollapseItem name="build-config">
+        <template #header>
+          <div class="table-header">
+            <span>搭建参数配置</span>
+            <span class="table-header-desc">修改后立即生效，仅作用于当前达人</span>
+          </div>
+        </template>
+        <NCard class="build-config-card collapse-card">
+          <div class="build-config-grid">
+            <label class="build-field">
+              <span>Secret密钥</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.secretKey"
+                placeholder="请输入 Secret 密钥"
+              />
+            </label>
+            <label class="build-field">
+              <span>来源</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.source"
+                placeholder="请输入来源，例如：泰州晴天"
+              />
+            </label>
+            <label class="build-field">
+              <span>出价</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.bid"
+                placeholder="请输入出价，例如：5"
+              />
+            </label>
+            <label class="build-field">
+              <span>商品ID</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.productId"
+                placeholder="请输入商品ID"
+              />
+            </label>
+            <label class="build-field">
+              <span>商品库ID</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.productPlatformId"
+                placeholder="请输入商品库ID"
+              />
+            </label>
+            <label class="build-field">
+              <span>落地页 URL</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.landingUrl"
+                placeholder="请输入落地页 URL"
+              />
+            </label>
+            <label class="build-field">
+              <span>小程序名称</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.microAppName"
+                placeholder="请输入小程序名称"
+              />
+            </label>
+            <label class="build-field">
+              <span>小程序 AppID</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.microAppId"
+                placeholder="请输入小程序 AppID"
+              />
+            </label>
+            <label class="build-field">
+              <span>cc_id</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.ccId"
+                placeholder="请输入 cc_id"
+              />
+            </label>
+            <label class="build-field">
+              <span>首充模版ID</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.rechargeTemplateId"
+                placeholder="请输入首充模版ID"
+              />
+            </label>
+          </div>
+        </NCard>
+      </NCollapseItem>
 
-      <div class="build-config-grid">
-        <label class="build-field">
-          <span>Secret密钥</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.secretKey"
-            placeholder="请输入 Secret 密钥"
-          />
-        </label>
-        <label class="build-field">
-          <span>来源</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.source"
-            placeholder="请输入来源，例如：泰州晴天"
-          />
-        </label>
-        <label class="build-field">
-          <span>出价</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.bid"
-            placeholder="请输入出价，例如：5"
-          />
-        </label>
-        <label class="build-field">
-          <span>商品ID</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.productId"
-            placeholder="请输入商品ID"
-          />
-        </label>
-        <label class="build-field">
-          <span>商品库ID</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.productPlatformId"
-            placeholder="请输入商品库ID"
-          />
-        </label>
-        <label class="build-field">
-          <span>落地页 URL</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.landingUrl"
-            placeholder="请输入落地页 URL"
-          />
-        </label>
-        <label class="build-field">
-          <span>小程序名称</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.microAppName"
-            placeholder="请输入小程序名称"
-          />
-        </label>
-        <label class="build-field">
-          <span>小程序 AppID</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.microAppId"
-            placeholder="请输入小程序 AppID"
-          />
-        </label>
-        <label class="build-field">
-          <span>cc_id</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.ccId"
-            placeholder="请输入 cc_id"
-          />
-        </label>
-        <label class="build-field">
-          <span>首充模版ID</span>
-          <NInput
-            v-model:value="buildSettings.buildParams.rechargeTemplateId"
-            placeholder="请输入首充模版ID"
-          />
-        </label>
-      </div>
-    </NCard>
+      <NCollapseItem name="douyin-rules">
+        <template #header>
+          <div class="table-header">
+            <span>抖音号匹配素材</span>
+            <span class="table-header-desc">每条规则对应一个抖音号与一组素材序号</span>
+          </div>
+        </template>
+        <NCard class="build-config-card collapse-card">
+          <div class="rule-toolbar">
+            <span class="toolbar-hint">序号范围支持单个 01，或区间 01-03</span>
+            <NButton type="primary" secondary @click="openAddRuleModal">添加规则</NButton>
+          </div>
 
-    <NCard class="build-config-card">
-      <template #header>
-        <div class="table-header">
-          <span>抖音号匹配素材</span>
-          <span class="table-header-desc">每条规则对应一个抖音号与一组素材序号</span>
-        </div>
-      </template>
+          <NEmpty
+            v-if="buildSettings.douyinMaterialRules.length === 0"
+            description="暂无抖音号匹配素材规则"
+          />
 
-      <div class="rule-toolbar">
-        <span class="toolbar-hint">序号范围支持单个 01，或区间 01-03</span>
-        <NButton type="primary" secondary @click="openAddRuleModal">添加规则</NButton>
-      </div>
-
-      <NEmpty
-        v-if="buildSettings.douyinMaterialRules.length === 0"
-        description="暂无抖音号匹配素材规则"
-      />
-
-      <div v-else class="rule-list">
-        <div v-for="rule in buildSettings.douyinMaterialRules" :key="rule.id" class="rule-item">
-          <div class="rule-summary">
-            <div class="rule-title-row">
-              <span class="rule-name">{{ rule.douyinAccount || "未命名规则" }}</span>
-              <NTag size="small" :type="validateMaterialRange(rule.materialRange) ? 'success' : 'warning'">
-                {{ rule.materialRange || "未配置范围" }}
-              </NTag>
-            </div>
-            <div class="rule-meta">
-              <span>抖音号ID：{{ rule.douyinAccountId || "-" }}</span>
-            </div>
+          <div v-else class="rule-list">
             <div
-              v-if="rule.materialRange && !validateMaterialRange(rule.materialRange)"
-              class="row-error"
+              v-for="rule in buildSettings.douyinMaterialRules"
+              :key="rule.id"
+              class="rule-item"
             >
-              序号范围格式不正确
+              <div class="rule-summary">
+                <div class="rule-title-row">
+                  <span class="rule-name">{{ rule.douyinAccount || "未命名规则" }}</span>
+                  <NTag
+                    size="small"
+                    :type="validateMaterialRange(rule.materialRange) ? 'success' : 'warning'"
+                  >
+                    {{ rule.materialRange || "未配置范围" }}
+                  </NTag>
+                </div>
+                <div class="rule-meta">
+                  <span>抖音号ID：{{ rule.douyinAccountId || "-" }}</span>
+                </div>
+                <div
+                  v-if="rule.materialRange && !validateMaterialRange(rule.materialRange)"
+                  class="row-error"
+                >
+                  序号范围格式不正确
+                </div>
+              </div>
+              <div class="rule-actions">
+                <NButton tertiary @click="openEditRuleModal(rule)">编辑</NButton>
+                <NButton type="error" tertiary @click="removeDouyinRule(rule.id)">删除</NButton>
+              </div>
             </div>
           </div>
-          <div class="rule-actions">
-            <NButton tertiary @click="openEditRuleModal(rule)">编辑</NButton>
-            <NButton type="error" tertiary @click="removeDouyinRule(rule.id)">删除</NButton>
+        </NCard>
+      </NCollapseItem>
+
+      <NCollapseItem name="upload-list">
+        <template #header>
+          <div class="table-header">
+            <span>上传列表</span>
+            <span class="table-header-desc">每部剧单独填写账户和短剧ID后手动触发</span>
           </div>
-        </div>
-      </div>
-    </NCard>
+        </template>
+        <NCard class="table-card collapse-card">
+          <div class="list-toolbar">
+            <span class="toolbar-hint">如果素材已上传但本地目录不可用，可以直接提交搭建</span>
+            <NButton type="primary" secondary @click="addBuildOnlyRow">提交搭建</NButton>
+          </div>
+
+          <NEmpty v-if="rows.length === 0" description="请选择目录并扫描剧目" />
+
+          <div v-else class="drama-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>剧名</th>
+                  <th>素材数</th>
+                  <th>账户</th>
+                  <th>短剧ID</th>
+                  <th>状态</th>
+                  <th>进度</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in rows" :key="row.id">
+                  <td class="drama-cell">
+                    <NInput
+                      v-if="row.entryMode === 'build-only'"
+                      :value="row.drama"
+                      placeholder="请输入剧名"
+                      :disabled="row.buildStatus === 'building'"
+                      @update:value="(value) => handleDramaNameInput(row, value)"
+                    />
+                    <div v-else class="drama-name">{{ row.drama }}</div>
+                    <div v-if="row.error || row.deleteError || row.buildError" class="row-error">
+                      {{ row.error || row.deleteError || row.buildError }}
+                    </div>
+                    <div
+                      v-for="item in row.skippedRules"
+                      :key="`${row.id}-${item.douyinAccount}`"
+                      class="row-error"
+                    >
+                      {{ item.douyinAccount }}：{{ item.error }}
+                    </div>
+                  </td>
+                  <td>{{ row.entryMode === "build-only" ? "-" : row.materialCount }}</td>
+                  <td>
+                    <NInput
+                      :value="row.accountId"
+                      placeholder="请输入巨量账户 ID"
+                      :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
+                      @update:value="(value) => handleAccountInput(row, value)"
+                    />
+                  </td>
+                  <td>
+                    <NInput
+                      :value="row.dramaId"
+                      placeholder="请输入短剧 ID"
+                      :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
+                      @update:value="(value) => handleDramaIdInput(row, value)"
+                    />
+                  </td>
+                  <td>
+                    <div class="status-stack">
+                      <NTag :type="getCombinedStatusType(row)" size="small">
+                        {{ getCombinedStatusText(row) }}
+                      </NTag>
+                      <NTag v-if="row.deleted" type="success" size="small" round>
+                        本地已删除
+                      </NTag>
+                      <span v-if="row.buildMessage" class="row-hint">{{ row.buildMessage }}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="progress-cell">
+                      <span v-if="row.entryMode !== 'build-only'">
+                        上传 {{ row.successCount }}/{{ row.totalFiles || row.materialCount }}
+                      </span>
+                      <span v-if="row.buildTotalRules > 0">
+                        搭建 {{ row.buildSuccessRuleCount }}/{{ row.buildTotalRules }}
+                      </span>
+                      <span
+                        v-if="row.entryMode === 'build-only' && row.buildTotalRules === 0"
+                        class="row-hint"
+                      >
+                        待搭建
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <NButton
+                      v-if="row.buildStatus === 'building'"
+                      type="error"
+                      @click="cancelBuild(row)"
+                    >
+                      取消搭建
+                    </NButton>
+                    <NButton v-else-if="row.buildStatus === 'built'" disabled>
+                      已搭建
+                    </NButton>
+                    <NButton
+                      v-else-if="row.status === 'uploaded' && !getDisabledBuildTip(row)"
+                      type="success"
+                      @click="startBuild(row)"
+                    >
+                      {{ getBuildButtonText(row) }}
+                    </NButton>
+                    <NTooltip v-else-if="row.status === 'uploaded' && getDisabledBuildTip(row)">
+                      <template #trigger>
+                        <span class="button-trigger">
+                          <NButton disabled>{{ getBuildButtonText(row) }}</NButton>
+                        </span>
+                      </template>
+                      {{ getDisabledBuildTip(row) }}
+                    </NTooltip>
+                    <NButton
+                      v-else-if="row.status === 'uploading'"
+                      type="error"
+                      @click="cancelUpload(row)"
+                    >
+                      取消上传
+                    </NButton>
+                    <NTooltip v-else-if="getDisabledUploadTip(row)">
+                      <template #trigger>
+                        <span class="button-trigger">
+                          <NButton disabled>{{ getUploadButtonText(row) }}</NButton>
+                        </span>
+                      </template>
+                      {{ getDisabledUploadTip(row) }}
+                    </NTooltip>
+                    <NButton v-else type="primary" @click="startUpload(row)">
+                      {{ getUploadButtonText(row) }}
+                    </NButton>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </NCard>
+      </NCollapseItem>
+    </NCollapse>
 
     <NModal
       v-model:show="ruleModalVisible"
@@ -1557,131 +1783,6 @@ onUnmounted(() => {
     >
       请先在弹出的浏览器窗口中完成登录，再点击“开始上传”或“开始搭建”。
     </NAlert>
-
-    <NCard class="table-card">
-      <template #header>
-        <div class="table-header">
-          <span>上传列表</span>
-          <span class="table-header-desc">每部剧单独填写账户和短剧ID后手动触发</span>
-        </div>
-      </template>
-
-      <NEmpty v-if="rows.length === 0" description="请选择目录并扫描剧目" />
-
-      <div v-else class="drama-table">
-        <table>
-          <thead>
-            <tr>
-              <th>剧名</th>
-              <th>素材数</th>
-              <th>账户</th>
-              <th>短剧ID</th>
-              <th>状态</th>
-              <th>进度</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in rows" :key="row.id">
-              <td class="drama-cell">
-                <div class="drama-name">{{ row.drama }}</div>
-                <div v-if="row.error || row.deleteError || row.buildError" class="row-error">
-                  {{ row.error || row.deleteError || row.buildError }}
-                </div>
-                <div
-                  v-for="item in row.skippedRules"
-                  :key="`${row.id}-${item.douyinAccount}`"
-                  class="row-error"
-                >
-                  {{ item.douyinAccount }}：{{ item.error }}
-                </div>
-              </td>
-              <td>{{ row.materialCount }}</td>
-              <td>
-                <NInput
-                  :value="row.accountId"
-                  placeholder="请输入巨量账户 ID"
-                  :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
-                  @update:value="(value) => handleAccountInput(row, value)"
-                />
-              </td>
-              <td>
-                <NInput
-                  :value="row.dramaId"
-                  placeholder="请输入短剧 ID"
-                  :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
-                  @update:value="(value) => handleDramaIdInput(row, value)"
-                />
-              </td>
-              <td>
-                <div class="status-stack">
-                  <NTag :type="getCombinedStatusType(row)" size="small">
-                    {{ getCombinedStatusText(row) }}
-                  </NTag>
-                  <NTag v-if="row.deleted" type="success" size="small" round>
-                    本地已删除
-                  </NTag>
-                  <span v-if="row.buildMessage" class="row-hint">{{ row.buildMessage }}</span>
-                </div>
-              </td>
-              <td>
-                <div class="progress-cell">
-                  <span>上传 {{ row.successCount }}/{{ row.totalFiles || row.materialCount }}</span>
-                  <span v-if="row.buildTotalRules > 0">
-                    搭建 {{ row.buildSuccessRuleCount }}/{{ row.buildTotalRules }}
-                  </span>
-                </div>
-              </td>
-              <td>
-                <NButton
-                  v-if="row.buildStatus === 'building'"
-                  type="error"
-                  @click="cancelBuild(row)"
-                >
-                  取消搭建
-                </NButton>
-                <NButton v-else-if="row.buildStatus === 'built'" disabled>
-                  已搭建
-                </NButton>
-                <NButton
-                  v-else-if="row.status === 'uploaded' && !getDisabledBuildTip(row)"
-                  type="success"
-                  @click="startBuild(row)"
-                >
-                  {{ getBuildButtonText(row) }}
-                </NButton>
-                <NTooltip v-else-if="row.status === 'uploaded' && getDisabledBuildTip(row)">
-                  <template #trigger>
-                    <span class="button-trigger">
-                      <NButton disabled>{{ getBuildButtonText(row) }}</NButton>
-                    </span>
-                  </template>
-                  {{ getDisabledBuildTip(row) }}
-                </NTooltip>
-                <NButton
-                  v-else-if="row.status === 'uploading'"
-                  type="error"
-                  @click="cancelUpload(row)"
-                >
-                  取消上传
-                </NButton>
-                <NTooltip v-else-if="getDisabledUploadTip(row)">
-                  <template #trigger>
-                    <span class="button-trigger">
-                      <NButton disabled>{{ getUploadButtonText(row) }}</NButton>
-                    </span>
-                  </template>
-                  {{ getDisabledUploadTip(row) }}
-                </NTooltip>
-                <NButton v-else type="primary" @click="startUpload(row)">
-                  {{ getUploadButtonText(row) }}
-                </NButton>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </NCard>
 
     <NCollapse class="advanced-config">
       <NCollapseItem title="巨量高级配置" name="advanced-config">
@@ -1808,8 +1909,17 @@ onUnmounted(() => {
 .progress-card,
 .advanced-config,
 .log-panel,
-.build-config-card {
+.build-config-card,
+.section-collapse {
   margin-bottom: 16px;
+}
+
+.collapse-card {
+  margin-bottom: 0;
+}
+
+.section-collapse :deep(.n-collapse-item__content-inner) {
+  padding-top: 12px;
 }
 
 .toolbar {
@@ -1882,11 +1992,16 @@ onUnmounted(() => {
 
 .progress-header,
 .table-header,
+.list-toolbar,
 .rule-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.list-toolbar {
+  margin-bottom: 16px;
 }
 
 .progress-title {
