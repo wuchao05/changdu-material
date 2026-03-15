@@ -23,6 +23,7 @@ export interface DarenInfo {
 }
 
 export interface UploadBuildParams {
+  distributorId: string
   secretKey: string
   source: string
   bid: number | string

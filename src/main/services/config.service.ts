@@ -55,6 +55,7 @@ export interface ApiConfig {
 }
 
 export interface UploadBuildParams {
+  distributorId: string;
   secretKey: string;
   source: string;
   bid: number | string;
@@ -341,16 +342,17 @@ export class ConfigService {
   private createDefaultUploadBuildSettings(): UploadBuildSettings {
     return {
       buildParams: {
+        distributorId: "",
         secretKey: "",
         source: "",
         bid: 5,
         productId: "",
         productPlatformId: "",
         landingUrl: "",
-      microAppName: "",
-      microAppId: "",
-      ccId: "",
-      rechargeTemplateId: "",
+        microAppName: "",
+        microAppId: "",
+        ccId: "",
+        rechargeTemplateId: "",
       },
       darenName: "小鱼",
       materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",

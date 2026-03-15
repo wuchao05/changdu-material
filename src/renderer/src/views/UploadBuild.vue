@@ -254,6 +254,7 @@ const browserStatusType = computed(() => {
 function createDefaultBuildSettings(): UploadBuildSettings {
   return {
     buildParams: {
+      distributorId: "",
       secretKey: "",
       source: "",
       bid: 5,
@@ -1241,6 +1242,7 @@ function handleAutoRunChange(value: boolean) {
 function getBuildConfigError(): string {
   const params = buildSettings.value.buildParams;
   const fieldLabels: Array<[keyof typeof params, string]> = [
+    ["distributorId", "Distributor ID"],
     ["secretKey", "Secret密钥"],
     ["source", "来源"],
     ["bid", "出价"],
@@ -1506,8 +1508,6 @@ async function startBuild(row: DramaUploadRow) {
         accountId: row.accountId.trim(),
         files: [...row.files],
         darenId: currentDaren.value.id,
-        changduConfigType: currentDaren.value.changduConfigType || "sanrou",
-        customChangduConfig: currentDaren.value.customChangduConfig,
         buildSettings: cloneBuildSettings(buildSettings.value),
       })
     );
@@ -1796,6 +1796,13 @@ onUnmounted(() => {
         </template>
         <NCard class="build-config-card collapse-card">
           <div class="build-config-grid">
+            <label class="build-field">
+              <span>Distributor ID</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.distributorId"
+                placeholder="请输入推广链 Distributor ID"
+              />
+            </label>
             <label class="build-field">
               <span>Secret密钥</span>
               <NInput

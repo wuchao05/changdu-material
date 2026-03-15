@@ -2,7 +2,6 @@ import { BrowserWindow } from "electron";
 import crypto from "crypto";
 import FormData from "form-data";
 import type {
-  ChangduConfig,
   ConfigService,
   DouyinMaterialRule,
   UploadBuildSettings,
@@ -53,8 +52,6 @@ export interface DailyBuildTaskPayload {
   accountId: string;
   files: string[];
   darenId: string;
-  changduConfigType?: "sanrou" | "meiri" | "custom";
-  customChangduConfig?: ChangduConfig;
   buildSettings: UploadBuildSettings;
 }
 
@@ -405,7 +402,6 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export class DailyBuildService {
-  private configService: ConfigService;
   private mainWindow: BrowserWindow | null = null;
   private tasks = new Map<string, DailyBuildTaskRuntime>();
   private logs: Array<{ time: string; message: string }> = [];
@@ -413,9 +409,7 @@ export class DailyBuildService {
   private recentTaskStates = new Map<string, DailyBuildTaskState>();
   private maxRecentTaskStates = 200;
 
-  constructor(configService: ConfigService) {
-    this.configService = configService;
-  }
+  constructor(_configService: ConfigService) {}
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -491,20 +485,6 @@ export class DailyBuildService {
     });
   }
 
-  private async resolveChangduConfig(
-    payload: DailyBuildTaskPayload
-  ): Promise<ChangduConfig> {
-    if (payload.changduConfigType === "custom" && payload.customChangduConfig) {
-      return payload.customChangduConfig;
-    }
-
-    const apiConfig = await this.configService.getApiConfig();
-    if (payload.changduConfigType === "meiri") {
-      return apiConfig.meiriChangdu;
-    }
-    return apiConfig.sanrouChangdu;
-  }
-
   private validatePayload(payload: DailyBuildTaskPayload): void {
     if (!payload.taskId) {
       throw new Error("缺少搭建任务 ID");
@@ -522,6 +502,7 @@ export class DailyBuildService {
     const { buildParams, materialFilenameTemplate, douyinMaterialRules } =
       payload.buildSettings;
     const requiredParams: Array<keyof UploadBuildSettings["buildParams"]> = [
+      "distributorId",
       "secretKey",
       "source",
       "bid",
@@ -1724,10 +1705,11 @@ export class DailyBuildService {
     let successRuleCount = 0;
 
     try {
-      const changduConfig = await this.resolveChangduConfig(payload);
-      const distributorId = String(changduConfig.distributorId || "").trim();
+      const distributorId = String(
+        payload.buildSettings.buildParams.distributorId || ""
+      ).trim();
       if (!distributorId) {
-        throw new Error("当前达人缺少常读 distributorId 配置");
+        throw new Error("当前达人缺少搭建参数 distributorId 配置");
       }
 
       const cookieHeader = await juliangService.getCookieHeader();
