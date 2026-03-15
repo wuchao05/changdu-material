@@ -155,6 +155,7 @@ const buildSettings = ref<UploadBuildSettings>(createDefaultBuildSettings());
 const ruleModalVisible = ref(false);
 const editingRuleId = ref<string | null>(null);
 const ruleForm = ref<DouyinMaterialRule>(createEmptyRule());
+const isPushingRemoteConfig = ref(false);
 
 const uploadConfig = ref({
   baseUploadUrl: "",
@@ -534,17 +535,58 @@ function schedulePersistBuildSettings() {
   }
 
   buildSettingsSaveTimer = setTimeout(async () => {
-    if (!currentDaren.value) return;
+    buildSettingsSaveTimer = null;
     try {
-      const payload = cloneBuildSettings(buildSettings.value);
-      await darenStore.updateDaren(currentDaren.value.id, {
-        uploadBuildSettings: payload,
-      });
+      await persistBuildSettingsNow();
     } catch (error) {
       console.error("保存上传搭建配置失败:", error);
       message.error(`保存搭建配置失败: ${error}`);
     }
   }, BUILD_SETTINGS_SAVE_DELAY);
+}
+
+async function persistBuildSettingsNow() {
+  if (!currentDaren.value) {
+    return;
+  }
+
+  if (buildSettingsSaveTimer) {
+    clearTimeout(buildSettingsSaveTimer);
+    buildSettingsSaveTimer = null;
+  }
+
+  const payload = cloneBuildSettings(buildSettings.value);
+  await darenStore.updateDaren(currentDaren.value.id, {
+    uploadBuildSettings: payload,
+  });
+}
+
+async function handlePushRemoteConfig() {
+  if (isPushingRemoteConfig.value) {
+    return;
+  }
+
+  if (!currentDaren.value) {
+    message.warning("请先选择达人后再推送配置");
+    return;
+  }
+
+  isPushingRemoteConfig.value = true;
+  try {
+    await persistBuildSettingsNow();
+    const result = await window.api.pushRemoteConfig();
+    if (!result.success) {
+      throw new Error(result.error || "推送失败");
+    }
+    message.success("上传搭建配置已推送到服务器，其他电脑登录后会自动同步");
+  } catch (error) {
+    console.error("推送远程配置失败:", error);
+    message.error(
+      `推送配置失败：${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    isPushingRemoteConfig.value = false;
+  }
 }
 
 watch(
@@ -1673,6 +1715,23 @@ onUnmounted(() => {
 
 <template>
   <div class="upload-build-page">
+    <div class="page-actions">
+      <div class="page-actions-copy">
+        <div class="page-actions-title">配置同步</div>
+        <div class="page-actions-desc">
+          点击后会把当前达人在本页维护的达人名称、素材名称模板、搭建参数配置、抖音号匹配素材规则一起推送到服务器。
+        </div>
+      </div>
+      <NButton
+        type="primary"
+        :loading="isPushingRemoteConfig"
+        :disabled="!currentDaren"
+        @click="handlePushRemoteConfig"
+      >
+        {{ isPushingRemoteConfig ? "推送中..." : "推送配置到服务器" }}
+      </NButton>
+    </div>
+
     <div class="status-bar">
       <div class="status-item">
         <span class="status-label">浏览器</span>
@@ -2287,6 +2346,37 @@ onUnmounted(() => {
     linear-gradient(180deg, #f8fbff 0%, #f3f5f8 100%);
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  border: 1px solid #e7ebf0;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12px 30px rgba(37, 48, 77, 0.06);
+}
+
+.page-actions-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.page-actions-title {
+  color: #202531;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.page-actions-desc {
+  color: #7b8597;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .status-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -2376,6 +2466,13 @@ onUnmounted(() => {
 .row-hint {
   color: #8a94a7;
   font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .page-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .field-help {
