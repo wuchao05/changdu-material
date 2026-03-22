@@ -46,6 +46,7 @@ const schedulerStats = ref({
 const schedulerConfig = ref({
   fetchIntervalMinutes: 20,
   localRootDir: "",
+  maxTaskRetries: 1,
 });
 
 const currentSchedulerDarenId = computed(() => {
@@ -59,6 +60,8 @@ const currentSchedulerDarenId = computed(() => {
 const config = ref({
   baseUploadUrl: "",
   batchSize: 20,
+  batchUploadTimeoutMinutes: 5,
+  maxBatchRetries: 5,
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
@@ -83,18 +86,20 @@ const logs = ref<Array<{ time: string; message: string; type?: string }>>([]);
 const showLogs = ref(false);
 
 // 已完成任务列表
-const completedTasks = ref<Array<{
-  drama: string;
-  date: string;
-  fileCount: number;
-  status: 'completed' | 'failed' | 'skipped';
-  error?: string;
-  duration: string;
-}>>([]);
+const completedTasks = ref<
+  Array<{
+    drama: string;
+    date: string;
+    fileCount: number;
+    status: "completed" | "failed" | "skipped";
+    error?: string;
+    duration: string;
+  }>
+>([]);
 
 // 上传计时
 const uploadStartTime = ref<number | null>(null);
-const uploadElapsedMinutes = ref('0.0');
+const uploadElapsedMinutes = ref("0.0");
 let uploadTimerInterval: ReturnType<typeof setInterval> | null = null;
 
 // 进度监听器
@@ -134,7 +139,7 @@ async function loadConfig() {
     ) {
       config.value.allowedMissingCount = Math.max(
         0,
-        Math.round((1 - cfg.progressBarThreshold) * 10)
+        Math.round((1 - cfg.progressBarThreshold) * 10),
       );
     }
   } catch (error) {
@@ -148,11 +153,22 @@ async function saveConfig() {
     const cfg = {
       baseUploadUrl: config.value.baseUploadUrl,
       batchSize: config.value.batchSize,
+      batchUploadTimeoutMinutes: Math.max(
+        1,
+        Math.floor(config.value.batchUploadTimeoutMinutes || 5),
+      ),
+      maxBatchRetries: Math.max(
+        0,
+        Math.min(10, Math.floor(config.value.maxBatchRetries || 0)),
+      ),
       batchDelayMin: config.value.batchDelayMin,
       batchDelayMax: config.value.batchDelayMax,
       headless: config.value.headless,
       slowMo: config.value.slowMo,
-      allowedMissingCount: Math.max(0, Math.floor(config.value.allowedMissingCount || 0)),
+      allowedMissingCount: Math.max(
+        0,
+        Math.floor(config.value.allowedMissingCount || 0),
+      ),
     };
     await window.api.juliangUpdateConfig(cfg);
   } catch (error) {
@@ -174,7 +190,9 @@ async function startScheduler() {
       }
     }
 
-    const result = await window.api.juliangSchedulerStart(currentSchedulerDarenId.value);
+    const result = await window.api.juliangSchedulerStart(
+      currentSchedulerDarenId.value,
+    );
     if (result.success) {
       schedulerStatus.value = "running";
       showLogs.value = true; // 自动展开日志
@@ -201,7 +219,9 @@ async function stopScheduler() {
 // 立即执行调度
 async function fetchNow() {
   try {
-    const result = await window.api.juliangSchedulerFetchNow(currentSchedulerDarenId.value);
+    const result = await window.api.juliangSchedulerFetchNow(
+      currentSchedulerDarenId.value,
+    );
     if (result.success) {
       message.success(`查询完成，发现 ${result.count} 个任务`);
     } else {
@@ -253,6 +273,10 @@ async function saveSchedulerConfig() {
     const cfg = {
       fetchIntervalMinutes: schedulerConfig.value.fetchIntervalMinutes,
       localRootDir: schedulerConfig.value.localRootDir,
+      maxTaskRetries: Math.max(
+        0,
+        Math.min(5, Math.floor(schedulerConfig.value.maxTaskRetries || 0)),
+      ),
     };
     await window.api.juliangSchedulerUpdateConfig(cfg);
     message.success("配置已保存");
@@ -300,7 +324,7 @@ async function refreshCompletedTasks() {
 function startUploadTimer() {
   stopUploadTimer();
   uploadStartTime.value = Date.now();
-  uploadElapsedMinutes.value = '0.0';
+  uploadElapsedMinutes.value = "0.0";
   uploadTimerInterval = setInterval(() => {
     if (uploadStartTime.value) {
       const elapsed = (Date.now() - uploadStartTime.value) / 60000;
@@ -326,8 +350,14 @@ async function loadAllLogs() {
     ]);
     // 合并并按时间排序
     const allLogs = [
-      ...uploadLogs.map((l: { time: string; message: string }) => ({ ...l, type: "upload" })),
-      ...schedulerLogs.map((l: { time: string; message: string }) => ({ ...l, type: "scheduler" })),
+      ...uploadLogs.map((l: { time: string; message: string }) => ({
+        ...l,
+        type: "upload",
+      })),
+      ...schedulerLogs.map((l: { time: string; message: string }) => ({
+        ...l,
+        type: "scheduler",
+      })),
     ].sort((a, b) => a.time.localeCompare(b.time));
     logs.value = allLogs;
   } catch (error) {
@@ -397,16 +427,20 @@ onMounted(async () => {
   await refreshCompletedTasks();
 
   // 监听上传进度
-  let lastDrama = '';
+  let lastDrama = "";
   unsubscribeProgress = window.api.onJuliangUploadProgress((progress) => {
     currentTask.value = progress;
     // 新剧集开始时重启计时器
-    if (progress.drama !== lastDrama && progress.status !== 'skipped') {
+    if (progress.drama !== lastDrama && progress.status !== "skipped") {
       lastDrama = progress.drama;
       startUploadTimer();
     }
     // 任务结束时停止计时
-    if (progress.status === 'completed' || progress.status === 'failed' || progress.status === 'skipped') {
+    if (
+      progress.status === "completed" ||
+      progress.status === "failed" ||
+      progress.status === "skipped"
+    ) {
       stopUploadTimer();
     }
   });
@@ -448,11 +482,15 @@ onUnmounted(() => {
     <div class="status-bar">
       <div class="status-item">
         <span class="status-label">调度状态</span>
-        <NTag :type="schedulerStatusType" size="small">{{ schedulerStatusText }}</NTag>
+        <NTag :type="schedulerStatusType" size="small">{{
+          schedulerStatusText
+        }}</NTag>
       </div>
       <div class="status-item">
         <span class="status-label">浏览器</span>
-        <NTag :type="browserStatusType" size="small">{{ browserStatusText }}</NTag>
+        <NTag :type="browserStatusType" size="small">{{
+          browserStatusText
+        }}</NTag>
       </div>
       <div class="status-item" v-if="currentTask">
         <span class="status-label">当前任务</span>
@@ -524,11 +562,13 @@ onUnmounted(() => {
         <NButton
           type="primary"
           size="large"
-          :disabled="schedulerStatus === 'running' || !schedulerConfig.localRootDir"
+          :disabled="
+            schedulerStatus === 'running' || !schedulerConfig.localRootDir
+          "
           :loading="isInitializing"
           @click="startScheduler"
         >
-          {{ isInitializing ? '初始化中...' : '启动调度' }}
+          {{ isInitializing ? "初始化中..." : "启动调度" }}
         </NButton>
         <NButton
           size="large"
@@ -539,7 +579,9 @@ onUnmounted(() => {
         </NButton>
         <NButton
           size="large"
-          :disabled="schedulerStatus !== 'running' || schedulerStats.running > 0"
+          :disabled="
+            schedulerStatus !== 'running' || schedulerStats.running > 0
+          "
           @click="fetchNow"
         >
           立即查询
@@ -547,32 +589,57 @@ onUnmounted(() => {
         <NButton
           size="large"
           type="error"
-          :disabled="schedulerStatus !== 'running' || (schedulerStats.pending === 0 && schedulerStats.running === 0)"
+          :disabled="
+            schedulerStatus !== 'running' ||
+            (schedulerStats.pending === 0 && schedulerStats.running === 0)
+          "
           @click="cancelAll"
         >
           取消上传
         </NButton>
         <NButton size="large" @click="toggleLogs">
-          {{ showLogs ? '隐藏日志' : '查看日志' }}
+          {{ showLogs ? "隐藏日志" : "查看日志" }}
         </NButton>
       </div>
     </NCard>
 
     <!-- 当前任务进度 -->
-    <NCard v-if="currentTask" :class="['progress-card', currentTask.status === 'skipped' ? 'cancelled' : '']">
+    <NCard
+      v-if="currentTask"
+      :class="[
+        'progress-card',
+        currentTask.status === 'skipped' ? 'cancelled' : '',
+      ]"
+    >
       <div class="progress-header">
         <span class="progress-title">{{ currentTask.drama }}</span>
         <span class="progress-status">{{ currentTask.message }}</span>
       </div>
       <div v-if="currentTask.status !== 'skipped'" class="progress-info">
-        <span>批次: {{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}</span>
-        <span>文件: {{ currentTask.successCount }}/{{ currentTask.totalFiles }}</span>
-        <span v-if="uploadStartTime" class="upload-timer">已用时: {{ uploadElapsedMinutes }} 分钟</span>
+        <span
+          >批次: {{ currentTask.currentBatch }}/{{
+            currentTask.totalBatches
+          }}</span
+        >
+        <span
+          >文件: {{ currentTask.successCount }}/{{
+            currentTask.totalFiles
+          }}</span
+        >
+        <span v-if="uploadStartTime" class="upload-timer"
+          >已用时: {{ uploadElapsedMinutes }} 分钟</span
+        >
       </div>
       <NProgress
         v-if="currentTask.status !== 'skipped'"
         type="line"
-        :percentage="currentTask.totalFiles > 0 ? Math.round((currentTask.successCount / currentTask.totalFiles) * 100) : 0"
+        :percentage="
+          currentTask.totalFiles > 0
+            ? Math.round(
+                (currentTask.successCount / currentTask.totalFiles) * 100,
+              )
+            : 0
+        "
         :indicator-placement="'inside'"
         :height="24"
         :border-radius="4"
@@ -581,7 +648,10 @@ onUnmounted(() => {
 
     <!-- 已上传列表 -->
     <NCollapse v-if="completedTasks.length > 0" class="completed-collapse">
-      <NCollapseItem :title="`已上传列表 (${completedTasks.length})`" name="completed">
+      <NCollapseItem
+        :title="`已上传列表 (${completedTasks.length})`"
+        name="completed"
+      >
         <div class="completed-table">
           <table>
             <thead>
@@ -599,8 +669,18 @@ onUnmounted(() => {
                 <td>{{ task.date }}</td>
                 <td>{{ task.fileCount }}</td>
                 <td>
-                  <NTag v-if="task.status === 'completed'" type="success" size="small">成功</NTag>
-                  <NTag v-else-if="task.status === 'failed'" type="error" size="small">失败</NTag>
+                  <NTag
+                    v-if="task.status === 'completed'"
+                    type="success"
+                    size="small"
+                    >成功</NTag
+                  >
+                  <NTag
+                    v-else-if="task.status === 'failed'"
+                    type="error"
+                    size="small"
+                    >失败</NTag
+                  >
                   <NTag v-else type="warning" size="small">跳过</NTag>
                 </td>
                 <td>{{ task.duration }}</td>
@@ -655,8 +735,36 @@ onUnmounted(() => {
               <span class="config-desc">每次上传的文件数量</span>
             </div>
             <div class="config-row">
+              <span class="config-label">单批超时(分钟)</span>
+              <NInputNumber
+                v-model:value="config.batchUploadTimeoutMinutes"
+                :min="1"
+                :max="60"
+                style="width: 120px"
+                @update:value="saveConfig"
+              />
+              <span class="config-desc"
+                >单批上传超过该时间仍未结束，就按超时处理</span
+              >
+            </div>
+            <div class="config-row">
+              <span class="config-label">批次重试次数</span>
+              <NInputNumber
+                v-model:value="config.maxBatchRetries"
+                :min="0"
+                :max="10"
+                :step="1"
+                style="width: 120px"
+                @update:value="saveConfig"
+              />
+              <span class="config-desc">单批失败后最多额外重试的次数</span>
+            </div>
+            <div class="config-row">
               <span class="config-label">无头模式</span>
-              <NSwitch v-model:value="config.headless" @update:value="saveConfig" />
+              <NSwitch
+                v-model:value="config.headless"
+                @update:value="saveConfig"
+              />
               <span class="config-desc">开启后浏览器窗口不可见</span>
             </div>
             <div class="config-row">
@@ -669,7 +777,24 @@ onUnmounted(() => {
                 style="width: 120px"
                 @update:value="saveConfig"
               />
-              <span class="config-desc">例如一批 10 个文件，设置为 2，则最终剩 8 个成功进度条也会点确定继续</span>
+              <span class="config-desc"
+                >例如一批 10 个文件，设置为 2，则最终剩 8
+                个成功进度条也会点确定继续</span
+              >
+            </div>
+            <div class="config-row">
+              <span class="config-label">任务重试次数</span>
+              <NInputNumber
+                v-model:value="schedulerConfig.maxTaskRetries"
+                :min="0"
+                :max="5"
+                :step="1"
+                style="width: 120px"
+                @update:value="saveSchedulerConfig"
+              />
+              <span class="config-desc"
+                >调度器模式下整部剧上传失败后最多额外重试的次数</span
+              >
             </div>
           </div>
         </div>
@@ -881,7 +1006,7 @@ onUnmounted(() => {
   color: #d4d4d4;
   padding: 12px;
   border-radius: 6px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
   font-size: 12px;
   line-height: 1.6;
 }

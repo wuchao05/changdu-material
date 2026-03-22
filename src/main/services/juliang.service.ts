@@ -11,7 +11,12 @@ import { execSync } from "child_process";
 import { JuliangProgressManager } from "./juliang-progress.service";
 
 // 上传任务状态
-export type JuliangTaskStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+export type JuliangTaskStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
 
 // 上传进度回调
 export interface JuliangUploadProgress {
@@ -63,6 +68,8 @@ interface JuliangBatchResult {
 export interface JuliangConfig {
   baseUploadUrl: string;
   batchSize: number;
+  batchUploadTimeoutMinutes: number;
+  maxBatchRetries: number;
   batchDelayMin: number;
   batchDelayMax: number;
   headless: boolean;
@@ -79,8 +86,11 @@ export interface JuliangConfig {
 
 // 默认配置
 const DEFAULT_CONFIG: JuliangConfig = {
-  baseUploadUrl: "https://ad.oceanengine.com/material_center/management/video?aadvid={accountId}#source=ad_navigator",
+  baseUploadUrl:
+    "https://ad.oceanengine.com/material_center/management/video?aadvid={accountId}#source=ad_navigator",
   batchSize: 10, // 巨量后台每次最多上传 10 个视频
+  batchUploadTimeoutMinutes: 5,
+  maxBatchRetries: 5,
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
@@ -90,8 +100,10 @@ const DEFAULT_CONFIG: JuliangConfig = {
     uploadButton: "button:has(span:text('上传视频'))",
     uploadPanel: ".material-center-v2-oc-create-upload-select-wrapper",
     fileInput: 'input[type="file"]',
-    confirmButton: ".material-center-v2-oc-create-material-submit-bar-btn-group button:has-text('确定')",
-    cancelButton: ".material-center-v2-oc-create-material-submit-bar-btn-group button:has-text('取消')",
+    confirmButton:
+      ".material-center-v2-oc-create-material-submit-bar-btn-group button:has-text('确定')",
+    cancelButton:
+      ".material-center-v2-oc-create-material-submit-bar-btn-group button:has-text('取消')",
   },
 };
 
@@ -101,12 +113,14 @@ export class JuliangService {
   private config: JuliangConfig = DEFAULT_CONFIG;
   private isInitialized = false;
   private mainWindow: BrowserWindow | null = null;
-  private progressCallback: ((progress: JuliangUploadProgress) => void) | null = null;
+  private progressCallback: ((progress: JuliangUploadProgress) => void) | null =
+    null;
   private logs: Array<{ time: string; message: string }> = [];
   private maxLogs = 500; // 最多保存 500 条日志
   private recentTaskStates = new Map<string, JuliangTaskState>();
   private maxRecentTaskStates = 200;
-  private progressManager: JuliangProgressManager = new JuliangProgressManager();
+  private progressManager: JuliangProgressManager =
+    new JuliangProgressManager();
   private isCancelled = false; // 取消标志
   private readonly nonRetryableUploadErrors = [
     "获取大视频封面失败",
@@ -117,8 +131,15 @@ export class JuliangService {
     "视频处理失败",
     "文件处理失败",
   ];
-  private readonly uploadErrorKeywords = /(失败|错误|异常|不支持|无效|损坏|封面)/;
-  private readonly ignoredUploadErrorTexts = ["点击上传", "拖拽到此处", "模板视频", "竖版视频", "横版视频"];
+  private readonly uploadErrorKeywords =
+    /(失败|错误|异常|不支持|无效|损坏|封面)/;
+  private readonly ignoredUploadErrorTexts = [
+    "点击上传",
+    "拖拽到此处",
+    "模板视频",
+    "竖版视频",
+    "横版视频",
+  ];
 
   /**
    * 获取用户数据目录
@@ -196,7 +217,7 @@ export class JuliangService {
       try {
         const regQuery = execSync(
           'reg query "HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe" /ve',
-          { encoding: "utf-8" }
+          { encoding: "utf-8" },
         );
         const match = regQuery.match(/REG_SZ\s+(.+)/);
         if (match && match[1] && fs.existsSync(match[1].trim())) {
@@ -290,11 +311,29 @@ export class JuliangService {
     if (typeof nextConfig.batchSize === "number") {
       nextConfig.batchSize = Math.max(1, Math.floor(nextConfig.batchSize));
     }
+    if (typeof nextConfig.batchUploadTimeoutMinutes === "number") {
+      nextConfig.batchUploadTimeoutMinutes = Math.max(
+        1,
+        Math.floor(nextConfig.batchUploadTimeoutMinutes),
+      );
+    }
+    if (typeof nextConfig.maxBatchRetries === "number") {
+      nextConfig.maxBatchRetries = Math.max(
+        0,
+        Math.min(10, Math.floor(nextConfig.maxBatchRetries)),
+      );
+    }
     if (typeof nextConfig.batchDelayMin === "number") {
-      nextConfig.batchDelayMin = Math.max(0, Math.floor(nextConfig.batchDelayMin));
+      nextConfig.batchDelayMin = Math.max(
+        0,
+        Math.floor(nextConfig.batchDelayMin),
+      );
     }
     if (typeof nextConfig.batchDelayMax === "number") {
-      nextConfig.batchDelayMax = Math.max(0, Math.floor(nextConfig.batchDelayMax));
+      nextConfig.batchDelayMax = Math.max(
+        0,
+        Math.floor(nextConfig.batchDelayMax),
+      );
     }
     if (nextConfig.batchDelayMax < nextConfig.batchDelayMin) {
       nextConfig.batchDelayMax = nextConfig.batchDelayMin;
@@ -303,7 +342,10 @@ export class JuliangService {
       nextConfig.slowMo = Math.max(0, Math.floor(nextConfig.slowMo));
     }
     if (typeof nextConfig.allowedMissingCount === "number") {
-      nextConfig.allowedMissingCount = Math.max(0, Math.floor(nextConfig.allowedMissingCount));
+      nextConfig.allowedMissingCount = Math.max(
+        0,
+        Math.floor(nextConfig.allowedMissingCount),
+      );
     }
     this.config = nextConfig;
   }
@@ -324,7 +366,12 @@ export class JuliangService {
       this.isCancelled = false;
 
       // 如果已初始化且页面仍然可用，跳过
-      if (this.isInitialized && this.context && this.page && !this.page.isClosed()) {
+      if (
+        this.isInitialized &&
+        this.context &&
+        this.page &&
+        !this.page.isClosed()
+      ) {
         this.log("浏览器已初始化，跳过");
         return { success: true };
       }
@@ -358,7 +405,8 @@ export class JuliangService {
       if (!executablePath) {
         return {
           success: false,
-          error: "未找到 Chrome 或 Edge 浏览器，请先安装 Google Chrome 或 Microsoft Edge",
+          error:
+            "未找到 Chrome 或 Edge 浏览器，请先安装 Google Chrome 或 Microsoft Edge",
         };
       }
 
@@ -384,13 +432,17 @@ export class JuliangService {
 
       // 初始化后导航到巨量主页，用于检查登录状态
       this.log("导航到巨量主页检查登录状态...");
-      await this.page.goto("https://ad.oceanengine.com/", { waitUntil: "domcontentloaded", timeout: 15000 });
+      await this.page.goto("https://ad.oceanengine.com/", {
+        waitUntil: "domcontentloaded",
+        timeout: 15000,
+      });
       // 等待可能的重定向完成
       await this.page.waitForTimeout(2000);
 
       return { success: true };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       console.error(`[Juliang] 初始化浏览器失败: ${errorMessage}`);
       return { success: false, error: errorMessage };
     }
@@ -400,7 +452,12 @@ export class JuliangService {
    * 检查是否已初始化且页面可用
    */
   isReady(): boolean {
-    return this.isInitialized && this.context !== null && this.page !== null && !this.page.isClosed();
+    return (
+      this.isInitialized &&
+      this.context !== null &&
+      this.page !== null &&
+      !this.page.isClosed()
+    );
   }
 
   /**
@@ -450,7 +507,9 @@ export class JuliangService {
       this.isInitialized = false;
       this.log("浏览器已关闭（登录状态已保存）");
     } catch (error) {
-      console.error(`[Juliang] 关闭浏览器失败: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        `[Juliang] 关闭浏览器失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
       // 即使关闭失败，也要重置状态，避免后续无法重新初始化
       this.page = null;
       this.context = null;
@@ -475,7 +534,9 @@ export class JuliangService {
   /**
    * 导航到上传页面
    */
-  async navigateToUploadPage(accountId: string): Promise<{ success: boolean; error?: string }> {
+  async navigateToUploadPage(
+    accountId: string,
+  ): Promise<{ success: boolean; error?: string }> {
     if (!this.page || this.page.isClosed()) {
       return { success: false, error: "浏览器页面已关闭" };
     }
@@ -490,7 +551,8 @@ export class JuliangService {
       this.log("页面加载完成");
       return { success: true };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       console.error(`[Juliang] 导航失败: ${errorMessage}`);
       return { success: false, error: errorMessage };
     }
@@ -499,7 +561,10 @@ export class JuliangService {
   /**
    * 检查登录状态
    */
-  async checkLoginStatus(): Promise<{ isLoggedIn: boolean; needLogin: boolean }> {
+  async checkLoginStatus(): Promise<{
+    isLoggedIn: boolean;
+    needLogin: boolean;
+  }> {
     if (!this.page) {
       return { isLoggedIn: false, needLogin: true };
     }
@@ -510,7 +575,8 @@ export class JuliangService {
       this.log(`当前页面 URL: ${currentUrl}`);
 
       // 如果 URL 包含 login 或 sso，说明未登录（被重定向到登录页）
-      const needLogin = currentUrl.includes("login") || currentUrl.includes("sso");
+      const needLogin =
+        currentUrl.includes("login") || currentUrl.includes("sso");
       const isLoggedIn = !needLogin;
 
       this.log(`登录状态: ${isLoggedIn ? "已登录" : "需要登录"}`);
@@ -565,11 +631,15 @@ export class JuliangService {
       return null;
     }
 
-    const uploadPanel = this.page.locator(this.config.selectors.uploadPanel).first();
+    const uploadPanel = this.page
+      .locator(this.config.selectors.uploadPanel)
+      .first();
 
     for (const errorText of this.nonRetryableUploadErrors) {
       try {
-        const locator = uploadPanel.getByText(errorText, { exact: false }).first();
+        const locator = uploadPanel
+          .getByText(errorText, { exact: false })
+          .first();
         if (await locator.isVisible({ timeout: 200 })) {
           return errorText;
         }
@@ -580,7 +650,7 @@ export class JuliangService {
 
     try {
       const errorCandidates = uploadPanel.locator(
-        '[class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]'
+        '[class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]',
       );
       const candidateCount = Math.min(await errorCandidates.count(), 10);
 
@@ -593,7 +663,9 @@ export class JuliangService {
         if (
           text &&
           this.uploadErrorKeywords.test(text) &&
-          !this.ignoredUploadErrorTexts.some((ignoredText) => text.includes(ignoredText))
+          !this.ignoredUploadErrorTexts.some((ignoredText) =>
+            text.includes(ignoredText),
+          )
         ) {
           return text.slice(0, 100);
         }
@@ -613,16 +685,16 @@ export class JuliangService {
     files: string[],
     batchIndex: number,
     totalBatches: number,
-    taskId: string,
-    drama: string
   ): Promise<JuliangBatchResult> {
     if (!this.page) {
       return { success: false, successCount: 0 };
     }
 
-    const maxRetries = 10; // 最多重试10次
+    const maxRetries = this.config.maxBatchRetries;
+    const maxAttempts = maxRetries + 1;
 
-    for (let retry = 0; retry < maxRetries; retry++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const retry = attempt - 1;
       // 检查是否已取消或页面已关闭
       if (this.isCancelled || !this.page || this.page.isClosed()) {
         this.log("上传已取消");
@@ -637,7 +709,9 @@ export class JuliangService {
             return { success: false, successCount: 0 };
           }
 
-          this.log(`第 ${batchIndex}/${totalBatches} 批重试第 ${retry} 次`);
+          this.log(
+            `第 ${batchIndex}/${totalBatches} 批开始第 ${retry} 次重试（本次为第 ${attempt}/${maxAttempts} 次尝试，最多重试 ${maxRetries} 次）`,
+          );
 
           // 重试前刷新页面，确保页面状态干净
           this.log("刷新页面以清理状态...");
@@ -646,7 +720,12 @@ export class JuliangService {
           await this.page.waitForTimeout(5000);
         }
 
-        const result = await this.uploadBatchInternal(files, batchIndex, totalBatches, taskId, drama, retry);
+        const result = await this.uploadBatchInternal(
+          files,
+          batchIndex,
+          totalBatches,
+          retry,
+        );
 
         // 完全成功
         if (result.success) {
@@ -655,30 +734,34 @@ export class JuliangService {
 
         if (result.skipped) {
           this.log(
-            `第 ${batchIndex}/${totalBatches} 批命中不可重试错误，跳过当前任务: ${result.error || "未知错误"}`
+            `第 ${batchIndex}/${totalBatches} 批命中不可重试错误，跳过当前任务: ${result.error || "未知错误"}`,
           );
           return result;
         }
 
         // 不足额，需要重试
-        if (retry < maxRetries - 1) {
+        if (attempt < maxAttempts) {
           const shortfall = files.length - result.successCount;
           this.log(
-            `第 ${batchIndex}/${totalBatches} 批上传不足额（${result.successCount}/${files.length}，差 ${shortfall} 个），准备刷新页面后重试...`
+            `第 ${batchIndex}/${totalBatches} 批上传不足额（${result.successCount}/${files.length}，差 ${shortfall} 个），准备进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
           );
         } else {
           // 最后一次重试仍失败
-          this.log(
-            `第 ${batchIndex}/${totalBatches} 批重试 ${maxRetries} 次后仍失败（${result.successCount}/${files.length}）`
-          );
+          const exhaustedMessage =
+            maxRetries > 0
+              ? `第 ${batchIndex}/${totalBatches} 批重试 ${maxRetries} 次后仍失败（${result.successCount}/${files.length}）`
+              : `第 ${batchIndex}/${totalBatches} 批首次尝试失败，且当前未配置重试（${result.successCount}/${files.length}）`;
+          this.log(exhaustedMessage);
         }
       } catch (error) {
         this.log(
-          `上传第 ${batchIndex}/${totalBatches} 批失败（第 ${retry + 1} 次尝试）: ${error instanceof Error ? error.message : String(error)}`
+          `上传第 ${batchIndex}/${totalBatches} 批失败（第 ${attempt}/${maxAttempts} 次尝试）: ${error instanceof Error ? error.message : String(error)}`,
         );
 
-        if (retry < maxRetries - 1) {
-          this.log("准备刷新页面后重试...");
+        if (attempt < maxAttempts) {
+          this.log(
+            `准备刷新页面，进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
+          );
         } else {
           throw error;
         }
@@ -695,9 +778,7 @@ export class JuliangService {
     files: string[],
     batchIndex: number,
     totalBatches: number,
-    taskId: string,
-    drama: string,
-    retryCount: number
+    retryCount: number,
   ): Promise<JuliangBatchResult> {
     if (!this.page) {
       return { success: false, successCount: 0 };
@@ -706,7 +787,9 @@ export class JuliangService {
     try {
       // 1. 点击上传按钮
       this.log(`第 ${batchIndex}/${totalBatches} 批：查找上传按钮`);
-      const uploadButton = this.page.locator(this.config.selectors.uploadButton).first();
+      const uploadButton = this.page
+        .locator(this.config.selectors.uploadButton)
+        .first();
 
       // 等待按钮可见（对于非第一批或重试，可能需要更长时间）
       const waitTimeout = batchIndex === 1 && retryCount === 0 ? 10000 : 20000;
@@ -718,7 +801,9 @@ export class JuliangService {
 
       // 2. 等待上传面板完全加载
       this.log(`等待上传面板出现: ${this.config.selectors.uploadPanel}`);
-      const uploadPanel = this.page.locator(this.config.selectors.uploadPanel).first();
+      const uploadPanel = this.page
+        .locator(this.config.selectors.uploadPanel)
+        .first();
       await uploadPanel.waitFor({ state: "visible", timeout: 10000 });
 
       // 等待上传面板动画完成和完全准备好
@@ -727,7 +812,9 @@ export class JuliangService {
 
       // 3. 使用文件选择器上传
       this.log("开始监听文件选择器事件...");
-      const fileChooserPromise = this.page.waitForEvent("filechooser", { timeout: 15000 });
+      const fileChooserPromise = this.page.waitForEvent("filechooser", {
+        timeout: 15000,
+      });
 
       this.log("点击上传面板触发文件选择");
       await uploadPanel.click();
@@ -741,14 +828,20 @@ export class JuliangService {
       await this.randomDelay(2000, 3000);
 
       // 4. 等待上传完成
-      const maxWaitTime = 600000; // 10分钟
+      const maxWaitTime = this.config.batchUploadTimeoutMinutes * 60 * 1000;
       const noProgressBarTimeout = 30000; // 30秒没有任何进度条，视为卡死
       const startTime = Date.now();
       let finalSuccessCount = 0;
       let maxObservedProgressCount = 0;
       let consecutiveMissingSuccessRounds = 0;
-      const allowedMissingCount = Math.max(0, Math.min(this.config.allowedMissingCount, files.length));
-      const minimumRequiredProgressCount = Math.max(files.length - allowedMissingCount, 1);
+      const allowedMissingCount = Math.max(
+        0,
+        Math.min(this.config.allowedMissingCount, files.length),
+      );
+      const minimumRequiredProgressCount = Math.max(
+        files.length - allowedMissingCount,
+        1,
+      );
 
       // 先等待一下，让文件开始上传和进度条出现
       await this.randomDelay(5000, 6000);
@@ -768,16 +861,22 @@ export class JuliangService {
           }
 
           // 查找所有进度条元素
-          const progressBars = this.page.locator(".material-center-v2-oc-upload-table-name-progress");
+          const progressBars = this.page.locator(
+            ".material-center-v2-oc-upload-table-name-progress",
+          );
           const progressCount = await progressBars.count();
           if (progressCount > maxObservedProgressCount) {
             maxObservedProgressCount = progressCount;
-            this.log(`本批次历史最大进度条数量更新为 ${maxObservedProgressCount}/${files.length}`);
+            this.log(
+              `本批次历史最大进度条数量更新为 ${maxObservedProgressCount}/${files.length}`,
+            );
           }
-          const hasSeenAllProgressBars = maxObservedProgressCount >= files.length;
+          const hasSeenAllProgressBars =
+            maxObservedProgressCount >= files.length;
 
           if (progressCount === 0) {
-            const nonRetryableError = await this.detectNonRetryableUploadError();
+            const nonRetryableError =
+              await this.detectNonRetryableUploadError();
             if (nonRetryableError) {
               this.log(`检测到不可重试的上传错误: ${nonRetryableError}`);
               await this.clickCancelButton();
@@ -806,11 +905,15 @@ export class JuliangService {
 
           // 如果进度条数量少于预期，判断是否达到最低要求
           const elapsedTime = Date.now() - startTime;
-          if (progressCount < files.length && elapsedTime > 10000 && !hasSeenAllProgressBars) {
+          if (
+            progressCount < files.length &&
+            elapsedTime > 10000 &&
+            !hasSeenAllProgressBars
+          ) {
             if (maxObservedProgressCount < minimumRequiredProgressCount) {
               // 未达到最低要求，立即取消并重试
               this.log(
-                `检测到进度条数量严重不足：当前 ${progressCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，立即取消并准备重试`
+                `检测到进度条数量严重不足：当前 ${progressCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，立即取消并准备重试`,
               );
 
               // 点击取消按钮
@@ -821,12 +924,12 @@ export class JuliangService {
             } else {
               // 已达到最低要求，允许继续上传，但记录差异
               this.log(
-                `进度条数量略少：当前 ${progressCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，继续等待上传完成`
+                `进度条数量略少：当前 ${progressCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，继续等待上传完成`,
               );
             }
           } else if (progressCount < files.length && hasSeenAllProgressBars) {
             this.log(
-              `检测到巨量进度条回退：当前 ${progressCount}/${files.length}，但本批次已出现过完整 ${maxObservedProgressCount}/${files.length}，继续等待，不视为成功`
+              `检测到巨量进度条回退：当前 ${progressCount}/${files.length}，但本批次已出现过完整 ${maxObservedProgressCount}/${files.length}，继续等待，不视为成功`,
             );
           }
 
@@ -838,29 +941,33 @@ export class JuliangService {
           for (let i = 0; i < progressCount; i++) {
             const progressBar = progressBars.nth(i);
             const parent = progressBar.locator("..");
-            const successElement = parent.locator(".material-center-v2-oc-upload-table-name-progress-success");
+            const successElement = parent.locator(
+              ".material-center-v2-oc-upload-table-name-progress-success",
+            );
             if ((await successElement.count()) > 0) {
               successCount++;
               continue;
             }
 
             const errorElement = parent.locator(
-              '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]'
+              '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]',
             );
-            const rowText = (await parent.innerText()).trim().replace(/\s+/g, " ");
+            const rowText = (await parent.innerText())
+              .trim()
+              .replace(/\s+/g, " ");
             const hasErrorHint =
               (await errorElement.count()) > 0 ||
-              (
-                this.uploadErrorKeywords.test(rowText) &&
-                !this.ignoredUploadErrorTexts.some((ignoredText) => rowText.includes(ignoredText))
-              );
+              (this.uploadErrorKeywords.test(rowText) &&
+                !this.ignoredUploadErrorTexts.some((ignoredText) =>
+                  rowText.includes(ignoredText),
+                ));
             if (hasErrorHint) {
               errorCount++;
             }
           }
 
           this.log(
-            `上传进度: 成功 ${successCount} 个，错误 ${errorCount} 个，可见进度条 ${progressCount} 个`
+            `上传进度: 成功 ${successCount} 个，错误 ${errorCount} 个，可见进度条 ${progressCount} 个`,
           );
 
           const terminalCount = successCount + errorCount;
@@ -870,14 +977,14 @@ export class JuliangService {
             if (progressCount < minimumRequiredProgressCount) {
               consecutiveMissingSuccessRounds++;
               this.log(
-                `检测到终态进度条数量不足：当前 ${progressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，第 ${consecutiveMissingSuccessRounds} 次确认`
+                `检测到终态进度条数量不足：当前 ${progressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，第 ${consecutiveMissingSuccessRounds} 次确认`,
               );
               if (consecutiveMissingSuccessRounds < 2) {
                 await this.page.waitForTimeout(5000);
                 continue;
               }
               this.log(
-                `上传异常：最终只剩 ${progressCount}/${files.length} 个进度条，低于允许缺失配置（允许缺失 ${allowedMissingCount} 个），取消本批并准备重试`
+                `上传异常：最终只剩 ${progressCount}/${files.length} 个进度条，低于允许缺失配置（允许缺失 ${allowedMissingCount} 个），取消本批并准备重试`,
               );
 
               // 点击取消按钮
@@ -889,12 +996,14 @@ export class JuliangService {
 
             if (successCount < minimumRequiredProgressCount) {
               this.log(
-                `当前批次已结束，但成功数不足：成功 ${successCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，点击确定后跳过任务，不再重试`
+                `当前批次已结束，但成功数不足：成功 ${successCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，点击确定后跳过任务，不再重试`,
               );
               await this.randomDelay(1000, 2000);
 
               this.log("点击确定按钮");
-              const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
+              const confirmButton = this.page
+                .locator(this.config.selectors.confirmButton)
+                .first();
               await confirmButton.waitFor({ state: "visible", timeout: 10000 });
               await this.randomDelay(500, 1000);
               await confirmButton.click();
@@ -913,11 +1022,11 @@ export class JuliangService {
 
             if (errorCount > 0) {
               this.log(
-                `检测到部分文件报错，按成功处理：成功 ${successCount} 个，错误 ${errorCount} 个，允许缺失 ${allowedMissingCount} 个`
+                `检测到部分文件报错，按成功处理：成功 ${successCount} 个，错误 ${errorCount} 个，允许缺失 ${allowedMissingCount} 个`,
               );
             } else if (progressCount < files.length) {
               this.log(
-                `按允许缺失配置视为成功：当前 ${progressCount}/${files.length} 个进度条全部成功，允许缺失 ${allowedMissingCount} 个`
+                `按允许缺失配置视为成功：当前 ${progressCount}/${files.length} 个进度条全部成功，允许缺失 ${allowedMissingCount} 个`,
               );
             } else {
               this.log("所有素材上传完成（所有进度条显示成功状态）");
@@ -926,7 +1035,9 @@ export class JuliangService {
 
             // 点击确定按钮
             this.log("点击确定按钮");
-            const confirmButton = this.page.locator(this.config.selectors.confirmButton).first();
+            const confirmButton = this.page
+              .locator(this.config.selectors.confirmButton)
+              .first();
             await confirmButton.waitFor({ state: "visible", timeout: 10000 });
             await this.randomDelay(500, 1000);
             await confirmButton.click();
@@ -938,7 +1049,10 @@ export class JuliangService {
               this.log("等待页面准备下一批上传...");
               await this.randomDelay(5000, 8000);
             } else {
-              await this.randomDelay(this.config.batchDelayMin, this.config.batchDelayMax);
+              await this.randomDelay(
+                this.config.batchDelayMin,
+                this.config.batchDelayMax,
+              );
             }
 
             return { success: true, successCount: finalSuccessCount };
@@ -949,16 +1063,20 @@ export class JuliangService {
           // 继续等待（5秒轮询间隔）
           await this.page.waitForTimeout(5000);
         } catch (error) {
-          this.log(`检查上传状态时出错: ${error instanceof Error ? error.message : String(error)}`);
+          this.log(
+            `检查上传状态时出错: ${error instanceof Error ? error.message : String(error)}`,
+          );
           await this.randomDelay(5000, 6000);
         }
       }
 
       // 超时
-      throw new Error("等待文件上传超时（10分钟）");
+      throw new Error(
+        `等待文件上传超时（${this.config.batchUploadTimeoutMinutes}分钟）`,
+      );
     } catch (error) {
       this.log(
-        `上传第 ${batchIndex}/${totalBatches} 批失败: ${error instanceof Error ? error.message : String(error)}`
+        `上传第 ${batchIndex}/${totalBatches} 批失败: ${error instanceof Error ? error.message : String(error)}`,
       );
       return { success: false, successCount: 0 };
     }
@@ -971,14 +1089,18 @@ export class JuliangService {
     if (!this.page) return;
 
     try {
-      const cancelButton = this.page.locator(this.config.selectors.cancelButton).first();
+      const cancelButton = this.page
+        .locator(this.config.selectors.cancelButton)
+        .first();
       await cancelButton.waitFor({ state: "visible", timeout: 5000 });
       await this.randomDelay(500, 1000);
       await cancelButton.click();
       this.log("取消按钮点击成功");
       await this.randomDelay(2000, 3000);
     } catch (cancelError) {
-      this.log(`点击取消按钮失败: ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`);
+      this.log(
+        `点击取消按钮失败: ${cancelError instanceof Error ? cancelError.message : String(cancelError)}`,
+      );
     }
   }
 
@@ -1034,7 +1156,9 @@ export class JuliangService {
       totalBatches = batches.length;
 
       // 检查是否有保存的进度（断点续传）
-      const savedProgress = task.recordId ? this.progressManager.getProgress(task.recordId) : null;
+      const savedProgress = task.recordId
+        ? this.progressManager.getProgress(task.recordId)
+        : null;
       let startBatchIndex = 0;
       totalSuccess = 0;
 
@@ -1046,12 +1170,14 @@ export class JuliangService {
         }
         if (startBatchIndex > 0) {
           this.log(
-            `检测到上传进度，从第 ${startBatchIndex + 1}/${totalBatches} 批开始继续上传（已完成 ${totalSuccess} 个文件）`
+            `检测到上传进度，从第 ${startBatchIndex + 1}/${totalBatches} 批开始继续上传（已完成 ${totalSuccess} 个文件）`,
           );
         }
       } else {
         if (savedProgress && savedProgress.totalBatches !== totalBatches) {
-          this.log(`文件数量已变化（${savedProgress.totalBatches} → ${totalBatches} 批），重新开始上传`);
+          this.log(
+            `文件数量已变化（${savedProgress.totalBatches} → ${totalBatches} 批），重新开始上传`,
+          );
           if (task.recordId) {
             this.progressManager.clearProgress(task.recordId, task.drama);
           }
@@ -1076,7 +1202,7 @@ export class JuliangService {
           message: `正在上传第 ${i + 1}/${totalBatches} 批`,
         });
 
-        const result = await this.uploadBatch(batch, i + 1, totalBatches, task.id, task.drama);
+        const result = await this.uploadBatch(batch, i + 1, totalBatches);
 
         if (result.success) {
           totalSuccess += result.successCount;
@@ -1088,7 +1214,7 @@ export class JuliangService {
               task.date,
               task.account,
               totalBatches,
-              i + 1 // 已完成的批次数
+              i + 1, // 已完成的批次数
             );
           }
         } else if (result.skipped) {
@@ -1096,7 +1222,9 @@ export class JuliangService {
             this.progressManager.clearProgress(task.recordId, task.drama);
           }
 
-          this.log(`任务跳过: ${task.drama} - ${result.error || "命中不可重试错误"}`);
+          this.log(
+            `任务跳过: ${task.drama} - ${result.error || "命中不可重试错误"}`,
+          );
           this.emitProgress({
             taskId: task.id,
             drama: task.drama,
@@ -1150,7 +1278,7 @@ export class JuliangService {
               task.date,
               task.account,
               totalBatches,
-              i // 保存已完成的批次数
+              i, // 保存已完成的批次数
             );
           }
           console.error(`[Juliang] 第 ${i + 1}/${totalBatches} 批上传失败`);
@@ -1178,8 +1306,12 @@ export class JuliangService {
         }
       }
 
-      const allowedTotalMissing = this.config.allowedMissingCount * totalBatches;
-      const minimumRequiredTotalSuccess = Math.max(task.files.length - allowedTotalMissing, 0);
+      const allowedTotalMissing =
+        this.config.allowedMissingCount * totalBatches;
+      const minimumRequiredTotalSuccess = Math.max(
+        task.files.length - allowedTotalMissing,
+        0,
+      );
       const success = totalSuccess >= minimumRequiredTotalSuccess;
 
       // 上传完成，清除进度记录
@@ -1207,7 +1339,8 @@ export class JuliangService {
         totalFiles: task.files.length,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       console.error(`[Juliang] 上传任务失败: ${errorMessage}`);
 
       // 异常时保存进度（如果有 recordId 且已开始上传）
@@ -1218,9 +1351,11 @@ export class JuliangService {
           task.date,
           task.account,
           totalBatches,
-          currentBatchIndex // 保存当前批次之前的进度
+          currentBatchIndex, // 保存当前批次之前的进度
         );
-        this.log(`异常发生，已保存进度：${currentBatchIndex}/${totalBatches} 批`);
+        this.log(
+          `异常发生，已保存进度：${currentBatchIndex}/${totalBatches} 批`,
+        );
       }
 
       // 发送进度：失败
@@ -1261,7 +1396,6 @@ export class JuliangService {
       return null;
     }
   }
-
 }
 
 // 单例导出

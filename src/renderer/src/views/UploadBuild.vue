@@ -160,6 +160,8 @@ const isPushingRemoteConfig = ref(false);
 const uploadConfig = ref({
   baseUploadUrl: "",
   batchSize: 10,
+  batchUploadTimeoutMinutes: 5,
+  maxBatchRetries: 5,
   headless: false,
   allowedMissingCount: 0,
   deleteAfterUpload: false,
@@ -175,25 +177,25 @@ const cancelledTaskIds = new Set<string>();
 
 const totalDramaCount = computed(() => rows.value.length);
 const totalMaterialCount = computed(() =>
-  rows.value.reduce((sum, row) => sum + row.materialCount, 0)
+  rows.value.reduce((sum, row) => sum + row.materialCount, 0),
 );
 const uploadedDramaCount = computed(
-  () => rows.value.filter((row) => row.status === "uploaded").length
+  () => rows.value.filter((row) => row.status === "uploaded").length,
 );
 const builtDramaCount = computed(
-  () => rows.value.filter((row) => row.buildStatus === "built").length
+  () => rows.value.filter((row) => row.buildStatus === "built").length,
 );
 const failedDramaCount = computed(
   () =>
     rows.value.filter(
-      (row) => row.status === "failed" || row.buildStatus === "failed"
-    ).length
+      (row) => row.status === "failed" || row.buildStatus === "failed",
+    ).length,
 );
 const activeRow = computed(
-  () => rows.value.find((row) => row.status === "uploading") || null
+  () => rows.value.find((row) => row.status === "uploading") || null,
 );
 const activeBuildRow = computed(
-  () => rows.value.find((row) => row.buildStatus === "building") || null
+  () => rows.value.find((row) => row.buildStatus === "building") || null,
 );
 const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
 const darenOptions = computed(() =>
@@ -202,15 +204,15 @@ const darenOptions = computed(() =>
     .map((item) => ({
       label: `${item.label} (${item.id})`,
       value: item.id,
-    }))
+    })),
 );
 const validDouyinRules = computed(() =>
   buildSettings.value.douyinMaterialRules.filter(
     (rule) =>
       rule.douyinAccount.trim() &&
       rule.douyinAccountId.trim() &&
-      rule.materialRange.trim()
-  )
+      rule.materialRange.trim(),
+  ),
 );
 const autoRunDisabledReason = computed(() => {
   if (!rows.value.length) {
@@ -233,9 +235,7 @@ const autoRunDisabledReason = computed(() => {
   return "";
 });
 const autoRunDisabledTooltip = computed(() =>
-  autoRunDisabledReason.value
-    ? "请先完善剧集的账户、短剧ID等信息"
-    : ""
+  autoRunDisabledReason.value ? "请先完善剧集的账户、短剧ID等信息" : "",
 );
 
 const browserStatusText = computed(() => {
@@ -289,7 +289,7 @@ function createEmptyRule(): DouyinMaterialRule {
 
 function cloneBuildSettings(source?: UploadBuildSettings): UploadBuildSettings {
   return JSON.parse(
-    JSON.stringify(source || createDefaultBuildSettings())
+    JSON.stringify(source || createDefaultBuildSettings()),
   ) as UploadBuildSettings;
 }
 
@@ -307,7 +307,7 @@ function normalizeRule(rule?: Partial<DouyinMaterialRule>): DouyinMaterialRule {
 }
 
 function normalizeBuildSettings(
-  settings?: Partial<UploadBuildSettings>
+  settings?: Partial<UploadBuildSettings>,
 ): UploadBuildSettings {
   const defaults = createDefaultBuildSettings();
   return {
@@ -334,7 +334,10 @@ function getDramaIdStorageKey(dirPath: string): string {
   return `upload-build:drama-ids:${encodeURIComponent(dirPath)}`;
 }
 
-function loadStoredMap(dirPath: string, storageKeyFactory: (dir: string) => string) {
+function loadStoredMap(
+  dirPath: string,
+  storageKeyFactory: (dir: string) => string,
+) {
   if (!dirPath) return {};
   try {
     const raw = localStorage.getItem(storageKeyFactory(dirPath));
@@ -349,7 +352,7 @@ function saveStoredValue(
   dirPath: string,
   storageKeyFactory: (dir: string) => string,
   key: string,
-  value: string
+  value: string,
 ) {
   if (!dirPath) return;
   const current = loadStoredMap(dirPath, storageKeyFactory);
@@ -359,7 +362,8 @@ function saveStoredValue(
 
 function normalizeRow(row?: Partial<DramaUploadRow>): DramaUploadRow {
   return {
-    id: row?.id || `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    id:
+      row?.id || `row-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     entryMode: row?.entryMode === "build-only" ? "build-only" : "local",
     drama: row?.drama || "",
     folderPath: row?.folderPath || "",
@@ -399,7 +403,9 @@ function loadPersistedViewState(): UploadBuildViewState | null {
     const parsed = JSON.parse(raw) as Partial<UploadBuildViewState>;
     return {
       rootDir: parsed.rootDir || "",
-      rows: Array.isArray(parsed.rows) ? parsed.rows.map((row) => normalizeRow(row)) : [],
+      rows: Array.isArray(parsed.rows)
+        ? parsed.rows.map((row) => normalizeRow(row))
+        : [],
       currentProgress: parsed.currentProgress || null,
       currentBuildProgress: parsed.currentBuildProgress || null,
       autoRunEnabled: Boolean(parsed.autoRunEnabled),
@@ -424,7 +430,9 @@ function persistViewState() {
 
     const payload: UploadBuildViewState = {
       rootDir: rootDir.value,
-      rows: rows.value.map((row) => normalizeRow(JSON.parse(JSON.stringify(row)))),
+      rows: rows.value.map((row) =>
+        normalizeRow(JSON.parse(JSON.stringify(row))),
+      ),
       currentProgress: currentProgress.value
         ? JSON.parse(JSON.stringify(currentProgress.value))
         : null,
@@ -582,7 +590,7 @@ async function handlePushRemoteConfig() {
   } catch (error) {
     console.error("推送远程配置失败:", error);
     message.error(
-      `推送配置失败：${error instanceof Error ? error.message : String(error)}`
+      `推送配置失败：${error instanceof Error ? error.message : String(error)}`,
     );
   } finally {
     isPushingRemoteConfig.value = false;
@@ -598,7 +606,7 @@ watch(
       syncingBuildSettings = false;
     });
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 watch(
@@ -606,26 +614,30 @@ watch(
   () => {
     schedulePersistBuildSettings();
   },
-  { deep: true }
+  { deep: true },
 );
 
 watch(
-  [rows, currentProgress, currentBuildProgress, rootDir, autoRunEnabled, removedFolderPaths],
+  [
+    rows,
+    currentProgress,
+    currentBuildProgress,
+    rootDir,
+    autoRunEnabled,
+    removedFolderPaths,
+  ],
   () => {
     persistViewState();
   },
-  { deep: true }
+  { deep: true },
 );
 
-watch(
-  autoRunDisabledReason,
-  (reason) => {
-    if (reason && autoRunEnabled.value) {
-      autoRunEnabled.value = false;
-      message.warning(`自动运行已关闭：${reason}`);
-    }
+watch(autoRunDisabledReason, (reason) => {
+  if (reason && autoRunEnabled.value) {
+    autoRunEnabled.value = false;
+    message.warning(`自动运行已关闭：${reason}`);
   }
-);
+});
 
 async function initializeBrowser() {
   if (isInitializing.value) return { success: false, error: "浏览器初始化中" };
@@ -679,27 +691,38 @@ async function loadUploadConfig() {
 
 async function applyUploadConfig(
   patch: Partial<typeof uploadConfig.value>,
-  options?: { resetBrowser?: boolean }
+  options?: { resetBrowser?: boolean },
 ) {
   const nextConfig = {
     ...uploadConfig.value,
     ...patch,
   };
-  nextConfig.batchSize = Math.max(1, Math.floor(Number(nextConfig.batchSize || 1)));
+  nextConfig.batchSize = Math.max(
+    1,
+    Math.floor(Number(nextConfig.batchSize || 1)),
+  );
+  nextConfig.batchUploadTimeoutMinutes = Math.max(
+    1,
+    Math.floor(Number(nextConfig.batchUploadTimeoutMinutes || 5)),
+  );
+  nextConfig.maxBatchRetries = Math.max(
+    0,
+    Math.min(10, Math.floor(Number(nextConfig.maxBatchRetries || 0))),
+  );
   nextConfig.allowedMissingCount = Math.max(
     0,
-    Math.floor(Number(nextConfig.allowedMissingCount || 0))
+    Math.floor(Number(nextConfig.allowedMissingCount || 0)),
   );
 
   uploadConfig.value = nextConfig;
 
   localStorage.setItem(
     DELETE_AFTER_UPLOAD_STORAGE_KEY,
-    uploadConfig.value.deleteAfterUpload ? "1" : "0"
+    uploadConfig.value.deleteAfterUpload ? "1" : "0",
   );
 
   const plainConfig = JSON.parse(
-    JSON.stringify(uploadConfig.value)
+    JSON.stringify(uploadConfig.value),
   ) as typeof uploadConfig.value;
   const { deleteAfterUpload: _deleteAfterUpload, ...serviceConfig } =
     plainConfig;
@@ -710,7 +733,12 @@ async function applyUploadConfig(
     return;
   }
 
-  if (options?.resetBrowser && !activeRow.value && !activeBuildRow.value && isReady.value) {
+  if (
+    options?.resetBrowser &&
+    !activeRow.value &&
+    !activeBuildRow.value &&
+    isReady.value
+  ) {
     await window.api.juliangClose();
     isReady.value = false;
     needLogin.value = false;
@@ -745,12 +773,14 @@ async function scanRootDir() {
   isScanning.value = true;
   try {
     const materials = await window.api.scanVideos(rootDir.value);
-    const manualRows = rows.value.filter((row) => row.entryMode === "build-only");
+    const manualRows = rows.value.filter(
+      (row) => row.entryMode === "build-only",
+    );
     const removedFolderPathSet = new Set(removedFolderPaths.value);
     const previousRowMap = new Map(
       rows.value
         .filter((row) => row.entryMode === "local")
-        .map((row) => [row.folderPath, row])
+        .map((row) => [row.folderPath, row]),
     );
     const storedAccounts = loadStoredMap(rootDir.value, getAccountStorageKey);
     const storedDramaIds = loadStoredMap(rootDir.value, getDramaIdStorageKey);
@@ -792,23 +822,31 @@ async function scanRootDir() {
           materialCount: group.files.length,
           accountId:
             previous?.accountId ?? storedAccounts[group.folderPath] ?? "",
-          dramaId:
-            previous?.dramaId ?? storedDramaIds[group.folderPath] ?? "",
+          dramaId: previous?.dramaId ?? storedDramaIds[group.folderPath] ?? "",
           status: unchanged ? previous!.status : "pending",
-          error: unchanged && previous?.status === "failed" ? previous.error : undefined,
+          error:
+            unchanged && previous?.status === "failed"
+              ? previous.error
+              : undefined,
           taskId: unchanged ? previous?.taskId : undefined,
           currentBatch: unchanged ? previous?.currentBatch || 0 : 0,
           totalBatches: unchanged ? previous?.totalBatches || 0 : 0,
           successCount: unchanged ? previous?.successCount || 0 : 0,
-          totalFiles: unchanged ? previous?.totalFiles || group.files.length : group.files.length,
+          totalFiles: unchanged
+            ? previous?.totalFiles || group.files.length
+            : group.files.length,
           deleted: unchanged ? previous?.deleted || false : false,
           deleteError: unchanged ? previous?.deleteError : undefined,
           buildStatus: unchanged ? previous?.buildStatus || "idle" : "idle",
           buildTaskId: unchanged ? previous?.buildTaskId : undefined,
           buildError: unchanged ? previous?.buildError : undefined,
           buildMessage: unchanged ? previous?.buildMessage : undefined,
-          buildSuccessRuleCount: unchanged ? previous?.buildSuccessRuleCount || 0 : 0,
-          buildFailedRuleCount: unchanged ? previous?.buildFailedRuleCount || 0 : 0,
+          buildSuccessRuleCount: unchanged
+            ? previous?.buildSuccessRuleCount || 0
+            : 0,
+          buildFailedRuleCount: unchanged
+            ? previous?.buildFailedRuleCount || 0
+            : 0,
           buildTotalRules: unchanged ? previous?.buildTotalRules || 0 : 0,
           skippedRules: unchanged ? previous?.skippedRules || [] : [],
         } satisfies DramaUploadRow;
@@ -822,7 +860,10 @@ async function scanRootDir() {
   }
 }
 
-function applyUploadTaskState(row: DramaUploadRow, state: JuliangTaskStatePayload) {
+function applyUploadTaskState(
+  row: DramaUploadRow,
+  state: JuliangTaskStatePayload,
+) {
   row.currentBatch = state.currentBatch;
   row.totalBatches = state.totalBatches;
   row.successCount = state.successCount;
@@ -851,7 +892,10 @@ function applyUploadTaskState(row: DramaUploadRow, state: JuliangTaskStatePayloa
   row.error = state.message || "上传失败";
 }
 
-function applyBuildTaskState(row: DramaUploadRow, state: DailyBuildTaskStatePayload) {
+function applyBuildTaskState(
+  row: DramaUploadRow,
+  state: DailyBuildTaskStatePayload,
+) {
   row.buildMessage = state.message;
   row.buildTotalRules = state.totalRules;
   row.buildSuccessRuleCount = state.successRuleCount;
@@ -897,7 +941,10 @@ async function syncTaskStatesFromMain() {
         const uploadState = uploadMap.get(row.taskId);
         if (uploadState) {
           applyUploadTaskState(row, uploadState);
-          if (uploadState.status === "running" || uploadState.status === "pending") {
+          if (
+            uploadState.status === "running" ||
+            uploadState.status === "pending"
+          ) {
             nextUploadProgress = {
               taskId: uploadState.taskId,
               drama: uploadState.drama,
@@ -916,7 +963,10 @@ async function syncTaskStatesFromMain() {
         const buildState = buildMap.get(row.buildTaskId);
         if (buildState) {
           applyBuildTaskState(row, buildState);
-          if (buildState.status === "assetizing" || buildState.status === "building") {
+          if (
+            buildState.status === "assetizing" ||
+            buildState.status === "building"
+          ) {
             nextBuildProgress = {
               taskId: buildState.taskId,
               drama: buildState.drama,
@@ -957,11 +1007,15 @@ function getRenameTemplateError() {
 
 async function renameVideosByTemplate() {
   if (activeRow.value) {
-    message.warning(`当前正在上传《${activeRow.value.drama}》，请等待完成后再试`);
+    message.warning(
+      `当前正在上传《${activeRow.value.drama}》，请等待完成后再试`,
+    );
     return;
   }
   if (activeBuildRow.value) {
-    message.warning(`当前正在搭建《${activeBuildRow.value.drama}》，请等待完成后再试`);
+    message.warning(
+      `当前正在搭建《${activeBuildRow.value.drama}》，请等待完成后再试`,
+    );
     return;
   }
 
@@ -972,7 +1026,7 @@ async function renameVideosByTemplate() {
   }
 
   const confirmed = window.confirm(
-    "将按当前素材名称模板批量重命名所选目录下所有剧目录中的 mp4 文件。序号会按每部剧目录内现有文件名的自然顺序生成，是否继续？"
+    "将按当前素材名称模板批量重命名所选目录下所有剧目录中的 mp4 文件。序号会按每部剧目录内现有文件名的自然顺序生成，是否继续？",
   );
   if (!confirmed) {
     return;
@@ -987,7 +1041,7 @@ async function renameVideosByTemplate() {
 
     const result = await window.api.renameVideosByTemplate(
       rootDir.value,
-      buildSettings.value.materialFilenameTemplate.trim()
+      buildSettings.value.materialFilenameTemplate.trim(),
     );
 
     if (!result.success) {
@@ -997,7 +1051,7 @@ async function renameVideosByTemplate() {
 
     await scanRootDir();
     message.success(
-      `已处理 ${result.dramaCount} 部剧，重命名 ${result.renamedCount} 个文件，跳过 ${result.skippedCount} 个`
+      `已处理 ${result.dramaCount} 部剧，重命名 ${result.renamedCount} 个文件，跳过 ${result.skippedCount} 个`,
     );
   } catch (error) {
     message.error(`批量重命名失败：${error}`);
@@ -1009,14 +1063,24 @@ async function renameVideosByTemplate() {
 function handleAccountInput(row: DramaUploadRow, value: string) {
   row.accountId = value.trim();
   if (row.entryMode === "local") {
-    saveStoredValue(rootDir.value, getAccountStorageKey, row.folderPath, row.accountId);
+    saveStoredValue(
+      rootDir.value,
+      getAccountStorageKey,
+      row.folderPath,
+      row.accountId,
+    );
   }
 }
 
 function handleDramaIdInput(row: DramaUploadRow, value: string) {
   row.dramaId = value.trim();
   if (row.entryMode === "local") {
-    saveStoredValue(rootDir.value, getDramaIdStorageKey, row.folderPath, row.dramaId);
+    saveStoredValue(
+      rootDir.value,
+      getDramaIdStorageKey,
+      row.folderPath,
+      row.dramaId,
+    );
   }
 }
 
@@ -1030,7 +1094,9 @@ function addBuildOnlyRow() {
     return;
   }
   if (activeBuildRow.value) {
-    message.warning(`当前正在搭建《${activeBuildRow.value.drama}》，请稍后再试`);
+    message.warning(
+      `当前正在搭建《${activeBuildRow.value.drama}》，请稍后再试`,
+    );
     return;
   }
 
@@ -1193,11 +1259,12 @@ function saveRuleModal() {
 
   if (editingRuleId.value) {
     const index = buildSettings.value.douyinMaterialRules.findIndex(
-      (item) => item.id === editingRuleId.value
+      (item) => item.id === editingRuleId.value,
     );
     if (index >= 0) {
       nextRule.createdAt =
-        buildSettings.value.douyinMaterialRules[index].createdAt || nextRule.createdAt;
+        buildSettings.value.douyinMaterialRules[index].createdAt ||
+        nextRule.createdAt;
       buildSettings.value.douyinMaterialRules.splice(index, 1, nextRule);
     }
   } else {
@@ -1209,7 +1276,7 @@ function saveRuleModal() {
 
 function removeDouyinRule(ruleId: string) {
   const index = buildSettings.value.douyinMaterialRules.findIndex(
-    (rule) => rule.id === ruleId
+    (rule) => rule.id === ruleId,
   );
   if (index >= 0) {
     buildSettings.value.douyinMaterialRules.splice(index, 1);
@@ -1251,7 +1318,9 @@ async function maybeStartNextAutoTask() {
   if (nextRow.status === "uploaded") {
     const disabledTip = getDisabledBuildTip(nextRow);
     if (disabledTip) {
-      stopAutoRun(`自动运行已停止：《${nextRow.drama || "未命名剧目"}》无法开始搭建，${disabledTip}`);
+      stopAutoRun(
+        `自动运行已停止：《${nextRow.drama || "未命名剧目"}》无法开始搭建，${disabledTip}`,
+      );
       return;
     }
     await startBuild(nextRow);
@@ -1260,7 +1329,9 @@ async function maybeStartNextAutoTask() {
 
   const disabledTip = getDisabledUploadTip(nextRow);
   if (disabledTip) {
-    stopAutoRun(`自动运行已停止：《${nextRow.drama || "未命名剧目"}》无法开始上传，${disabledTip}`);
+    stopAutoRun(
+      `自动运行已停止：《${nextRow.drama || "未命名剧目"}》无法开始上传，${disabledTip}`,
+    );
     return;
   }
   await startUpload(nextRow);
@@ -1368,12 +1439,16 @@ function getDisabledBuildTip(row: DramaUploadRow) {
 
 async function startUpload(row: DramaUploadRow) {
   if (activeBuildRow.value) {
-    message.warning(`当前正在搭建《${activeBuildRow.value.drama}》，请稍后再试`);
+    message.warning(
+      `当前正在搭建《${activeBuildRow.value.drama}》，请稍后再试`,
+    );
     return;
   }
 
   if (activeRow.value && activeRow.value.id !== row.id) {
-    message.warning(`当前正在上传《${activeRow.value.drama}》，请等待完成后再试`);
+    message.warning(
+      `当前正在上传《${activeRow.value.drama}》，请等待完成后再试`,
+    );
     return;
   }
 
@@ -1420,11 +1495,11 @@ async function startUpload(row: DramaUploadRow) {
         files: [...row.files],
         recordId: "",
         status: "pending",
-      })
+      }),
     );
 
     const result = (await window.api.juliangUploadTask(
-      plainTask
+      plainTask,
     )) as JuliangUploadResult;
 
     if (cancelledTaskIds.has(currentTaskId)) {
@@ -1460,7 +1535,7 @@ async function startUpload(row: DramaUploadRow) {
       } else {
         row.deleteError = deleteResult.error || "未知错误";
         message.warning(
-          `《${row.drama}》上传成功，但删除目录失败：${row.deleteError}`
+          `《${row.drama}》上传成功，但删除目录失败：${row.deleteError}`,
         );
       }
     }
@@ -1551,11 +1626,11 @@ async function startBuild(row: DramaUploadRow) {
         files: [...row.files],
         darenId: currentDaren.value.id,
         buildSettings: cloneBuildSettings(buildSettings.value),
-      })
+      }),
     );
 
     const result = (await window.api.dailyBuildStartTask(
-      payload
+      payload,
     )) as DailyBuildResult;
 
     if (result.cancelled) {
@@ -1592,7 +1667,7 @@ async function startBuild(row: DramaUploadRow) {
     row.buildTaskId = undefined;
     if (result.skippedRules.length > 0) {
       message.warning(
-        `《${row.drama}》搭建完成，但有 ${result.skippedRules.length} 个抖音号失败`
+        `《${row.drama}》搭建完成，但有 ${result.skippedRules.length} 个抖音号失败`,
       );
     } else {
       message.success(`《${row.drama}》搭建完成`);
@@ -1735,7 +1810,9 @@ onUnmounted(() => {
     <div class="status-bar">
       <div class="status-item">
         <span class="status-label">浏览器</span>
-        <NTag :type="browserStatusType" size="small">{{ browserStatusText }}</NTag>
+        <NTag :type="browserStatusType" size="small">{{
+          browserStatusText
+        }}</NTag>
       </div>
       <div class="status-item">
         <span class="status-label">剧目数</span>
@@ -1778,7 +1855,9 @@ onUnmounted(() => {
             placeholder="{日期}-{剧名}-{简称}-{序号}.mp4"
           />
           <small class="field-help">
-            默认模板已带上 {日期}、{剧名}、{简称}、{序号}。{日期} 如果保留占位符会自动替换成当天北京时间日期，例如 3.15；如果你想写死日期或简称，也可以直接把占位符改成具体值。
+            默认模板已带上 {日期}、{剧名}、{简称}、{序号}。{日期}
+            如果保留占位符会自动替换成当天北京时间日期，例如
+            3.15；如果你想写死日期或简称，也可以直接把占位符改成具体值。
           </small>
         </label>
         <div class="template-actions">
@@ -1803,7 +1882,10 @@ onUnmounted(() => {
             placeholder="选择目录，目录下每个子文件夹都视为一部剧"
             class="toolbar-input"
           />
-          <NButton :disabled="!!activeRow || !!activeBuildRow" @click="selectRootDir">
+          <NButton
+            :disabled="!!activeRow || !!activeBuildRow"
+            @click="selectRootDir"
+          >
             选择目录
           </NButton>
           <NButton
@@ -1835,7 +1917,9 @@ onUnmounted(() => {
           <span class="config-label">上传后删除本地目录</span>
           <NSwitch
             :value="uploadConfig.deleteAfterUpload"
-            @update:value="(value) => applyUploadConfig({ deleteAfterUpload: value })"
+            @update:value="
+              (value) => applyUploadConfig({ deleteAfterUpload: value })
+            "
           />
           <span class="config-desc">上传成功后删除该剧目录及其素材</span>
         </div>
@@ -1850,7 +1934,9 @@ onUnmounted(() => {
         <template #header>
           <div class="table-header">
             <span>搭建参数配置</span>
-            <span class="table-header-desc">修改后立即生效，仅作用于当前达人</span>
+            <span class="table-header-desc"
+              >修改后立即生效，仅作用于当前达人</span
+            >
           </div>
         </template>
         <NCard class="build-config-card collapse-card">
@@ -1940,13 +2026,17 @@ onUnmounted(() => {
         <template #header>
           <div class="table-header">
             <span>抖音号匹配素材</span>
-            <span class="table-header-desc">每条规则对应一个抖音号与一组素材序号</span>
+            <span class="table-header-desc"
+              >每条规则对应一个抖音号与一组素材序号</span
+            >
           </div>
         </template>
         <NCard class="build-config-card collapse-card">
           <div class="rule-toolbar">
             <span class="toolbar-hint">序号范围支持单个 01，或区间 01-03</span>
-            <NButton type="primary" secondary @click="openAddRuleModal">添加规则</NButton>
+            <NButton type="primary" secondary @click="openAddRuleModal"
+              >添加规则</NButton
+            >
           </div>
 
           <NEmpty
@@ -1962,10 +2052,16 @@ onUnmounted(() => {
             >
               <div class="rule-summary">
                 <div class="rule-title-row">
-                  <span class="rule-name">{{ rule.douyinAccount || "未命名规则" }}</span>
+                  <span class="rule-name">{{
+                    rule.douyinAccount || "未命名规则"
+                  }}</span>
                   <NTag
                     size="small"
-                    :type="validateMaterialRange(rule.materialRange) ? 'success' : 'warning'"
+                    :type="
+                      validateMaterialRange(rule.materialRange)
+                        ? 'success'
+                        : 'warning'
+                    "
                   >
                     {{ rule.materialRange || "未配置范围" }}
                   </NTag>
@@ -1974,15 +2070,25 @@ onUnmounted(() => {
                   <span>抖音号ID：{{ rule.douyinAccountId || "-" }}</span>
                 </div>
                 <div
-                  v-if="rule.materialRange && !validateMaterialRange(rule.materialRange)"
+                  v-if="
+                    rule.materialRange &&
+                    !validateMaterialRange(rule.materialRange)
+                  "
                   class="row-error"
                 >
                   序号范围格式不正确
                 </div>
               </div>
               <div class="rule-actions">
-                <NButton tertiary @click="openEditRuleModal(rule)">编辑</NButton>
-                <NButton type="error" tertiary @click="removeDouyinRule(rule.id)">删除</NButton>
+                <NButton tertiary @click="openEditRuleModal(rule)"
+                  >编辑</NButton
+                >
+                <NButton
+                  type="error"
+                  tertiary
+                  @click="removeDouyinRule(rule.id)"
+                  >删除</NButton
+                >
               </div>
             </div>
           </div>
@@ -1993,12 +2099,16 @@ onUnmounted(() => {
         <template #header>
           <div class="table-header">
             <span>上传列表</span>
-            <span class="table-header-desc">每部剧单独填写账户和短剧ID后手动触发</span>
+            <span class="table-header-desc"
+              >每部剧单独填写账户和短剧ID后手动触发</span
+            >
           </div>
         </template>
         <NCard class="table-card collapse-card">
           <div class="list-toolbar">
-            <span class="toolbar-hint">如果素材已上传但本地目录不可用，可以直接提交搭建</span>
+            <span class="toolbar-hint"
+              >如果素材已上传但本地目录不可用，可以直接提交搭建</span
+            >
             <div class="list-actions">
               <NTooltip v-if="autoRunDisabledReason">
                 <template #trigger>
@@ -2013,9 +2123,14 @@ onUnmounted(() => {
               </NTooltip>
               <div v-else class="auto-run-switch">
                 <span class="auto-run-label">自动运行</span>
-                <NSwitch :value="autoRunEnabled" @update:value="handleAutoRunChange" />
+                <NSwitch
+                  :value="autoRunEnabled"
+                  @update:value="handleAutoRunChange"
+                />
               </div>
-              <NButton type="primary" secondary @click="addBuildOnlyRow">提交搭建</NButton>
+              <NButton type="primary" secondary @click="addBuildOnlyRow"
+                >提交搭建</NButton
+              >
             </div>
           </div>
 
@@ -2042,10 +2157,15 @@ onUnmounted(() => {
                       :value="row.drama"
                       placeholder="请输入剧名"
                       :disabled="row.buildStatus === 'building'"
-                      @update:value="(value) => handleDramaNameInput(row, value)"
+                      @update:value="
+                        (value) => handleDramaNameInput(row, value)
+                      "
                     />
                     <div v-else class="drama-name">{{ row.drama }}</div>
-                    <div v-if="row.error || row.deleteError || row.buildError" class="row-error">
+                    <div
+                      v-if="row.error || row.deleteError || row.buildError"
+                      class="row-error"
+                    >
                       {{ row.error || row.deleteError || row.buildError }}
                     </div>
                     <div
@@ -2056,12 +2176,19 @@ onUnmounted(() => {
                       {{ item.douyinAccount }}：{{ item.error }}
                     </div>
                   </td>
-                  <td>{{ row.entryMode === "build-only" ? "-" : row.materialCount }}</td>
+                  <td>
+                    {{
+                      row.entryMode === "build-only" ? "-" : row.materialCount
+                    }}
+                  </td>
                   <td>
                     <NInput
                       :value="row.accountId"
                       placeholder="请输入巨量账户 ID"
-                      :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
+                      :disabled="
+                        row.status === 'uploading' ||
+                        row.buildStatus === 'building'
+                      "
                       @update:value="(value) => handleAccountInput(row, value)"
                     />
                   </td>
@@ -2069,7 +2196,10 @@ onUnmounted(() => {
                     <NInput
                       :value="row.dramaId"
                       placeholder="请输入短剧 ID"
-                      :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
+                      :disabled="
+                        row.status === 'uploading' ||
+                        row.buildStatus === 'building'
+                      "
                       @update:value="(value) => handleDramaIdInput(row, value)"
                     />
                   </td>
@@ -2078,22 +2208,36 @@ onUnmounted(() => {
                       <NTag :type="getCombinedStatusType(row)" size="small">
                         {{ getCombinedStatusText(row) }}
                       </NTag>
-                      <NTag v-if="row.deleted" type="success" size="small" round>
+                      <NTag
+                        v-if="row.deleted"
+                        type="success"
+                        size="small"
+                        round
+                      >
                         本地已删除
                       </NTag>
-                      <span v-if="row.buildMessage" class="row-hint">{{ row.buildMessage }}</span>
+                      <span v-if="row.buildMessage" class="row-hint">{{
+                        row.buildMessage
+                      }}</span>
                     </div>
                   </td>
                   <td>
                     <div class="progress-cell">
                       <span v-if="row.entryMode !== 'build-only'">
-                        上传 {{ row.successCount }}/{{ row.totalFiles || row.materialCount }}
+                        上传 {{ row.successCount }}/{{
+                          row.totalFiles || row.materialCount
+                        }}
                       </span>
                       <span v-if="row.buildTotalRules > 0">
-                        搭建 {{ row.buildSuccessRuleCount }}/{{ row.buildTotalRules }}
+                        搭建 {{ row.buildSuccessRuleCount }}/{{
+                          row.buildTotalRules
+                        }}
                       </span>
                       <span
-                        v-if="row.entryMode === 'build-only' && row.buildTotalRules === 0"
+                        v-if="
+                          row.entryMode === 'build-only' &&
+                          row.buildTotalRules === 0
+                        "
                         class="row-hint"
                       >
                         待搭建
@@ -2113,16 +2257,24 @@ onUnmounted(() => {
                         已搭建
                       </NButton>
                       <NButton
-                        v-else-if="row.status === 'uploaded' && !getDisabledBuildTip(row)"
+                        v-else-if="
+                          row.status === 'uploaded' && !getDisabledBuildTip(row)
+                        "
                         type="success"
                         @click="startBuild(row)"
                       >
                         {{ getBuildButtonText(row) }}
                       </NButton>
-                      <NTooltip v-else-if="row.status === 'uploaded' && getDisabledBuildTip(row)">
+                      <NTooltip
+                        v-else-if="
+                          row.status === 'uploaded' && getDisabledBuildTip(row)
+                        "
+                      >
                         <template #trigger>
                           <span class="button-trigger">
-                            <NButton disabled>{{ getBuildButtonText(row) }}</NButton>
+                            <NButton disabled>{{
+                              getBuildButtonText(row)
+                            }}</NButton>
                           </span>
                         </template>
                         {{ getDisabledBuildTip(row) }}
@@ -2137,7 +2289,9 @@ onUnmounted(() => {
                       <NTooltip v-else-if="getDisabledUploadTip(row)">
                         <template #trigger>
                           <span class="button-trigger">
-                            <NButton disabled>{{ getUploadButtonText(row) }}</NButton>
+                            <NButton disabled>{{
+                              getUploadButtonText(row)
+                            }}</NButton>
                           </span>
                         </template>
                         {{ getDisabledUploadTip(row) }}
@@ -2148,7 +2302,10 @@ onUnmounted(() => {
                       <NButton
                         secondary
                         type="default"
-                        :disabled="row.status === 'uploading' || row.buildStatus === 'building'"
+                        :disabled="
+                          row.status === 'uploading' ||
+                          row.buildStatus === 'building'
+                        "
                         @click="removeRow(row)"
                       >
                         移除
@@ -2174,11 +2331,17 @@ onUnmounted(() => {
       <div class="rule-modal-body">
         <label class="build-field">
           <span>抖音号名称</span>
-          <NInput v-model:value="ruleForm.douyinAccount" placeholder="例如：小红看剧" />
+          <NInput
+            v-model:value="ruleForm.douyinAccount"
+            placeholder="例如：小红看剧"
+          />
         </label>
         <label class="build-field">
           <span>抖音号ID</span>
-          <NInput v-model:value="ruleForm.douyinAccountId" placeholder="请输入抖音号ID" />
+          <NInput
+            v-model:value="ruleForm.douyinAccountId"
+            placeholder="请输入抖音号ID"
+          />
         </label>
         <label class="build-field">
           <span>序号范围</span>
@@ -2187,7 +2350,10 @@ onUnmounted(() => {
             placeholder="请输入单个序号或范围序号，例如：01或者01-03"
           />
           <small
-            v-if="ruleForm.materialRange && !validateMaterialRange(ruleForm.materialRange)"
+            v-if="
+              ruleForm.materialRange &&
+              !validateMaterialRange(ruleForm.materialRange)
+            "
             class="field-help field-help-error"
           >
             仅支持 01 或 01-03，且结束序号不能小于开始序号
@@ -2210,15 +2376,26 @@ onUnmounted(() => {
         <span class="progress-message">{{ currentProgress.message }}</span>
       </div>
       <div class="progress-meta">
-        <span>批次 {{ currentProgress.currentBatch }}/{{ currentProgress.totalBatches || 0 }}</span>
-        <span>成功 {{ currentProgress.successCount }}/{{ currentProgress.totalFiles }}</span>
+        <span
+          >批次 {{ currentProgress.currentBatch }}/{{
+            currentProgress.totalBatches || 0
+          }}</span
+        >
+        <span
+          >成功 {{ currentProgress.successCount }}/{{
+            currentProgress.totalFiles
+          }}</span
+        >
       </div>
       <NProgress
         type="line"
         :height="22"
         :percentage="
           currentProgress.totalFiles > 0
-            ? Math.round((currentProgress.successCount / currentProgress.totalFiles) * 100)
+            ? Math.round(
+                (currentProgress.successCount / currentProgress.totalFiles) *
+                  100,
+              )
             : 0
         "
         indicator-placement="inside"
@@ -2231,7 +2408,11 @@ onUnmounted(() => {
         <span class="progress-message">{{ currentBuildProgress.message }}</span>
       </div>
       <div class="progress-meta">
-        <span>规则 {{ currentBuildProgress.currentRuleIndex }}/{{ currentBuildProgress.totalRules || 0 }}</span>
+        <span
+          >规则 {{ currentBuildProgress.currentRuleIndex }}/{{
+            currentBuildProgress.totalRules || 0
+          }}</span
+        >
         <span>
           成功 {{ currentBuildProgress.successRuleCount }} / 失败
           {{ currentBuildProgress.failedRuleCount }}
@@ -2246,7 +2427,7 @@ onUnmounted(() => {
                 ((currentBuildProgress.successRuleCount +
                   currentBuildProgress.failedRuleCount) /
                   currentBuildProgress.totalRules) *
-                  100
+                  100,
               )
             : 0
         "
@@ -2274,10 +2455,47 @@ onUnmounted(() => {
               :max="50"
               @update:value="
                 (value) =>
-                  applyUploadConfig({ batchSize: Math.max(1, Number(value || 1)) })
+                  applyUploadConfig({
+                    batchSize: Math.max(1, Number(value || 1)),
+                  })
               "
             />
             <span class="config-desc">新任务会按最新批量配置切批上传</span>
+          </div>
+          <div class="config-row">
+            <span class="config-label">单批超时(分钟)</span>
+            <NInputNumber
+              :value="uploadConfig.batchUploadTimeoutMinutes"
+              :min="1"
+              :max="60"
+              @update:value="
+                (value) =>
+                  applyUploadConfig({
+                    batchUploadTimeoutMinutes: Math.max(1, Number(value || 1)),
+                  })
+              "
+            />
+            <span class="config-desc"
+              >单批上传超过该时间仍未结束，就按超时处理</span
+            >
+          </div>
+          <div class="config-row">
+            <span class="config-label">批次重试次数</span>
+            <NInputNumber
+              :value="uploadConfig.maxBatchRetries"
+              :min="0"
+              :max="10"
+              @update:value="
+                (value) =>
+                  applyUploadConfig({
+                    maxBatchRetries: Math.max(
+                      0,
+                      Math.min(10, Number(value || 0)),
+                    ),
+                  })
+              "
+            />
+            <span class="config-desc">单批失败后最多额外重试的次数</span>
           </div>
           <div class="config-row">
             <span class="config-label">允许缺失数</span>
@@ -2304,7 +2522,9 @@ onUnmounted(() => {
                   applyUploadConfig({ headless: value }, { resetBrowser: true })
               "
             />
-            <span class="config-desc">空闲时修改会关闭浏览器，下次按新配置重启</span>
+            <span class="config-desc"
+              >空闲时修改会关闭浏览器，下次按新配置重启</span
+            >
           </div>
         </div>
       </NCollapseItem>
@@ -2314,7 +2534,11 @@ onUnmounted(() => {
       <NCollapseItem title="上传日志" name="upload-logs">
         <div class="log-container">
           <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
-          <div v-for="(log, index) in logs" :key="`${log.time}-${index}`" class="log-item">
+          <div
+            v-for="(log, index) in logs"
+            :key="`${log.time}-${index}`"
+            class="log-item"
+          >
             <span class="log-time">[{{ log.time }}]</span>
             <span class="log-message">{{ log.message }}</span>
           </div>
@@ -2342,7 +2566,11 @@ onUnmounted(() => {
   padding: 20px;
   min-height: 100%;
   background:
-    radial-gradient(circle at top left, rgba(255, 176, 59, 0.14), transparent 24%),
+    radial-gradient(
+      circle at top left,
+      rgba(255, 176, 59, 0.14),
+      transparent 24%
+    ),
     linear-gradient(180deg, #f8fbff 0%, #f3f5f8 100%);
 }
 

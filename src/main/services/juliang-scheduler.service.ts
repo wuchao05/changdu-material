@@ -6,7 +6,7 @@
 import { app, BrowserWindow } from "electron";
 import { join } from "path";
 import * as fs from "fs";
-import { juliangService, JuliangTask, JuliangUploadResult } from "./juliang.service";
+import { juliangService, JuliangTask } from "./juliang.service";
 import { ApiService } from "./api.service";
 import { FileService } from "./file.service";
 import { ConfigService, DarenInfo } from "./config.service";
@@ -15,14 +15,19 @@ import { ConfigService, DarenInfo } from "./config.service";
 export type SchedulerStatus = "idle" | "running" | "stopped";
 
 // 任务状态
-export type TaskStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+export type TaskStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
 
 // 已完成任务记录
 export interface CompletedTask {
   drama: string;
   date: string;
   fileCount: number;
-  status: 'completed' | 'failed' | 'skipped';
+  status: "completed" | "failed" | "skipped";
   error?: string;
   duration: string;
 }
@@ -49,6 +54,7 @@ export interface InternalTask {
 export interface SchedulerConfig {
   fetchIntervalMinutes: number; // 查询间隔（分钟）
   localRootDir: string; // 本地素材根目录
+  maxTaskRetries: number; // 单部剧任务级重试次数
 }
 
 export class JuliangSchedulerService {
@@ -69,6 +75,7 @@ export class JuliangSchedulerService {
   private config: SchedulerConfig = {
     fetchIntervalMinutes: 20,
     localRootDir: "",
+    maxTaskRetries: 1,
   };
 
   private apiService: ApiService;
@@ -79,12 +86,15 @@ export class JuliangSchedulerService {
   constructor(
     apiService: ApiService,
     fileService: FileService,
-    configService: ConfigService
+    configService: ConfigService,
   ) {
     this.apiService = apiService;
     this.fileService = fileService;
     this.configService = configService;
-    this.configFilePath = join(app.getPath("userData"), "juliang-scheduler-config.json");
+    this.configFilePath = join(
+      app.getPath("userData"),
+      "juliang-scheduler-config.json",
+    );
     this.loadConfig();
   }
 
@@ -97,7 +107,9 @@ export class JuliangSchedulerService {
         const data = fs.readFileSync(this.configFilePath, "utf-8");
         const savedConfig = JSON.parse(data);
         this.config = { ...this.config, ...savedConfig };
-        console.log(`[JuliangScheduler] 已加载配置: localRootDir=${this.config.localRootDir}`);
+        console.log(
+          `[JuliangScheduler] 已加载配置: localRootDir=${this.config.localRootDir}`,
+        );
       }
     } catch (error) {
       console.error(`[JuliangScheduler] 加载配置失败:`, error);
@@ -109,8 +121,14 @@ export class JuliangSchedulerService {
    */
   private saveConfig() {
     try {
-      fs.writeFileSync(this.configFilePath, JSON.stringify(this.config, null, 2), "utf-8");
-      console.log(`[JuliangScheduler] 配置已保存: localRootDir=${this.config.localRootDir}`);
+      fs.writeFileSync(
+        this.configFilePath,
+        JSON.stringify(this.config, null, 2),
+        "utf-8",
+      );
+      console.log(
+        `[JuliangScheduler] 配置已保存: localRootDir=${this.config.localRootDir}`,
+      );
     } catch (error) {
       console.error(`[JuliangScheduler] 保存配置失败:`, error);
     }
@@ -147,7 +165,20 @@ export class JuliangSchedulerService {
    * 更新配置
    */
   updateConfig(config: Partial<SchedulerConfig>) {
-    this.config = { ...this.config, ...config };
+    const nextConfig = { ...this.config, ...config };
+    if (typeof nextConfig.fetchIntervalMinutes === "number") {
+      nextConfig.fetchIntervalMinutes = Math.max(
+        1,
+        Math.floor(nextConfig.fetchIntervalMinutes),
+      );
+    }
+    if (typeof nextConfig.maxTaskRetries === "number") {
+      nextConfig.maxTaskRetries = Math.max(
+        0,
+        Math.min(5, Math.floor(nextConfig.maxTaskRetries)),
+      );
+    }
+    this.config = nextConfig;
     this.saveConfig();
   }
 
@@ -196,7 +227,11 @@ export class JuliangSchedulerService {
   /**
    * 记录已完成任务
    */
-  private addCompletedTask(task: InternalTask, status: 'completed' | 'failed' | 'skipped', startTime: number) {
+  private addCompletedTask(
+    task: InternalTask,
+    status: "completed" | "failed" | "skipped",
+    startTime: number,
+  ) {
     const elapsed = Date.now() - startTime;
     const minutes = Math.floor(elapsed / 60000);
     const seconds = Math.floor((elapsed % 60000) / 1000);
@@ -297,7 +332,7 @@ export class JuliangSchedulerService {
    * 立即执行一次查询
    */
   async fetchNow(
-    darenId?: string
+    darenId?: string,
   ): Promise<{ success: boolean; count: number; error?: string }> {
     if (this.status !== "running") {
       return { success: false, count: 0, error: "调度器未运行" };
@@ -313,12 +348,20 @@ export class JuliangSchedulerService {
         this.log("浏览器未初始化，正在初始化...");
         const initResult = await juliangService.initialize();
         if (!initResult.success) {
-          return { success: false, count: 0, error: `浏览器初始化失败: ${initResult.error}` };
+          return {
+            success: false,
+            count: 0,
+            error: `浏览器初始化失败: ${initResult.error}`,
+          };
         }
       }
 
       const requestDarenId = darenId?.trim() || null;
-      if (requestDarenId && this.scopedDarenId && requestDarenId !== this.scopedDarenId) {
+      if (
+        requestDarenId &&
+        this.scopedDarenId &&
+        requestDarenId !== this.scopedDarenId
+      ) {
         return {
           success: false,
           count: 0,
@@ -366,7 +409,9 @@ export class JuliangSchedulerService {
         this.currentTask = null;
 
         // 从队列中移除被取消的任务
-        this.queue = this.queue.filter((t) => t.recordId !== cancelledTask.recordId);
+        this.queue = this.queue.filter(
+          (t) => t.recordId !== cancelledTask.recordId,
+        );
         this.taskMap.delete(cancelledTask.recordId);
 
         this.log("当前上传任务已取消");
@@ -377,7 +422,7 @@ export class JuliangSchedulerService {
             cancelledTask.recordId,
             "待上传",
             this.configService,
-            cancelledTask.tableId
+            cancelledTask.tableId,
           );
           if (updateSuccess) {
             this.log(`已将飞书状态恢复为"待上传": ${cancelledTask.drama}`);
@@ -416,7 +461,9 @@ export class JuliangSchedulerService {
 
       // 获取达人配置
       const darenConfig = await this.configService.getDarenConfig();
-      this.log(`所有达人配置: ${JSON.stringify(darenConfig.darenList.map(d => ({ id: d.id, label: d.label, enableJuliang: d.enableJuliang, feishuDramaStatusTableId: d.feishuDramaStatusTableId })))}`);
+      this.log(
+        `所有达人配置: ${JSON.stringify(darenConfig.darenList.map((d) => ({ id: d.id, label: d.label, enableJuliang: d.enableJuliang, feishuDramaStatusTableId: d.feishuDramaStatusTableId })))}`,
+      );
       const enabledDarens = this.getTargetDarens(darenConfig.darenList);
 
       if (enabledDarens.length === 0) {
@@ -432,23 +479,29 @@ export class JuliangSchedulerService {
 
       for (const daren of enabledDarens) {
         this.log(`处理达人: ${daren.label} (${daren.id})`);
-        this.log(`达人配置详情: ${JSON.stringify({ id: daren.id, label: daren.label, feishuDramaStatusTableId: daren.feishuDramaStatusTableId, changduConfigType: daren.changduConfigType })}`);
+        this.log(
+          `达人配置详情: ${JSON.stringify({ id: daren.id, label: daren.label, feishuDramaStatusTableId: daren.feishuDramaStatusTableId, changduConfigType: daren.changduConfigType })}`,
+        );
 
         if (!daren.feishuDramaStatusTableId) {
           this.log(`达人 ${daren.label} 未配置飞书表格 ID，跳过`);
           continue;
         }
 
-        this.log(`达人 ${daren.label} 飞书表格 ID: ${daren.feishuDramaStatusTableId}`);
+        this.log(
+          `达人 ${daren.label} 飞书表格 ID: ${daren.feishuDramaStatusTableId}`,
+        );
 
         try {
           // 查询所有待上传的剧
           const result = await this.apiService.getPendingUploadDramas(
             this.configService,
-            daren.feishuDramaStatusTableId
+            daren.feishuDramaStatusTableId,
           );
 
-          this.log(`达人 ${daren.label} 查询结果: code=${result.code}, items=${result.data?.items?.length || 0}`);
+          this.log(
+            `达人 ${daren.label} 查询结果: code=${result.code}, items=${result.data?.items?.length || 0}`,
+          );
 
           if (result.code !== 0) {
             this.log(`达人 ${daren.label} 查询失败: ${result.msg}`);
@@ -463,7 +516,9 @@ export class JuliangSchedulerService {
           // 先解析所有记录
           const tasks: InternalTask[] = [];
           for (const item of result.data.items) {
-            this.log(`解析记录: ${item.record_id}, 剧名原始值=${JSON.stringify(item.fields['剧名'])}, 日期=${item.fields['日期']}`);
+            this.log(
+              `解析记录: ${item.record_id}, 剧名原始值=${JSON.stringify(item.fields["剧名"])}, 日期=${item.fields["日期"]}`,
+            );
             const task = this.parseFeishuRecord(item, daren);
             if (task) {
               tasks.push(task);
@@ -472,7 +527,9 @@ export class JuliangSchedulerService {
 
           // 按日期升序排序（最早的日期优先上传）
           tasks.sort((a, b) => a.date.localeCompare(b.date));
-          this.log(`达人 ${daren.label} 共 ${tasks.length} 个任务（已按日期升序排序）`);
+          this.log(
+            `达人 ${daren.label} 共 ${tasks.length} 个任务（已按日期升序排序）`,
+          );
 
           // 添加到队列
           for (const task of tasks) {
@@ -481,7 +538,9 @@ export class JuliangSchedulerService {
             }
           }
         } catch (error) {
-          this.log(`达人 ${daren.label} 查询异常: ${error instanceof Error ? error.message : String(error)}`);
+          this.log(
+            `达人 ${daren.label} 查询异常: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
       }
 
@@ -493,12 +552,14 @@ export class JuliangSchedulerService {
 
       const stats = this.getQueueStats();
       this.log(
-        `队列状态: 总计=${stats.total}, 待处理=${stats.pending}, 运行中=${stats.running}, 已完成=${stats.completed}, 失败=${stats.failed}, 跳过=${stats.skipped}`
+        `队列状态: 总计=${stats.total}, 待处理=${stats.pending}, 运行中=${stats.running}, 已完成=${stats.completed}, 失败=${stats.failed}, 跳过=${stats.skipped}`,
       );
 
       return totalAdded;
     } catch (error) {
-      this.log(`拉取飞书任务失败: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(
+        `拉取飞书任务失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return 0;
     }
   }
@@ -548,14 +609,16 @@ export class JuliangSchedulerService {
    */
   private parseFeishuRecord(
     record: { record_id: string; fields: Record<string, unknown> },
-    daren: DarenInfo
+    daren: DarenInfo,
   ): InternalTask | null {
     try {
       const fields = record.fields;
 
       // 解析剧名
       const drama = this.parseFieldValue(fields["剧名"]);
-      this.log(`parseFeishuRecord: 剧名解析结果="${drama}", 原始值类型=${typeof fields["剧名"]}, isArray=${Array.isArray(fields["剧名"])}`);
+      this.log(
+        `parseFeishuRecord: 剧名解析结果="${drama}", 原始值类型=${typeof fields["剧名"]}, isArray=${Array.isArray(fields["剧名"])}`,
+      );
 
       // 解析日期
       let date = fields["日期"];
@@ -605,7 +668,9 @@ export class JuliangSchedulerService {
         updatedAt: new Date(),
       };
     } catch (error) {
-      this.log(`解析记录 ${record.record_id} 失败: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(
+        `解析记录 ${record.record_id} 失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }
@@ -632,7 +697,9 @@ export class JuliangSchedulerService {
         return true;
       }
 
-      this.log(`任务已存在，跳过重复入队: ${task.drama} (${task.date}), 当前状态=${existingTask.status}`);
+      this.log(
+        `任务已存在，跳过重复入队: ${task.drama} (${task.date}), 当前状态=${existingTask.status}`,
+      );
       return false;
     }
 
@@ -787,6 +854,36 @@ export class JuliangSchedulerService {
     return null;
   }
 
+  private async scheduleTaskRetry(
+    task: InternalTask,
+    errorMessage: string,
+  ): Promise<boolean> {
+    const maxTaskRetries = this.config.maxTaskRetries;
+    if (maxTaskRetries <= 0) {
+      return false;
+    }
+
+    task.retryCount = (task.retryCount || 0) + 1;
+
+    if (task.retryCount <= maxTaskRetries) {
+      this.log(
+        `任务失败: ${task.drama} - ${errorMessage}，准备进行第 ${task.retryCount} 次重试（最多重试 ${maxTaskRetries} 次）`,
+      );
+      task.status = "pending";
+      task.error = undefined;
+      task.updatedAt = new Date();
+
+      const waitTime = Math.min(task.retryCount * 5000, 30000);
+      this.log(
+        `等待 ${waitTime / 1000} 秒后开始第 ${task.retryCount} 次重试...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, waitTime));
+      return true;
+    }
+
+    return false;
+  }
+
   /**
    * 处理单个任务
    * @returns 是否被跳过（true = 跳过，false = 正常完成或失败）
@@ -814,7 +911,7 @@ export class JuliangSchedulerService {
           task.status = "failed";
           task.error = `浏览器初始化失败: ${initResult.error}`;
           this.log(`任务失败: ${task.drama} - ${task.error}`);
-          this.addCompletedTask(task, 'failed', taskStartTime);
+          this.addCompletedTask(task, "failed", taskStartTime);
           return false;
         }
         // 重新检查登录状态
@@ -823,7 +920,7 @@ export class JuliangSchedulerService {
           task.status = "failed";
           task.error = "巨量创意后台未登录";
           this.log(`任务失败: ${task.drama} - ${task.error}`);
-          this.addCompletedTask(task, 'failed', taskStartTime);
+          this.addCompletedTask(task, "failed", taskStartTime);
           return false;
         }
       }
@@ -850,7 +947,7 @@ export class JuliangSchedulerService {
           task.recordId,
           "跳过上传",
           this.configService,
-          task.tableId
+          task.tableId,
         );
         if (updateSuccess) {
           this.log(`飞书状态已更新为"跳过上传": ${task.drama}`);
@@ -858,7 +955,7 @@ export class JuliangSchedulerService {
           this.log(`更新飞书状态失败: ${task.drama}`);
         }
 
-        this.addCompletedTask(task, 'skipped', taskStartTime);
+        this.addCompletedTask(task, "skipped", taskStartTime);
         return true; // 返回 true 表示被跳过
       }
 
@@ -871,7 +968,7 @@ export class JuliangSchedulerService {
         task.recordId,
         "上传中",
         this.configService,
-        task.tableId
+        task.tableId,
       );
 
       if (!updateToUploading) {
@@ -915,7 +1012,7 @@ export class JuliangSchedulerService {
             task.recordId,
             "跳过上传",
             this.configService,
-            task.tableId
+            task.tableId,
           );
           if (updateSuccess) {
             this.log(`飞书状态已更新为"跳过上传": ${task.drama}`);
@@ -923,33 +1020,24 @@ export class JuliangSchedulerService {
             this.log(`更新飞书状态失败: ${task.drama}`);
           }
 
-          this.addCompletedTask(task, 'skipped', taskStartTime);
+          this.addCompletedTask(task, "skipped", taskStartTime);
           return true;
         }
 
-        // 重试机制：最多重试 15 次
-        const MAX_UPLOAD_RETRIES = 3;
-        task.retryCount = (task.retryCount || 0) + 1;
-
-        if (task.retryCount < MAX_UPLOAD_RETRIES) {
-          this.log(`任务失败: ${task.drama} - ${uploadResult.error || "上传失败"}，准备重试 (${task.retryCount}/${MAX_UPLOAD_RETRIES})`);
-
-          // 重置状态为 pending，等待下次处理
-          task.status = "pending";
-          task.error = undefined;
-          task.updatedAt = new Date();
-
-          // 等待一段时间后重试
-          const waitTime = Math.min(task.retryCount * 5000, 30000);
-          this.log(`等待 ${waitTime / 1000} 秒后重试...`);
-          await new Promise((resolve) => setTimeout(resolve, waitTime));
-
+        const scheduledRetry = await this.scheduleTaskRetry(
+          task,
+          uploadResult.error || "上传失败",
+        );
+        if (scheduledRetry) {
           return false;
         }
 
         // 重试次数用尽，标记为上传失败
         task.status = "failed";
-        task.error = `上传失败（重试 ${task.retryCount} 次后仍失败）: ${uploadResult.error || "未知错误"}`;
+        task.error =
+          this.config.maxTaskRetries > 0
+            ? `上传失败（重试 ${this.config.maxTaskRetries} 次后仍失败）: ${uploadResult.error || "未知错误"}`
+            : `上传失败（未配置任务重试）: ${uploadResult.error || "未知错误"}`;
         this.log(`任务最终失败: ${task.drama} - ${task.error}`);
 
         // 将飞书状态改为"上传失败"
@@ -957,7 +1045,7 @@ export class JuliangSchedulerService {
           task.recordId,
           "上传失败",
           this.configService,
-          task.tableId
+          task.tableId,
         );
 
         if (revertSuccess) {
@@ -967,11 +1055,13 @@ export class JuliangSchedulerService {
         }
 
         // 不删除本地素材目录
-        this.addCompletedTask(task, 'failed', taskStartTime);
+        this.addCompletedTask(task, "failed", taskStartTime);
         return false;
       }
 
-      this.log(`上传完成: ${uploadResult.successCount}/${uploadResult.totalFiles} 个文件成功`);
+      this.log(
+        `上传完成: ${uploadResult.successCount}/${uploadResult.totalFiles} 个文件成功`,
+      );
 
       // 5. 更新飞书状态为"待搭建"（最多重试3次）
       const MAX_STATUS_RETRIES = 3;
@@ -981,26 +1071,32 @@ export class JuliangSchedulerService {
           task.recordId,
           "待搭建",
           this.configService,
-          task.tableId
+          task.tableId,
         );
         if (updateSuccess) {
           this.log(`飞书状态更新成功: ${task.drama} -> 待搭建`);
           statusUpdated = true;
           break;
         }
-        this.log(`飞书状态更新失败，第${i + 1}/${MAX_STATUS_RETRIES}次重试: ${task.drama}`);
+        this.log(
+          `飞书状态更新失败，第${i + 1}/${MAX_STATUS_RETRIES}次重试: ${task.drama}`,
+        );
         if (i < MAX_STATUS_RETRIES - 1) {
           this.apiService.clearFeishuTokenCache();
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, 2000));
         }
       }
       if (!statusUpdated) {
-        this.log(`飞书状态更新最终失败（已重试${MAX_STATUS_RETRIES}次），但上传已成功: ${task.drama}`);
+        this.log(
+          `飞书状态更新最终失败（已重试${MAX_STATUS_RETRIES}次），但上传已成功: ${task.drama}`,
+        );
       }
 
       // 6. 删除本地素材目录（无论飞书更新是否成功）
       if (task.localPath) {
-        const deleteSuccess = await this.fileService.deleteFolder(task.localPath);
+        const deleteSuccess = await this.fileService.deleteFolder(
+          task.localPath,
+        );
         if (deleteSuccess.success) {
           this.log(`本地目录已删除: ${task.localPath}`);
         } else {
@@ -1011,26 +1107,22 @@ export class JuliangSchedulerService {
       task.status = "completed";
       task.updatedAt = new Date();
       this.log(`任务完成: ${task.drama}`);
-      this.addCompletedTask(task, 'completed', taskStartTime);
+      this.addCompletedTask(task, "completed", taskStartTime);
       return false; // 正常完成
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(`任务异常: ${task.drama} - ${errorMsg}`);
 
-      // 重试机制
-      const MAX_UPLOAD_RETRIES = 15;
-      task.retryCount = (task.retryCount || 0) + 1;
-
-      if (task.retryCount < MAX_UPLOAD_RETRIES) {
-        this.log(`准备重试 (${task.retryCount}/${MAX_UPLOAD_RETRIES})`);
-        task.status = "pending";
-        task.error = undefined;
-        task.updatedAt = new Date();
+      const scheduledRetry = await this.scheduleTaskRetry(task, errorMsg);
+      if (scheduledRetry) {
         return false;
       }
 
       task.status = "failed";
-      task.error = `异常（重试 ${task.retryCount} 次后仍失败）: ${errorMsg}`;
+      task.error =
+        this.config.maxTaskRetries > 0
+          ? `异常（重试 ${this.config.maxTaskRetries} 次后仍失败）: ${errorMsg}`
+          : `异常（未配置任务重试）: ${errorMsg}`;
       task.updatedAt = new Date();
 
       // 异常情况，将飞书状态改为"上传失败"
@@ -1038,9 +1130,9 @@ export class JuliangSchedulerService {
         task.recordId,
         "上传失败",
         this.configService,
-        task.tableId
+        task.tableId,
       );
-      this.addCompletedTask(task, 'failed', taskStartTime);
+      this.addCompletedTask(task, "failed", taskStartTime);
       return false; // 失败但不是跳过
     }
   }
@@ -1062,10 +1154,14 @@ let schedulerInstance: JuliangSchedulerService | null = null;
 export function getJuliangScheduler(
   apiService: ApiService,
   fileService: FileService,
-  configService: ConfigService
+  configService: ConfigService,
 ): JuliangSchedulerService {
   if (!schedulerInstance) {
-    schedulerInstance = new JuliangSchedulerService(apiService, fileService, configService);
+    schedulerInstance = new JuliangSchedulerService(
+      apiService,
+      fileService,
+      configService,
+    );
   }
   return schedulerInstance;
 }

@@ -154,7 +154,11 @@ interface Api {
   getApiConfig: () => Promise<ApiConfig>;
   saveApiConfig: (config: ApiConfig) => Promise<void>;
   fetchAuthConfig: () => Promise<{ success: boolean; error?: string }>;
-  syncRemoteConfig: () => Promise<{ synced: boolean; version?: number; error?: string }>;
+  syncRemoteConfig: () => Promise<{
+    synced: boolean;
+    version?: number;
+    error?: string;
+  }>;
   pushRemoteConfig: () => Promise<{ success: boolean; error?: string }>;
 
   // 文件系统
@@ -164,10 +168,10 @@ interface Api {
   renameVideosByTemplate: (
     basePath: string,
     template: string,
-    dateValue?: string
+    dateValue?: string,
   ) => Promise<RenameVideosResult>;
   deleteFolder: (
-    folderPath: string
+    folderPath: string,
   ) => Promise<{ success: boolean; error?: string }>;
   selectFolder: () => Promise<string | null>;
 
@@ -175,24 +179,24 @@ interface Api {
   downloadVideo: (
     url: string,
     savePath: string,
-    dramaName: string
+    dramaName: string,
   ) => Promise<{ success: boolean; filePath: string }>;
   cancelDownload: (dramaName: string) => Promise<void>;
   pauseDownload: (dramaName: string) => Promise<boolean>;
   resumeDownload: (
-    dramaName: string
+    dramaName: string,
   ) => Promise<{ success: boolean; filePath: string }>;
   isDownloadPaused: (dramaName: string) => Promise<boolean>;
   getDownloadState: (dramaName: string) => Promise<any>;
   onDownloadProgress: (
-    callback: (progress: DownloadProgress) => void
+    callback: (progress: DownloadProgress) => void,
   ) => () => void;
 
   // API 代理
   feishuRequest: (
     endpoint: string,
     data: unknown,
-    method?: string
+    method?: string,
   ) => Promise<unknown>;
   feishuGetPendingUpload: (tableId?: string) => Promise<{
     code: number;
@@ -206,7 +210,7 @@ interface Api {
   }>;
   feishuGetPendingUploadByDate: (
     tableId: string | undefined,
-    dateTimestamp: number
+    dateTimestamp: number,
   ) => Promise<{
     code: number;
     msg?: string;
@@ -221,39 +225,39 @@ interface Api {
     endpoint: string,
     params: unknown,
     headers?: unknown,
-    configType?: 'sanrou' | 'meiri' | 'custom',
+    configType?: "sanrou" | "meiri" | "custom",
     customConfig?: {
-      cookie: string
-      distributorId: string
-      changduAppId: string
-      changduAdUserId: string
-      changduRootAdUserId: string
-    }
+      cookie: string;
+      distributorId: string;
+      changduAppId: string;
+      changduAdUserId: string;
+      changduRootAdUserId: string;
+    },
   ) => Promise<unknown>;
   uploadToTos: (
     filePath: string,
-    options: unknown
+    options: unknown,
   ) => Promise<{ success: boolean; url: string }>;
   submitMaterial: (materials: unknown) => Promise<unknown>;
   onUploadProgress: (
-    callback: (progress: UploadProgress) => void
+    callback: (progress: UploadProgress) => void,
   ) => () => void;
 
   // TOS 上传
   tosUploadFile: (filePath: string) => Promise<TosUploadResult>;
   tosUploadBatch: (
     filePaths: string[],
-    maxConcurrent?: number
+    maxConcurrent?: number,
   ) => Promise<void>;
   tosCancelUpload: (fileName: string) => Promise<boolean>;
   tosCancelAllUploads: () => Promise<void>;
   tosGetQueueStatus: () => Promise<TosQueueStatus>;
   tosInitClient: () => Promise<{ success: boolean }>;
   onTosUploadProgress: (
-    callback: (progress: TosUploadProgress) => void
+    callback: (progress: TosUploadProgress) => void,
   ) => () => void;
   onTosUploadComplete: (
-    callback: (result: TosUploadResult) => void
+    callback: (result: TosUploadResult) => void,
   ) => () => void;
 
   // 应用控制
@@ -273,7 +277,9 @@ interface Api {
   juliangInitialize: () => Promise<{ success: boolean; error?: string }>;
   juliangClose: () => Promise<{ success: boolean; error?: string }>;
   juliangIsReady: () => Promise<boolean>;
-  juliangNavigate: (accountId: string) => Promise<{ success: boolean; error?: string }>;
+  juliangNavigate: (
+    accountId: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   juliangCheckLogin: () => Promise<{ needLogin: boolean }>;
   juliangUploadTask: (task: unknown) => Promise<unknown>;
   juliangGetConfig: () => Promise<Record<string, unknown>>;
@@ -304,10 +310,16 @@ interface Api {
     totalRules: number;
     successRuleCount: number;
     failedRuleCount: number;
-    skippedRules: Array<{ ruleId: string; douyinAccount: string; error: string }>;
+    skippedRules: Array<{
+      ruleId: string;
+      douyinAccount: string;
+      error: string;
+    }>;
     error?: string;
   }>;
-  dailyBuildCancelTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
+  dailyBuildCancelTask: (
+    taskId: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   dailyBuildGetLogs: () => Promise<Array<{ time: string; message: string }>>;
   dailyBuildGetTaskStates: () => Promise<
     Array<{
@@ -334,18 +346,25 @@ interface Api {
   juliangSchedulerGetConfig: () => Promise<{
     fetchIntervalMinutes: number;
     localRootDir: string;
+    maxTaskRetries: number;
   }>;
-  juliangSchedulerUpdateConfig: (config: unknown) => Promise<{ success: boolean }>;
-  juliangSchedulerGetLogs: () => Promise<Array<{ time: string; message: string }>>;
+  juliangSchedulerUpdateConfig: (
+    config: unknown,
+  ) => Promise<{ success: boolean }>;
+  juliangSchedulerGetLogs: () => Promise<
+    Array<{ time: string; message: string }>
+  >;
   juliangSchedulerClearLogs: () => Promise<{ success: boolean }>;
-  juliangSchedulerFetchNow: (darenId?: string) => Promise<JuliangSchedulerFetchResult>;
+  juliangSchedulerFetchNow: (
+    darenId?: string,
+  ) => Promise<JuliangSchedulerFetchResult>;
   juliangSchedulerCancelAll: () => Promise<JuliangSchedulerResult>;
   juliangSchedulerGetCompletedTasks: () => Promise<JuliangCompletedTask[]>;
   onJuliangSchedulerLog: (
-    callback: (log: { time: string; message: string }) => void
+    callback: (log: { time: string; message: string }) => void,
   ) => () => void;
   onJuliangLog: (
-    callback: (log: { time: string; message: string }) => void
+    callback: (log: { time: string; message: string }) => void,
   ) => () => void;
   onJuliangUploadProgress: (
     callback: (progress: {
@@ -357,7 +376,7 @@ interface Api {
       successCount: number;
       totalFiles: number;
       message: string;
-    }) => void
+    }) => void,
   ) => () => void;
   onDailyBuildProgress: (
     callback: (progress: {
@@ -369,10 +388,10 @@ interface Api {
       totalRules: number;
       successRuleCount: number;
       failedRuleCount: number;
-    }) => void
+    }) => void,
   ) => () => void;
   onDailyBuildLog: (
-    callback: (log: { time: string; message: string }) => void
+    callback: (log: { time: string; message: string }) => void,
   ) => () => void;
 }
 
