@@ -1,121 +1,129 @@
-import { defineStore } from 'pinia'
-import { ref, computed, toRaw } from 'vue'
-import { useAuthStore } from './auth'
+import { defineStore } from "pinia";
+import { ref, computed, toRaw } from "vue";
+import { useAuthStore } from "./auth";
 
 export interface DarenInfo {
-  id: string // 账户
-  label: string // 名称
-  password?: string // 登录密码
-  feishuDramaStatusTableId?: string // 飞书剧集状态表 ID
-  enableUpload?: boolean // 启用上传功能
-  enableDownload?: boolean // 启用下载功能
-  enableJuliang?: boolean // 启用巨量上传功能
-  enableUploadBuild?: boolean // 启用上传搭建功能
-  changduConfigType?: 'sanrou' | 'meiri' | 'custom' // 常读配置类型：散柔/每日/定制
+  id: string; // 账户
+  label: string; // 名称
+  password?: string; // 登录密码
+  feishuDramaStatusTableId?: string; // 飞书剧集状态表 ID
+  enableUpload?: boolean; // 启用上传功能
+  enableDownload?: boolean; // 启用下载功能
+  enableJuliang?: boolean; // 启用巨量上传功能
+  enableUploadBuild?: boolean; // 启用上传搭建功能
+  enableMaterialClip?: boolean;
+  changduConfigType?: "sanrou" | "meiri" | "custom"; // 常读配置类型：散柔/每日/定制
   customChangduConfig?: {
-    cookie: string
-    distributorId: string
-    changduAppId: string
-    changduAdUserId: string
-    changduRootAdUserId: string
-  } // 定制的常读配置
-  uploadBuildSettings?: UploadBuildSettings // 上传搭建配置
+    cookie: string;
+    distributorId: string;
+    changduAppId: string;
+    changduAdUserId: string;
+    changduRootAdUserId: string;
+  }; // 定制的常读配置
+  uploadBuildSettings?: UploadBuildSettings; // 上传搭建配置
 }
 
 export interface UploadBuildParams {
-  distributorId: string
-  secretKey: string
-  source: string
-  bid: number | string
-  productId: string
-  productPlatformId: string
-  landingUrl: string
-  microAppName: string
-  microAppId: string
-  ccId: string
-  rechargeTemplateId: string
+  distributorId: string;
+  secretKey: string;
+  source: string;
+  bid: number | string;
+  productId: string;
+  productPlatformId: string;
+  landingUrl: string;
+  microAppName: string;
+  microAppId: string;
+  ccId: string;
+  rechargeTemplateId: string;
 }
 
 export interface DouyinMaterialRule {
-  id: string
-  douyinAccount: string
-  douyinAccountId: string
-  shortName: string
-  materialRange: string
-  createdAt?: string
-  updatedAt?: string
+  id: string;
+  douyinAccount: string;
+  douyinAccountId: string;
+  shortName: string;
+  materialRange: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface UploadBuildSettings {
-  buildParams: UploadBuildParams
-  darenName?: string
-  materialFilenameTemplate: string
-  materialDateValue?: string
-  douyinMaterialRules: DouyinMaterialRule[]
+  buildParams: UploadBuildParams;
+  darenName?: string;
+  materialFilenameTemplate: string;
+  materialDateValue?: string;
+  douyinMaterialRules: DouyinMaterialRule[];
 }
 
-export const useDarenStore = defineStore('daren', () => {
-  const authStore = useAuthStore()
+export const useDarenStore = defineStore("daren", () => {
+  const authStore = useAuthStore();
 
   // State
-  const darenList = ref<DarenInfo[]>([])
-  const selectedDarenId = ref<string | null>(null)
-  const loading = ref(false)
+  const darenList = ref<DarenInfo[]>([]);
+  const selectedDarenId = ref<string | null>(null);
+  const loading = ref(false);
 
   // Computed
   const currentDaren = computed(() => {
-    const userId = selectedDarenId.value || authStore.currentUser?.id
-    return darenList.value.find(d => d.id === userId) || null
-  })
+    const userId = selectedDarenId.value || authStore.currentUser?.id;
+    return darenList.value.find((d) => d.id === userId) || null;
+  });
 
   // 功能权限
   const canUpload = computed(() => {
     // 管理员默认拥有所有权限
     if (authStore.isAdmin) {
-      return true
+      return true;
     }
     // 达人根据配置判断
-    return currentDaren.value?.enableUpload === true
-  })
+    return currentDaren.value?.enableUpload === true;
+  });
 
   const canDownload = computed(() => {
     // 管理员默认拥有所有权限
     if (authStore.isAdmin) {
-      return true
+      return true;
     }
     // 达人根据配置判断
-    return currentDaren.value?.enableDownload === true
-  })
+    return currentDaren.value?.enableDownload === true;
+  });
 
   const canJuliang = computed(() => {
     // 管理员默认拥有所有权限
     if (authStore.isAdmin) {
-      return true
+      return true;
     }
     // 达人根据配置判断
-    return currentDaren.value?.enableJuliang === true
-  })
+    return currentDaren.value?.enableJuliang === true;
+  });
 
   const canUploadBuild = computed(() => {
     if (authStore.isAdmin) {
-      return true
+      return true;
     }
-    return currentDaren.value?.enableUploadBuild === true
-  })
+    return currentDaren.value?.enableUploadBuild === true;
+  });
+
+  const canMaterialClip = computed(() => {
+    if (authStore.isAdmin) {
+      return true;
+    }
+    return currentDaren.value?.enableMaterialClip === true;
+  });
 
   // Actions
   async function loadFromServer(forceRefresh = false) {
-    if (loading.value) return
-    
+    if (loading.value) return;
+
     // 尝试从缓存加载
     if (!forceRefresh) {
-      const cached = localStorage.getItem('daren-list-cache')
+      const cached = localStorage.getItem("daren-list-cache");
       if (cached) {
         try {
-          const data = JSON.parse(cached)
+          const data = JSON.parse(cached);
           if (Date.now() - data.timestamp < 24 * 60 * 60 * 1000) {
-            darenList.value = data.list
-            return
+            darenList.value = data.list;
+            return;
           }
         } catch {
           // 忽略缓存错误
@@ -123,85 +131,91 @@ export const useDarenStore = defineStore('daren', () => {
       }
     }
 
-    loading.value = true
+    loading.value = true;
     try {
-      const result = await window.api.getDarenConfig()
-      darenList.value = result.darenList || []
-      
+      const result = await window.api.getDarenConfig();
+      darenList.value = result.darenList || [];
+
       // 缓存到本地
-      localStorage.setItem('daren-list-cache', JSON.stringify({
-        timestamp: Date.now(),
-        list: darenList.value
-      }))
+      localStorage.setItem(
+        "daren-list-cache",
+        JSON.stringify({
+          timestamp: Date.now(),
+          list: darenList.value,
+        }),
+      );
     } catch (error) {
-      console.error('加载达人配置失败:', error)
+      console.error("加载达人配置失败:", error);
     } finally {
-      loading.value = false
+      loading.value = false;
     }
   }
 
   async function addDaren(daren: DarenInfo) {
     // 转换为纯对象，避免 IPC 克隆错误
-    const plainDaren = JSON.parse(JSON.stringify(toRaw(daren)))
-    const result = await window.api.addDaren(plainDaren)
-    darenList.value.push(result)
-    updateCache()
-    return result
+    const plainDaren = JSON.parse(JSON.stringify(toRaw(daren)));
+    const result = await window.api.addDaren(plainDaren);
+    darenList.value.push(result);
+    updateCache();
+    return result;
   }
 
   async function updateDaren(id: string, updates: Partial<DarenInfo>) {
     // 转换为纯对象，避免 IPC 克隆错误
-    const plainUpdates = JSON.parse(JSON.stringify(toRaw(updates)))
-    const result = await window.api.updateDaren(id, plainUpdates)
-    const index = darenList.value.findIndex(d => d.id === id)
+    const plainUpdates = JSON.parse(JSON.stringify(toRaw(updates)));
+    const result = await window.api.updateDaren(id, plainUpdates);
+    const index = darenList.value.findIndex((d) => d.id === id);
     if (index >= 0) {
       if (updates.id && updates.id !== id) {
-        darenList.value.splice(index, 1)
-        darenList.value.push(result)
+        darenList.value.splice(index, 1);
+        darenList.value.push(result);
       } else {
-        darenList.value[index] = result
+        darenList.value[index] = result;
       }
     }
-    updateCache()
-    return result
+    updateCache();
+    return result;
   }
 
   async function deleteDaren(id: string) {
-    await window.api.deleteDaren(id)
-    const index = darenList.value.findIndex(d => d.id === id)
+    await window.api.deleteDaren(id);
+    const index = darenList.value.findIndex((d) => d.id === id);
     if (index >= 0) {
-      darenList.value.splice(index, 1)
+      darenList.value.splice(index, 1);
     }
     if (selectedDarenId.value === id) {
-      selectedDarenId.value = null
+      selectedDarenId.value = null;
     }
-    updateCache()
+    updateCache();
   }
 
   function setSelectedDaren(id: string | null) {
-    selectedDarenId.value = id
+    selectedDarenId.value = id;
     if (id) {
-      localStorage.setItem('selected-daren-id', id)
+      localStorage.setItem("selected-daren-id", id);
     } else {
-      localStorage.removeItem('selected-daren-id')
+      localStorage.removeItem("selected-daren-id");
     }
   }
 
   function findDarenById(id: string): DarenInfo | undefined {
-    return darenList.value.find(d => d.id === id)
+    return darenList.value.find((d) => d.id === id);
   }
 
   function updateCache() {
-    localStorage.setItem('daren-list-cache', JSON.stringify({
-      timestamp: Date.now(),
-      list: darenList.value
-    }))
+    localStorage.setItem(
+      "daren-list-cache",
+      JSON.stringify({
+        timestamp: Date.now(),
+        list: darenList.value,
+      }),
+    );
   }
 
   // 初始化时加载选中的达人 ID
-  const savedSelectedId = localStorage.getItem('selected-daren-id')
+  const savedSelectedId = localStorage.getItem("selected-daren-id");
   if (savedSelectedId) {
-    selectedDarenId.value = savedSelectedId
+    selectedDarenId.value = savedSelectedId;
   }
 
   return {
@@ -213,11 +227,12 @@ export const useDarenStore = defineStore('daren', () => {
     canDownload,
     canJuliang,
     canUploadBuild,
+    canMaterialClip,
     loadFromServer,
     addDaren,
     updateDaren,
     deleteDaren,
     setSelectedDaren,
-    findDarenById
-  }
-})
+    findDarenById,
+  };
+});

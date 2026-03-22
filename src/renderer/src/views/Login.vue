@@ -29,7 +29,7 @@ async function loadDarenList() {
     } else {
       console.log(
         "[Login] 远程配置同步跳过:",
-        syncResult.error || "无远程配置"
+        syncResult.error || "无远程配置",
       );
     }
 
@@ -37,7 +37,7 @@ async function loadDarenList() {
     await darenStore.loadFromServer(true);
     console.log(
       "[Login] ✓ 达人列表加载完成，数量:",
-      darenStore.darenList.length
+      darenStore.darenList.length,
     );
   } catch (error) {
     console.error("[Login] 加载失败:", error);
@@ -74,7 +74,7 @@ async function handleLogin() {
           label: "管理员",
           isAdmin: true,
         },
-        `admin-${Date.now()}`
+        `admin-${Date.now()}`,
       );
 
       message.success("登录成功");
@@ -102,7 +102,7 @@ async function handleLogin() {
           label: daren.label,
           isAdmin: false,
         },
-        `daren-${Date.now()}`
+        `daren-${Date.now()}`,
       );
 
       message.success("登录成功");
@@ -116,6 +116,8 @@ async function handleLogin() {
         router.push("/juliang");
       } else if (daren.enableUploadBuild) {
         router.push("/upload-build");
+      } else if (daren.enableMaterialClip) {
+        router.push("/material-clip");
       } else {
         message.warning("该账号没有任何功能权限，请联系管理员");
         authStore.logout();

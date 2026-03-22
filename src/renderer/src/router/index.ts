@@ -52,7 +52,7 @@ const routes: RouteRecordRaw[] = [
     path: "/material-clip",
     name: "MaterialClip",
     component: () => import("../views/MaterialClip.vue"),
-    meta: { requiresAuth: true, requiresAdmin: true },
+    meta: { requiresAuth: true, requiresMaterialClip: true },
   },
 ];
 
@@ -65,20 +65,41 @@ const router = createRouter({
 router.beforeEach((to, _from, next) => {
   const isLoggedIn = localStorage.getItem("auth-token");
   const userText = localStorage.getItem("auth-user");
+  const darenCacheText = localStorage.getItem("daren-list-cache");
   let isAdmin = false;
+  let currentUserId = "";
+  let canMaterialClip = false;
 
   if (userText) {
     try {
-      const user = JSON.parse(userText) as { isAdmin?: boolean };
+      const user = JSON.parse(userText) as { isAdmin?: boolean; id?: string };
       isAdmin = user.isAdmin === true;
+      currentUserId = user.id || "";
     } catch {
       isAdmin = false;
+      currentUserId = "";
+    }
+  }
+
+  if (darenCacheText && currentUserId) {
+    try {
+      const cache = JSON.parse(darenCacheText) as {
+        list?: Array<{ id: string; enableMaterialClip?: boolean }>;
+      };
+      const currentDaren = cache.list?.find(
+        (item) => item.id === currentUserId,
+      );
+      canMaterialClip = currentDaren?.enableMaterialClip === true;
+    } catch {
+      canMaterialClip = false;
     }
   }
 
   if (to.meta.requiresAuth && !isLoggedIn) {
     next("/login");
   } else if (to.meta.requiresAdmin && !isAdmin) {
+    next("/home");
+  } else if (to.meta.requiresMaterialClip && !(isAdmin || canMaterialClip)) {
     next("/home");
   } else if (to.path === "/login" && isLoggedIn) {
     next("/home"); // 让 Home 页面根据权限重定向

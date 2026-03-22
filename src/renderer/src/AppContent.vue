@@ -80,8 +80,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 素材剪辑 - 仅管理员可见
-  if (isAdmin) {
+  // 素材剪辑 - 管理员或有素材剪辑权限的达人可见
+  if (isAdmin || darenStore.canMaterialClip) {
     options.push({
       label: "素材剪辑",
       key: "material-clip",
@@ -108,6 +108,7 @@ const defaultRoute = computed(() => {
   if (darenStore.canDownload) return "/download";
   if (darenStore.canJuliang) return "/juliang";
   if (darenStore.canUploadBuild) return "/upload-build";
+  if (darenStore.canMaterialClip) return "/material-clip";
   return "/login";
 });
 

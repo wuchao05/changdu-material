@@ -37,6 +37,7 @@ const darenForm = ref<DarenInfo>({
   enableDownload: true,
   enableJuliang: false, // 默认不启用巨量上传
   enableUploadBuild: false, // 默认不启用上传搭建
+  enableMaterialClip: false,
   changduConfigType: "sanrou", // 默认使用散柔配置
   customChangduConfig: undefined, // 定制配置
 });
@@ -52,6 +53,7 @@ function openDarenModal(daren?: DarenInfo) {
     editingDaren.value = daren;
     darenForm.value = {
       ...daren,
+      enableMaterialClip: daren.enableMaterialClip ?? false,
       changduConfigType: daren.changduConfigType || "sanrou", // 确保有默认值
       customChangduConfig: daren.customChangduConfig || {
         cookie: "",
@@ -72,6 +74,7 @@ function openDarenModal(daren?: DarenInfo) {
       enableDownload: true,
       enableJuliang: false,
       enableUploadBuild: false,
+      enableMaterialClip: false,
       changduConfigType: "sanrou", // 默认使用散柔配置
       customChangduConfig: {
         cookie: "",
@@ -106,14 +109,16 @@ async function saveDaren() {
     if (pushResult.success) {
       console.log("[Settings] ✓ 配置推送成功");
       message.success(
-        editingDaren.value ? "更新成功并同步到服务器" : "添加成功并同步到服务器"
+        editingDaren.value
+          ? "更新成功并同步到服务器"
+          : "添加成功并同步到服务器",
       );
     } else {
       console.warn("[Settings] 配置推送失败:", pushResult.error);
       message.warning(
         editingDaren.value
           ? "更新成功，但同步到服务器失败"
-          : "添加成功，但同步到服务器失败"
+          : "添加成功，但同步到服务器失败",
       );
     }
   } catch (error) {
@@ -173,11 +178,12 @@ const darenColumns: DataTableColumns<DarenInfo> = [
         custom: "定制",
       };
       const type = row.changduConfigType || "sanrou";
-      const tagType = type === "sanrou" ? "info" : type === "meiri" ? "success" : "warning";
+      const tagType =
+        type === "sanrou" ? "info" : type === "meiri" ? "success" : "warning";
       return h(
         NTag,
         { type: tagType, size: "small" },
-        { default: () => typeMap[type] }
+        { default: () => typeMap[type] },
       );
     },
   },
@@ -198,12 +204,13 @@ const darenColumns: DataTableColumns<DarenInfo> = [
       if (row.enableDownload) tags.push({ type: "success", text: "下载" });
       if (row.enableJuliang) tags.push({ type: "success", text: "巨量" });
       if (row.enableUploadBuild) tags.push({ type: "success", text: "搭建" });
+      if (row.enableMaterialClip) tags.push({ type: "success", text: "剪辑" });
 
       if (tags.length === 0)
         return h(
           NTag,
           { type: "default", size: "small" },
-          { default: () => "无" }
+          { default: () => "无" },
         );
 
       return h(
@@ -215,10 +222,10 @@ const darenColumns: DataTableColumns<DarenInfo> = [
               h(
                 NTag,
                 { type: tag.type, size: "small" },
-                { default: () => tag.text }
-              )
+                { default: () => tag.text },
+              ),
             ),
-        }
+        },
       );
     },
   },
@@ -238,7 +245,7 @@ const darenColumns: DataTableColumns<DarenInfo> = [
                 size: "small",
                 onClick: () => openDarenModal(row),
               },
-              { default: () => "编辑" }
+              { default: () => "编辑" },
             ),
             h(
               NButton,
@@ -247,10 +254,10 @@ const darenColumns: DataTableColumns<DarenInfo> = [
                 type: "error",
                 onClick: () => confirmDeleteDaren(row),
               },
-              { default: () => "删除" }
+              { default: () => "删除" },
             ),
           ],
-        }
+        },
       );
     },
   },
@@ -321,7 +328,13 @@ const darenColumns: DataTableColumns<DarenInfo> = [
         <!-- 定制配置表单 -->
         <template v-if="darenForm.changduConfigType === 'custom'">
           <div
-            style="border: 1px solid #e0e0e0; border-radius: 4px; padding: 16px; margin-bottom: 16px; background: #fafafa"
+            style="
+              border: 1px solid #e0e0e0;
+              border-radius: 4px;
+              padding: 16px;
+              margin-bottom: 16px;
+              background: #fafafa;
+            "
           >
             <h4 style="margin-bottom: 12px; color: #666">定制常读配置</h4>
             <NFormItem label="Cookie" required>
@@ -352,7 +365,9 @@ const darenColumns: DataTableColumns<DarenInfo> = [
             </NFormItem>
             <NFormItem label="Root Ad User ID" required>
               <NInput
-                v-model:value="darenForm.customChangduConfig!.changduRootAdUserId"
+                v-model:value="
+                  darenForm.customChangduConfig!.changduRootAdUserId
+                "
                 placeholder="根广告用户 ID"
               />
             </NFormItem>
@@ -383,6 +398,9 @@ const darenColumns: DataTableColumns<DarenInfo> = [
         </NFormItem>
         <NFormItem label="启用上传搭建">
           <NSwitch v-model:value="darenForm.enableUploadBuild" />
+        </NFormItem>
+        <NFormItem label="启用素材剪辑">
+          <NSwitch v-model:value="darenForm.enableMaterialClip" />
         </NFormItem>
       </NForm>
 

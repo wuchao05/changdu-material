@@ -50,6 +50,7 @@ interface DarenInfo {
   enableDownload?: boolean;
   enableJuliang?: boolean;
   enableUploadBuild?: boolean;
+  enableMaterialClip?: boolean;
   changduConfigType?: "sanrou" | "meiri" | "custom";
   customChangduConfig?: {
     cookie: string;

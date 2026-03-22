@@ -19,7 +19,8 @@ export interface DarenInfo {
   enableDownload?: boolean; // 启用下载功能
   enableJuliang?: boolean; // 启用巨量上传功能
   enableUploadBuild?: boolean; // 启用上传搭建功能
-  changduConfigType?: 'sanrou' | 'meiri' | 'custom'; // 常读配置类型：散柔/每日/定制
+  enableMaterialClip?: boolean;
+  changduConfigType?: "sanrou" | "meiri" | "custom"; // 常读配置类型：散柔/每日/定制
   customChangduConfig?: ChangduConfig; // 定制的常读配置（当 changduConfigType 为 'custom' 时使用）
   uploadBuildSettings?: UploadBuildSettings; // 上传搭建配置（按达人隔离）
 }
@@ -137,20 +138,25 @@ export class ConfigService {
       const sr = data.platforms?.changdu?.sr;
       if (sr) {
         if (sr.cookie) localConfig.sanrouChangdu.cookie = sr.cookie;
-        if (sr.distributorId) localConfig.sanrouChangdu.distributorId = sr.distributorId;
+        if (sr.distributorId)
+          localConfig.sanrouChangdu.distributorId = sr.distributorId;
         if (sr.appId) localConfig.sanrouChangdu.changduAppId = sr.appId;
-        if (sr.adUserId) localConfig.sanrouChangdu.changduAdUserId = sr.adUserId;
-        if (sr.rootAdUserId) localConfig.sanrouChangdu.changduRootAdUserId = sr.rootAdUserId;
+        if (sr.adUserId)
+          localConfig.sanrouChangdu.changduAdUserId = sr.adUserId;
+        if (sr.rootAdUserId)
+          localConfig.sanrouChangdu.changduRootAdUserId = sr.rootAdUserId;
       }
 
       // 映射 platforms.changdu.mr → meiriChangdu
       const mr = data.platforms?.changdu?.mr;
       if (mr) {
         if (mr.cookie) localConfig.meiriChangdu.cookie = mr.cookie;
-        if (mr.distributorId) localConfig.meiriChangdu.distributorId = mr.distributorId;
+        if (mr.distributorId)
+          localConfig.meiriChangdu.distributorId = mr.distributorId;
         if (mr.appId) localConfig.meiriChangdu.changduAppId = mr.appId;
         if (mr.adUserId) localConfig.meiriChangdu.changduAdUserId = mr.adUserId;
-        if (mr.rootAdUserId) localConfig.meiriChangdu.changduRootAdUserId = mr.rootAdUserId;
+        if (mr.rootAdUserId)
+          localConfig.meiriChangdu.changduRootAdUserId = mr.rootAdUserId;
       }
 
       await this.saveApiConfig(localConfig);
@@ -184,7 +190,7 @@ export class ConfigService {
       // 远程 API 配置不再落地，避免覆盖本地固定值与 Auth 动态值
       if (remoteConfig.apiConfig) {
         console.log(
-          "[ConfigService] 检测到远程 API 配置，已按策略忽略（常读/xtToken 走 Auth，飞书/TOS 走固定值）"
+          "[ConfigService] 检测到远程 API 配置，已按策略忽略（常读/xtToken 走 Auth，飞书/TOS 走固定值）",
         );
       }
 
@@ -192,19 +198,22 @@ export class ConfigService {
       if (remoteConfig.darenList && remoteConfig.darenList.length > 0) {
         console.log(
           "[ConfigService] 同步达人列表，数量:",
-          remoteConfig.darenList.length
+          remoteConfig.darenList.length,
         );
         await this.saveDarenConfig({ darenList: remoteConfig.darenList });
       }
 
       console.log(
         "[ConfigService] ✓ 远程配置同步完成，版本:",
-        remoteConfig.version
+        remoteConfig.version,
       );
       // 远程同步后，立即从 Auth 接口回填 xtToken，避免使用远程旧值
       const authResult = await this.fetchAuthConfig();
       if (!authResult.success) {
-        console.warn("[ConfigService] 远程同步后获取 Auth 配置失败:", authResult.error);
+        console.warn(
+          "[ConfigService] 远程同步后获取 Auth 配置失败:",
+          authResult.error,
+        );
       }
       return { synced: true, version: remoteConfig.version };
     } catch (error) {
@@ -224,7 +233,7 @@ export class ConfigService {
 
       const success = await this.remoteConfigService.pushConfig(
         apiConfig,
-        darenConfig.darenList
+        darenConfig.darenList,
       );
 
       if (success) {
@@ -257,7 +266,7 @@ export class ConfigService {
     await fs.writeFile(
       this.darenConfigPath,
       JSON.stringify(config, null, 2),
-      "utf-8"
+      "utf-8",
     );
   }
 
@@ -280,7 +289,7 @@ export class ConfigService {
 
   async updateDaren(
     id: string,
-    updates: Partial<DarenInfo>
+    updates: Partial<DarenInfo>,
   ): Promise<DarenInfo> {
     const config = await this.getDarenConfig();
     const index = config.darenList.findIndex((d) => d.id === id);
@@ -333,9 +342,12 @@ export class ConfigService {
       enableDownload: daren.enableDownload ?? true,
       enableJuliang: daren.enableJuliang ?? false, // 默认不启用巨量上传
       enableUploadBuild: daren.enableUploadBuild ?? false, // 默认不启用上传搭建
-      changduConfigType: daren.changduConfigType || 'sanrou', // 默认使用散柔配置
+      enableMaterialClip: daren.enableMaterialClip ?? false,
+      changduConfigType: daren.changduConfigType || "sanrou", // 默认使用散柔配置
       customChangduConfig: daren.customChangduConfig || undefined, // 定制配置
-      uploadBuildSettings: this.normalizeUploadBuildSettings(daren.uploadBuildSettings),
+      uploadBuildSettings: this.normalizeUploadBuildSettings(
+        daren.uploadBuildSettings,
+      ),
     };
   }
 
@@ -362,7 +374,7 @@ export class ConfigService {
   }
 
   private normalizeUploadBuildSettings(
-    settings?: Partial<UploadBuildSettings>
+    settings?: Partial<UploadBuildSettings>,
   ): UploadBuildSettings {
     const defaultSettings = this.createDefaultUploadBuildSettings();
     const rules = Array.isArray(settings?.douyinMaterialRules)
@@ -380,19 +392,17 @@ export class ConfigService {
         defaultSettings.materialFilenameTemplate,
       materialDateValue: settings?.materialDateValue?.trim() || "",
       douyinMaterialRules: rules.map((rule) =>
-        this.normalizeDouyinMaterialRule(rule)
+        this.normalizeDouyinMaterialRule(rule),
       ),
     };
   }
 
   private normalizeDouyinMaterialRule(
-    rule?: Partial<DouyinMaterialRule>
+    rule?: Partial<DouyinMaterialRule>,
   ): DouyinMaterialRule {
     const now = new Date().toISOString();
     return {
-      id:
-        rule?.id ||
-        `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: rule?.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       douyinAccount: rule?.douyinAccount?.trim() || "",
       douyinAccountId: rule?.douyinAccountId?.trim() || "",
       shortName: rule?.shortName?.trim() || "",
@@ -475,7 +485,7 @@ export class ConfigService {
     await fs.writeFile(
       this.apiConfigPath,
       JSON.stringify(normalizedConfig, null, 2),
-      "utf-8"
+      "utf-8",
     );
   }
 }
