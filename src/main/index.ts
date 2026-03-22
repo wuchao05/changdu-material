@@ -1,11 +1,17 @@
 // Windows 控制台编码修复：在所有导入之前设置
-if (process.platform === 'win32') {
+if (process.platform === "win32") {
   // 强制 stdout 和 stderr 使用 UTF-8 编码
-  if (process.stdout && typeof process.stdout.setDefaultEncoding === 'function') {
-    process.stdout.setDefaultEncoding('utf8');
+  if (
+    process.stdout &&
+    typeof process.stdout.setDefaultEncoding === "function"
+  ) {
+    process.stdout.setDefaultEncoding("utf8");
   }
-  if (process.stderr && typeof process.stderr.setDefaultEncoding === 'function') {
-    process.stderr.setDefaultEncoding('utf8');
+  if (
+    process.stderr &&
+    typeof process.stderr.setDefaultEncoding === "function"
+  ) {
+    process.stderr.setDefaultEncoding("utf8");
   }
 }
 
@@ -18,43 +24,44 @@ import {
   Menu,
   nativeImage,
   globalShortcut,
-} from 'electron';
-import { join } from 'path';
-import { electronApp, optimizer, is } from '@electron-toolkit/utils';
+} from "electron";
+import { join } from "path";
+import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 
 // 扩展 Electron App 类型以支持 isQuitting 属性
-declare module 'electron' {
+declare module "electron" {
   interface App {
     isQuitting?: boolean;
   }
 }
 
 // Windows 网络优化：禁用代理，避免代理检测导致的延迟
-app.commandLine.appendSwitch('no-proxy-server');
+app.commandLine.appendSwitch("no-proxy-server");
 // 禁用自动代理检测
-app.commandLine.appendSwitch('winhttp-proxy-resolver');
+app.commandLine.appendSwitch("winhttp-proxy-resolver");
 
 // 全局异常捕获：防止未捕获的异常弹出原生错误对话框导致应用阻塞
-process.on('uncaughtException', (error) => {
-  console.error('[Main] 未捕获的异常:', error.message);
+process.on("uncaughtException", (error) => {
+  console.error("[Main] 未捕获的异常:", error.message);
   console.error(error.stack);
   // 不退出进程，让应用继续运行
 });
 
-process.on('unhandledRejection', (reason) => {
-  console.error('[Main] 未处理的 Promise 拒绝:', reason);
+process.on("unhandledRejection", (reason) => {
+  console.error("[Main] 未处理的 Promise 拒绝:", reason);
   // 不退出进程，让应用继续运行
 });
 
 // 服务导入
-import { ConfigService } from './services/config.service';
-import { FileService } from './services/file.service';
-import { DownloadService } from './services/download.service';
-import { ApiService } from './services/api.service';
-import { TosService } from './services/tos.service';
-import { juliangService } from './services/juliang.service';
-import { DailyBuildService } from './services/daily-build.service';
-import { getJuliangScheduler } from './services/juliang-scheduler.service';
+import { ConfigService } from "./services/config.service";
+import { FileService } from "./services/file.service";
+import { DownloadService } from "./services/download.service";
+import { ApiService } from "./services/api.service";
+import { TosService } from "./services/tos.service";
+import { juliangService } from "./services/juliang.service";
+import { DailyBuildService } from "./services/daily-build.service";
+import { getJuliangScheduler } from "./services/juliang-scheduler.service";
+import { MaterialClipService } from "./services/material-clip.service";
 
 // 初始化服务
 const configService = new ConfigService();
@@ -63,7 +70,12 @@ const downloadService = new DownloadService();
 const apiService = new ApiService();
 const tosService = new TosService();
 const dailyBuildService = new DailyBuildService(configService);
-const juliangScheduler = getJuliangScheduler(apiService, fileService, configService);
+const juliangScheduler = getJuliangScheduler(
+  apiService,
+  fileService,
+  configService,
+);
+const materialClipService = new MaterialClipService(configService);
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -77,16 +89,16 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     autoHideMenuBar: true,
-    title: '常读素材管理工具',
+    title: "常读素材管理工具",
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  mainWindow.on('ready-to-show', () => {
+  mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
     // 开发模式下自动打开 DevTools
     if (is.dev) {
@@ -96,11 +108,11 @@ function createWindow(): void {
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url);
-    return { action: 'deny' };
+    return { action: "deny" };
   });
 
   // 关闭窗口时最小化到托盘
-  mainWindow.on('close', (event) => {
+  mainWindow.on("close", (event) => {
     if (!app.isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
@@ -108,16 +120,16 @@ function createWindow(): void {
   });
 
   // HMR for renderer base on electron-vite cli.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
+    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
   }
 }
 
 function createTray(): void {
   // 创建托盘图标
-  const iconPath = join(__dirname, '../../resources/icon.png');
+  const iconPath = join(__dirname, "../../resources/icon.png");
   let icon: Electron.NativeImage;
 
   try {
@@ -134,19 +146,19 @@ function createTray(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: '显示主窗口',
+      label: "显示主窗口",
       click: () => {
         mainWindow?.show();
       },
     },
     {
-      label: '开发者工具',
+      label: "开发者工具",
       click: () => {
         mainWindow?.webContents.toggleDevTools();
       },
     },
     {
-      label: '退出',
+      label: "退出",
       click: () => {
         app.isQuitting = true;
         app.quit();
@@ -154,10 +166,10 @@ function createTray(): void {
     },
   ]);
 
-  tray.setToolTip('常读素材管理工具');
+  tray.setToolTip("常读素材管理工具");
   tray.setContextMenu(contextMenu);
 
-  tray.on('double-click', () => {
+  tray.on("double-click", () => {
     mainWindow?.show();
   });
 }
@@ -165,110 +177,180 @@ function createTray(): void {
 // 注册 IPC 处理程序
 function registerIpcHandlers(): void {
   // ==================== 窗口控制 ====================
-  ipcMain.handle('window:hide', async () => {
+  ipcMain.handle("window:hide", async () => {
     mainWindow?.hide();
     return { success: true };
   });
 
-  ipcMain.handle('window:show', async () => {
+  ipcMain.handle("window:show", async () => {
     mainWindow?.show();
     return { success: true };
   });
 
-  ipcMain.handle('window:minimize', async () => {
+  ipcMain.handle("window:minimize", async () => {
     mainWindow?.minimize();
     return { success: true };
   });
 
   // ==================== 配置管理 ====================
-  ipcMain.handle('config:getDaren', async () => {
+  ipcMain.handle("config:getDaren", async () => {
     return await configService.getDarenConfig();
   });
 
-  ipcMain.handle('config:addDaren', async (_event, daren) => {
+  ipcMain.handle("config:addDaren", async (_event, daren) => {
     return await configService.addDaren(daren);
   });
 
-  ipcMain.handle('config:updateDaren', async (_event, id, updates) => {
+  ipcMain.handle("config:updateDaren", async (_event, id, updates) => {
     return await configService.updateDaren(id, updates);
   });
 
-  ipcMain.handle('config:deleteDaren', async (_event, id) => {
+  ipcMain.handle("config:deleteDaren", async (_event, id) => {
     return await configService.deleteDaren(id);
   });
 
-  ipcMain.handle('config:getApiConfig', async () => {
+  ipcMain.handle("config:getApiConfig", async () => {
     return await configService.getApiConfig();
   });
 
-  ipcMain.handle('config:saveApiConfig', async (_event, config) => {
+  ipcMain.handle("config:saveApiConfig", async (_event, config) => {
     return await configService.saveApiConfig(config);
   });
 
   // Auth 配置获取（从 cxyy.top）
-  ipcMain.handle('config:fetchAuthConfig', async () => {
+  ipcMain.handle("config:fetchAuthConfig", async () => {
     return await configService.fetchAuthConfig();
   });
 
   // 远程配置同步
-  ipcMain.handle('config:syncFromRemote', async () => {
+  ipcMain.handle("config:syncFromRemote", async () => {
     return await configService.syncFromRemote();
   });
 
-  ipcMain.handle('config:pushToRemote', async () => {
+  ipcMain.handle("config:pushToRemote", async () => {
     return await configService.pushToRemote();
   });
 
+  ipcMain.handle("clip:getConfig", async () => {
+    return await materialClipService.getConfig();
+  });
+
+  ipcMain.handle("clip:getEnvironmentStatus", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.getEnvironmentStatus();
+  });
+
+  ipcMain.handle("clip:installEnvironment", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.installEnvironment();
+  });
+
+  ipcMain.handle("clip:importRuntime", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.importRuntime();
+  });
+
+  ipcMain.handle("clip:saveConfig", async (_event, config) => {
+    return await materialClipService.saveConfig(config);
+  });
+
+  ipcMain.handle("clip:autoRun", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.runAutoClip();
+  });
+
+  ipcMain.handle("clip:manualRun", async (_event, dramaNames: string) => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.runManualClip(dramaNames);
+  });
+
+  ipcMain.handle("clip:getLogs", async () => {
+    return materialClipService.getLogs();
+  });
+
+  ipcMain.handle("clip:clearLogs", async () => {
+    return materialClipService.clearLogs();
+  });
+
   // ==================== 文件系统 ====================
-  ipcMain.handle('file:scanVideos', async (_event, basePath) => {
+  ipcMain.handle("file:scanVideos", async (_event, basePath) => {
     return await fileService.scanVideos(basePath);
   });
 
-  ipcMain.handle('file:listExportDirs', async (_event, rootPath) => {
+  ipcMain.handle("file:listExportDirs", async (_event, rootPath) => {
     return fileService.listExportDirs(rootPath);
   });
 
-  ipcMain.handle('file:getVideoInfo', async (_event, filePath) => {
+  ipcMain.handle("file:getVideoInfo", async (_event, filePath) => {
     return await fileService.getVideoInfo(filePath);
   });
 
-  ipcMain.handle('file:deleteFolder', async (_event, folderPath) => {
+  ipcMain.handle("file:deleteFolder", async (_event, folderPath) => {
     return await fileService.deleteFolder(folderPath);
   });
 
-  ipcMain.handle('file:countMp4Files', async (_event, dirPath) => {
+  ipcMain.handle("file:countMp4Files", async (_event, dirPath) => {
     return fileService.countMp4Files(dirPath);
   });
 
-  ipcMain.handle('file:checkZipFile', async (_event, zipPath) => {
+  ipcMain.handle("file:checkZipFile", async (_event, zipPath) => {
     return fileService.checkZipFile(zipPath);
   });
 
-  ipcMain.handle('file:renameVideosByTemplate', async (_event, basePath, template, dateValue) => {
-    return await fileService.renameVideosByTemplate(basePath, template, dateValue);
-  });
+  ipcMain.handle(
+    "file:renameVideosByTemplate",
+    async (_event, basePath, template, dateValue) => {
+      return await fileService.renameVideosByTemplate(
+        basePath,
+        template,
+        dateValue,
+      );
+    },
+  );
 
-  ipcMain.handle('file:selectFolder', async () => {
-    const { dialog } = await import('electron');
+  ipcMain.handle("file:selectFolder", async () => {
+    const { dialog } = await import("electron");
     const result = await dialog.showOpenDialog(mainWindow!, {
-      properties: ['openDirectory'],
+      properties: ["openDirectory"],
     });
     return result.canceled ? null : result.filePaths[0];
   });
 
-  ipcMain.handle('file:extractZip', async (_event, zipPath, targetDir, deleteAfterExtract) => {
-    return await fileService.extractZip(zipPath, targetDir, deleteAfterExtract);
-  });
+  ipcMain.handle(
+    "file:extractZip",
+    async (_event, zipPath, targetDir, deleteAfterExtract) => {
+      return await fileService.extractZip(
+        zipPath,
+        targetDir,
+        deleteAfterExtract,
+      );
+    },
+  );
 
   // ==================== 下载 ====================
-  ipcMain.handle('download:video', async (event, url, savePath, dramaName) => {
+  ipcMain.handle("download:video", async (event, url, savePath, dramaName) => {
     try {
-      return await downloadService.downloadFile(url, savePath, dramaName, (progress) => {
-        event.sender.send('download:progress', progress);
-      });
+      return await downloadService.downloadFile(
+        url,
+        savePath,
+        dramaName,
+        (progress) => {
+          event.sender.send("download:progress", progress);
+        },
+      );
     } catch (error) {
       // 确保错误能正确传递到渲染进程
-      console.error('[IPC] download:video 错误:', error);
+      console.error("[IPC] download:video 错误:", error);
       // 返回一个包含错误信息的对象，而不是抛出异常
       return {
         success: false,
@@ -278,124 +360,150 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('download:cancel', async (_event, dramaName) => {
+  ipcMain.handle("download:cancel", async (_event, dramaName) => {
     return downloadService.cancelDownload(dramaName);
   });
 
-  ipcMain.handle('download:pause', async (_event, dramaName) => {
+  ipcMain.handle("download:pause", async (_event, dramaName) => {
     return downloadService.pauseDownload(dramaName);
   });
 
-  ipcMain.handle('download:resume', async (event, dramaName) => {
+  ipcMain.handle("download:resume", async (event, dramaName) => {
     try {
       return await downloadService.resumeDownload(dramaName, (progress) => {
-        event.sender.send('download:progress', progress);
+        event.sender.send("download:progress", progress);
       });
     } catch (error) {
       // 确保错误能正确传递到渲染进程
-      console.error('[IPC] download:resume 错误:', error);
+      console.error("[IPC] download:resume 错误:", error);
       return {
         success: false,
-        filePath: '',
+        filePath: "",
         error: error instanceof Error ? error.message : String(error),
       };
     }
   });
 
-  ipcMain.handle('download:isPaused', async (_event, dramaName) => {
+  ipcMain.handle("download:isPaused", async (_event, dramaName) => {
     return downloadService.isPaused(dramaName);
   });
 
-  ipcMain.handle('download:getState', async (_event, dramaName) => {
+  ipcMain.handle("download:getState", async (_event, dramaName) => {
     return downloadService.getDownloadState(dramaName);
   });
 
   // ==================== API 代理 ====================
-  ipcMain.handle('api:feishu', async (_event, endpoint, data, method = 'POST') => {
-    return await apiService.feishuRequest(endpoint, data, method, configService);
-  });
-
-  ipcMain.handle('api:feishuPendingUpload', async (_event, tableId?: string) => {
-    return await apiService.getPendingUploadDramas(configService, tableId);
-  });
-
   ipcMain.handle(
-    'api:feishuPendingUploadByDate',
-    async (_event, tableId: string | undefined, dateTimestamp: number) => {
-      return await apiService.getPendingUploadDramasByDate(configService, tableId, dateTimestamp);
+    "api:feishu",
+    async (_event, endpoint, data, method = "POST") => {
+      return await apiService.feishuRequest(
+        endpoint,
+        data,
+        method,
+        configService,
+      );
     },
   );
 
-  ipcMain.handle('api:changdu', async (_event, endpoint, params, headers, configType, customConfig) => {
-    return await apiService.changduRequest(
-      endpoint,
-      params,
-      headers,
+  ipcMain.handle(
+    "api:feishuPendingUpload",
+    async (_event, tableId?: string) => {
+      return await apiService.getPendingUploadDramas(configService, tableId);
+    },
+  );
+
+  ipcMain.handle(
+    "api:feishuPendingUploadByDate",
+    async (_event, tableId: string | undefined, dateTimestamp: number) => {
+      return await apiService.getPendingUploadDramasByDate(
+        configService,
+        tableId,
+        dateTimestamp,
+      );
+    },
+  );
+
+  ipcMain.handle(
+    "api:changdu",
+    async (_event, endpoint, params, headers, configType, customConfig) => {
+      return await apiService.changduRequest(
+        endpoint,
+        params,
+        headers,
+        configService,
+        configType || "sanrou", // 默认使用散柔配置
+        customConfig, // 传递自定义配置
+      );
+    },
+  );
+
+  ipcMain.handle("api:upload", async (event, filePath, options) => {
+    return await apiService.uploadToTos(
+      filePath,
+      options,
       configService,
-      configType || 'sanrou', // 默认使用散柔配置
-      customConfig, // 传递自定义配置
+      (progress) => {
+        event.sender.send("upload:progress", progress);
+      },
     );
   });
 
-  ipcMain.handle('api:upload', async (event, filePath, options) => {
-    return await apiService.uploadToTos(filePath, options, configService, (progress) => {
-      event.sender.send('upload:progress', progress);
-    });
-  });
-
-  ipcMain.handle('api:submitMaterial', async (_event, materials) => {
+  ipcMain.handle("api:submitMaterial", async (_event, materials) => {
     return await apiService.submitToMaterialLibrary(materials, configService);
   });
 
   // ==================== TOS 上传 ====================
-  ipcMain.handle('tos:uploadFile', async (event, filePath) => {
+  ipcMain.handle("tos:uploadFile", async (event, filePath) => {
     return await tosService.uploadFile(filePath, configService, (progress) => {
-      event.sender.send('tos:uploadProgress', progress);
+      event.sender.send("tos:uploadProgress", progress);
     });
   });
 
-  ipcMain.handle('tos:uploadBatch', async (event, filePaths, maxConcurrent = 5) => {
-    return new Promise<void>((resolve) => {
-      tosService
-        .uploadBatch(
-          filePaths,
-          configService,
-          maxConcurrent,
-          (fileName, progress) => {
-            event.sender.send('tos:uploadProgress', {
-              fileName,
-              ...progress,
-            });
-          },
-          (fileName, result) => {
-            event.sender.send('tos:uploadComplete', { fileName, ...result });
-          },
-        )
-        .then(() => {
-          resolve();
-        });
-    });
-  });
+  ipcMain.handle(
+    "tos:uploadBatch",
+    async (event, filePaths, maxConcurrent = 5) => {
+      return new Promise<void>((resolve) => {
+        tosService
+          .uploadBatch(
+            filePaths,
+            configService,
+            maxConcurrent,
+            (fileName, progress) => {
+              event.sender.send("tos:uploadProgress", {
+                fileName,
+                ...progress,
+              });
+            },
+            (fileName, result) => {
+              event.sender.send("tos:uploadComplete", { fileName, ...result });
+            },
+          )
+          .then(() => {
+            resolve();
+          });
+      });
+    },
+  );
 
-  ipcMain.handle('tos:cancelUpload', async (_event, fileName) => {
+  ipcMain.handle("tos:cancelUpload", async (_event, fileName) => {
     return tosService.cancelUpload(fileName);
   });
 
-  ipcMain.handle('tos:cancelAllUploads', async () => {
+  ipcMain.handle("tos:cancelAllUploads", async () => {
     tosService.cancelAllUploads();
   });
 
-  ipcMain.handle('tos:getQueueStatus', async () => {
+  ipcMain.handle("tos:getQueueStatus", async () => {
     return tosService.getQueueStatus();
   });
 
-  ipcMain.handle('tos:initClient', async () => {
+  ipcMain.handle("tos:initClient", async () => {
     await tosService.initTosClient(configService, true);
     return { success: true };
   });
 
   // ==================== 巨量上传 ====================
-  ipcMain.handle('juliang:initialize', async () => {
+  ipcMain.handle("juliang:initialize", async () => {
     // 设置主窗口引用
     if (mainWindow) {
       juliangService.setMainWindow(mainWindow);
@@ -404,135 +512,141 @@ function registerIpcHandlers(): void {
     return await juliangService.initialize();
   });
 
-  ipcMain.handle('juliang:close', async () => {
+  ipcMain.handle("juliang:close", async () => {
     await juliangService.close();
     return { success: true };
   });
 
-  ipcMain.handle('juliang:isReady', async () => {
+  ipcMain.handle("juliang:isReady", async () => {
     return juliangService.isReady();
   });
 
-  ipcMain.handle('juliang:navigate', async (_event, accountId) => {
+  ipcMain.handle("juliang:navigate", async (_event, accountId) => {
     return await juliangService.navigateToUploadPage(accountId);
   });
 
-  ipcMain.handle('juliang:checkLogin', async () => {
+  ipcMain.handle("juliang:checkLogin", async () => {
     return await juliangService.checkLoginStatus();
   });
 
-  ipcMain.handle('juliang:uploadTask', async (_event, task) => {
+  ipcMain.handle("juliang:uploadTask", async (_event, task) => {
     return await juliangService.uploadTask(task);
   });
 
-  ipcMain.handle('juliang:getConfig', async () => {
+  ipcMain.handle("juliang:getConfig", async () => {
     return juliangService.getConfig();
   });
 
-  ipcMain.handle('juliang:updateConfig', async (_event, config) => {
+  ipcMain.handle("juliang:updateConfig", async (_event, config) => {
     juliangService.updateConfig(config);
     return { success: true };
   });
 
-  ipcMain.handle('juliang:getScreenshot', async () => {
+  ipcMain.handle("juliang:getScreenshot", async () => {
     const buffer = await juliangService.getScreenshot();
-    return buffer ? buffer.toString('base64') : null;
+    return buffer ? buffer.toString("base64") : null;
   });
 
-  ipcMain.handle('juliang:getLogs', async () => {
+  ipcMain.handle("juliang:getLogs", async () => {
     return juliangService.getLogs();
   });
 
-  ipcMain.handle('juliang:getTaskStates', async () => {
+  ipcMain.handle("juliang:getTaskStates", async () => {
     return juliangService.getTaskStates();
   });
 
-  ipcMain.handle('juliang:clearLogs', async () => {
+  ipcMain.handle("juliang:clearLogs", async () => {
     juliangService.clearLogs();
     return { success: true };
   });
 
   // ==================== 上传搭建 ====================
-  ipcMain.handle('daily-build:startTask', async (_event, task) => {
+  ipcMain.handle("daily-build:startTask", async (_event, task) => {
     if (mainWindow) {
       dailyBuildService.setMainWindow(mainWindow);
     }
     return await dailyBuildService.startTask(task);
   });
 
-  ipcMain.handle('daily-build:cancelTask', async (_event, taskId) => {
+  ipcMain.handle("daily-build:cancelTask", async (_event, taskId) => {
     return await dailyBuildService.cancelTask(taskId);
   });
 
-  ipcMain.handle('daily-build:getLogs', async () => {
+  ipcMain.handle("daily-build:getLogs", async () => {
     return dailyBuildService.getLogs();
   });
 
-  ipcMain.handle('daily-build:getTaskStates', async () => {
+  ipcMain.handle("daily-build:getTaskStates", async () => {
     return dailyBuildService.getTaskStates();
   });
 
-  ipcMain.handle('daily-build:clearLogs', async () => {
+  ipcMain.handle("daily-build:clearLogs", async () => {
     dailyBuildService.clearLogs();
     return { success: true };
   });
 
   // ==================== 巨量调度器 ====================
-  ipcMain.handle('juliang:scheduler:start', async (_event, darenId?: string) => {
-    if (mainWindow) {
-      juliangScheduler.setMainWindow(mainWindow);
-    }
-    return await juliangScheduler.start(darenId);
-  });
+  ipcMain.handle(
+    "juliang:scheduler:start",
+    async (_event, darenId?: string) => {
+      if (mainWindow) {
+        juliangScheduler.setMainWindow(mainWindow);
+      }
+      return await juliangScheduler.start(darenId);
+    },
+  );
 
-  ipcMain.handle('juliang:scheduler:stop', async () => {
+  ipcMain.handle("juliang:scheduler:stop", async () => {
     await juliangScheduler.stop();
     return { success: true };
   });
 
-  ipcMain.handle('juliang:scheduler:getStatus', async () => {
+  ipcMain.handle("juliang:scheduler:getStatus", async () => {
     return {
       status: juliangScheduler.getStatus(),
       stats: juliangScheduler.getQueueStats(),
     };
   });
 
-  ipcMain.handle('juliang:scheduler:getConfig', async () => {
+  ipcMain.handle("juliang:scheduler:getConfig", async () => {
     return juliangScheduler.getConfig();
   });
 
-  ipcMain.handle('juliang:scheduler:updateConfig', async (_event, config) => {
+  ipcMain.handle("juliang:scheduler:updateConfig", async (_event, config) => {
     juliangScheduler.updateConfig(config);
     return { success: true };
   });
 
-  ipcMain.handle('juliang:scheduler:getLogs', async () => {
+  ipcMain.handle("juliang:scheduler:getLogs", async () => {
     return juliangScheduler.getLogs();
   });
 
-  ipcMain.handle('juliang:scheduler:clearLogs', async () => {
+  ipcMain.handle("juliang:scheduler:clearLogs", async () => {
     juliangScheduler.clearLogs();
     return { success: true };
   });
 
-  ipcMain.handle('juliang:scheduler:fetchNow', async (_event, darenId?: string) => {
-    return await juliangScheduler.fetchNow(darenId);
-  });
+  ipcMain.handle(
+    "juliang:scheduler:fetchNow",
+    async (_event, darenId?: string) => {
+      return await juliangScheduler.fetchNow(darenId);
+    },
+  );
 
-  ipcMain.handle('juliang:scheduler:cancelAll', async () => {
+  ipcMain.handle("juliang:scheduler:cancelAll", async () => {
     return await juliangScheduler.cancelAll();
   });
 
-  ipcMain.handle('juliang:scheduler:getCompletedTasks', async () => {
+  ipcMain.handle("juliang:scheduler:getCompletedTasks", async () => {
     return juliangScheduler.getCompletedTasks();
   });
 
   // ==================== 应用控制 ====================
-  ipcMain.handle('app:minimize', () => {
+  ipcMain.handle("app:minimize", () => {
     mainWindow?.minimize();
   });
 
-  ipcMain.handle('app:maximize', () => {
+  ipcMain.handle("app:maximize", () => {
     if (mainWindow?.isMaximized()) {
       mainWindow.unmaximize();
     } else {
@@ -540,26 +654,26 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('app:close', () => {
+  ipcMain.handle("app:close", () => {
     mainWindow?.hide();
   });
 
-  ipcMain.handle('app:quit', () => {
+  ipcMain.handle("app:quit", () => {
     app.isQuitting = true;
     app.quit();
   });
 
-  ipcMain.handle('app:openExternal', async (_event, url) => {
+  ipcMain.handle("app:openExternal", async (_event, url) => {
     await shell.openExternal(url);
   });
 
-  ipcMain.handle('app:showInFolder', async (_event, path) => {
+  ipcMain.handle("app:showInFolder", async (_event, path) => {
     shell.showItemInFolder(path);
   });
 }
 
 // 扩展 app 类型
-declare module 'electron' {
+declare module "electron" {
   interface App {
     isQuitting: boolean;
   }
@@ -571,11 +685,11 @@ app.isQuitting = false;
 // initialization and is ready to create browser windows.
 app.whenReady().then(() => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.guazai.changdu-material');
+  electronApp.setAppUserModelId("com.guazai.changdu-material");
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
-  app.on('browser-window-created', (_, window) => {
+  app.on("browser-window-created", (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
 
@@ -583,15 +697,18 @@ app.whenReady().then(() => {
   registerIpcHandlers();
 
   createWindow();
+  if (mainWindow) {
+    materialClipService.setMainWindow(mainWindow);
+  }
   createTray();
 
   // 启动时静默获取 Auth 配置，失败不阻塞
   configService.fetchAuthConfig().catch((err) => {
-    console.error('[Main] 启动时获取 Auth 配置失败:', err);
+    console.error("[Main] 启动时获取 Auth 配置失败:", err);
   });
 
   // 全局快捷键：F12 打开开发者工具（用于调试打包后的应用）
-  globalShortcut.register('F12', () => {
+  globalShortcut.register("F12", () => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     if (focusedWindow) {
       focusedWindow.webContents.toggleDevTools();
@@ -599,14 +716,14 @@ app.whenReady().then(() => {
   });
 
   // Ctrl+Shift+I 也打开开发者工具
-  globalShortcut.register('CommandOrControl+Shift+I', () => {
+  globalShortcut.register("CommandOrControl+Shift+I", () => {
     const focusedWindow = BrowserWindow.getFocusedWindow();
     if (focusedWindow) {
       focusedWindow.webContents.toggleDevTools();
     }
   });
 
-  app.on('activate', function () {
+  app.on("activate", function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -614,13 +731,13 @@ app.whenReady().then(() => {
 });
 
 // Quit when all windows are closed, except on macOS.
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
 // 在退出前清理
-app.on('before-quit', () => {
+app.on("before-quit", () => {
   app.isQuitting = true;
 });

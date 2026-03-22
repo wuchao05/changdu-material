@@ -145,6 +145,186 @@ interface JuliangCompletedTask {
   duration: string;
 }
 
+interface MaterialClipVideoConfig {
+  hw_codec: string;
+  sw_codec: string;
+  bitrate: string;
+  max_rate: string;
+  buffer_size: string;
+  soft_crf: string;
+  preset: string;
+  profile: string;
+  level: string;
+  hw_level: string;
+  sw_level: string;
+  tag: string;
+  pixel_format: string;
+  faststart: boolean;
+}
+
+interface MaterialClipAudioConfig {
+  codec: string;
+  bitrate: string;
+  sample_rate: number;
+}
+
+interface MaterialClipBrandTextRange {
+  range: string;
+  text: string;
+}
+
+interface MaterialClipBrandTextMapping {
+  mode: string;
+  ranges: MaterialClipBrandTextRange[] | null;
+  cycle_texts: string[] | null;
+  default_text: string;
+}
+
+interface MaterialClipFeishuConfig {
+  app_id: string;
+  app_secret: string;
+  app_token: string;
+  table_id: string;
+  base_url: string;
+  field_names: string[];
+  status_field_name: string;
+  pending_status_value: string;
+  completed_status_value: string;
+  processing_status_value: string;
+  missing_source_status_value: string;
+  failed_status_value: string;
+  remark_field_name: string;
+  rating_field_name: string;
+  priority_rating_value: string;
+  upload_time_sort_desc: boolean;
+  douyin_material_field_name: string;
+  page_size: number;
+  token_refresh_interval: number;
+}
+
+interface MaterialClipFeishuWatcherConfig {
+  enabled: boolean;
+  poll_interval: number;
+  max_dates_per_cycle: number;
+  settle_seconds: number;
+  settle_rounds: number;
+  idle_exit_minutes: number | null;
+  state_dir: string;
+  date_whitelist: string[];
+  date_blacklist: string[];
+  status_filter: string | null;
+}
+
+interface MaterialClipDateDeduplicationConfig {
+  enabled: boolean;
+  storage_dir: string;
+  skip_processed_by_default: boolean;
+}
+
+interface MaterialClipConfig {
+  active_user: string | null;
+  target_fps: number;
+  smart_fps: boolean;
+  fast_mode: boolean;
+  filter_threads: number;
+  verbose: boolean;
+  min_duration: number;
+  max_duration: number;
+  count: number;
+  material_code: string;
+  date_str: string | null;
+  exclude_last_episodes: number;
+  title_font_size: number;
+  brand_font_size: number;
+  disclaimer_font_size: number;
+  disclaimer_text: string;
+  enable_brand_text: boolean;
+  enable_disclaimer_text: boolean;
+  title_opacity: number;
+  bottom_opacity: number;
+  title_position: string;
+  title_colors: string[];
+  enable_hook_text: boolean;
+  hook_texts: string[];
+  hook_font_size: number;
+  hook_duration: number;
+  hook_text_color: string;
+  random_start: boolean;
+  seed: number | null;
+  use_hardware: boolean;
+  keep_temp: boolean;
+  jobs: number;
+  canvas: string | null;
+  reference_resolution: [number, number] | null;
+  default_source_dir: string;
+  backup_source_dir: string;
+  temp_dir: string | null;
+  output_dir: string;
+  tail_cache_dir: string | null;
+  tail_file: string | null;
+  refresh_tail_cache: boolean;
+  font_file: string | null;
+  brand_text: string;
+  brand_text_mapping: MaterialClipBrandTextMapping | null;
+  enable_floating_watermark: boolean;
+  floating_watermark_font_size: number;
+  floating_watermark_alpha: number;
+  floating_watermark_speed_range: number[];
+  include: string[] | null;
+  exclude: string[] | null;
+  full: boolean;
+  no_interactive: boolean;
+  enable_deduplication: boolean;
+  auto_delete_source_after_completion: boolean;
+  video: MaterialClipVideoConfig;
+  audio: MaterialClipAudioConfig;
+  enable_feishu_features: boolean;
+  feishu: MaterialClipFeishuConfig;
+  feishu_watcher: MaterialClipFeishuWatcherConfig;
+  feishu_webhook_url: string | null;
+  enable_feishu_notification: boolean;
+  date_deduplication: MaterialClipDateDeduplicationConfig;
+}
+
+interface MaterialClipLogEntry {
+  time: string;
+  message: string;
+}
+
+interface MaterialClipRunResult {
+  success: boolean;
+  error?: string;
+  pid?: number;
+}
+
+interface MaterialClipEnvironmentStatus {
+  ready: boolean;
+  installSupported: boolean;
+  platform: NodeJS.Platform;
+  processorRoot: string | null;
+  pythonCommand: string | null;
+  activeUser: string | null;
+  runtimeSource: "managed" | "dev-fallback" | "missing";
+  checks: Array<{
+    key: string;
+    label: string;
+    passed: boolean;
+    detail: string;
+  }>;
+  error?: string;
+}
+
+interface MaterialClipInstallResult {
+  success: boolean;
+  error?: string;
+}
+
+interface MaterialClipRuntimeImportResult {
+  success: boolean;
+  error?: string;
+  runtimeRoot?: string;
+}
+
 interface Api {
   // 配置管理
   getDarenConfig: () => Promise<{ darenList: DarenInfo[] }>;
@@ -160,6 +340,16 @@ interface Api {
     error?: string;
   }>;
   pushRemoteConfig: () => Promise<{ success: boolean; error?: string }>;
+  getClipConfig: () => Promise<MaterialClipConfig>;
+  getClipEnvironmentStatus: () => Promise<MaterialClipEnvironmentStatus>;
+  installClipEnvironment: () => Promise<MaterialClipInstallResult>;
+  importClipRuntime: () => Promise<MaterialClipRuntimeImportResult>;
+  saveClipConfig: (config: MaterialClipConfig) => Promise<MaterialClipConfig>;
+  clipAutoRun: () => Promise<MaterialClipRunResult>;
+  clipManualRun: (dramaNames: string) => Promise<MaterialClipRunResult>;
+  clipGetLogs: () => Promise<MaterialClipLogEntry[]>;
+  clipClearLogs: () => Promise<{ success: boolean }>;
+  onClipLog: (callback: (log: MaterialClipLogEntry) => void) => () => void;
 
   // 文件系统
   scanVideos: (basePath: string) => Promise<VideoMaterial[]>;

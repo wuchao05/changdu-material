@@ -35,6 +35,39 @@ interface TosUploadResult {
   error?: string;
 }
 
+interface MaterialClipLog {
+  time: string;
+  message: string;
+}
+
+interface MaterialClipEnvironmentStatus {
+  ready: boolean;
+  installSupported: boolean;
+  platform: NodeJS.Platform;
+  processorRoot: string | null;
+  pythonCommand: string | null;
+  activeUser: string | null;
+  runtimeSource: "managed" | "dev-fallback" | "missing";
+  checks: Array<{
+    key: string;
+    label: string;
+    passed: boolean;
+    detail: string;
+  }>;
+  error?: string;
+}
+
+interface MaterialClipInstallResult {
+  success: boolean;
+  error?: string;
+}
+
+interface MaterialClipRuntimeImportResult {
+  success: boolean;
+  error?: string;
+  runtimeRoot?: string;
+}
+
 // Custom APIs for renderer
 const api = {
   // ==================== 配置管理 ====================
@@ -54,6 +87,27 @@ const api = {
   syncRemoteConfig: () => ipcRenderer.invoke("config:syncFromRemote"),
   pushRemoteConfig: () => ipcRenderer.invoke("config:pushToRemote"),
 
+  getClipConfig: () => ipcRenderer.invoke("clip:getConfig"),
+  getClipEnvironmentStatus: (): Promise<MaterialClipEnvironmentStatus> =>
+    ipcRenderer.invoke("clip:getEnvironmentStatus"),
+  installClipEnvironment: (): Promise<MaterialClipInstallResult> =>
+    ipcRenderer.invoke("clip:installEnvironment"),
+  importClipRuntime: (): Promise<MaterialClipRuntimeImportResult> =>
+    ipcRenderer.invoke("clip:importRuntime"),
+  saveClipConfig: (config: unknown) =>
+    ipcRenderer.invoke("clip:saveConfig", config),
+  clipAutoRun: () => ipcRenderer.invoke("clip:autoRun"),
+  clipManualRun: (dramaNames: string) =>
+    ipcRenderer.invoke("clip:manualRun", dramaNames),
+  clipGetLogs: () => ipcRenderer.invoke("clip:getLogs"),
+  clipClearLogs: () => ipcRenderer.invoke("clip:clearLogs"),
+  onClipLog: (callback: (log: MaterialClipLog) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, log: MaterialClipLog) =>
+      callback(log);
+    ipcRenderer.on("material-clip:log", handler);
+    return () => ipcRenderer.removeListener("material-clip:log", handler);
+  },
+
   // ==================== 文件系统 ====================
   scanVideos: (basePath: string) =>
     ipcRenderer.invoke("file:scanVideos", basePath),
@@ -67,19 +121,28 @@ const api = {
     ipcRenderer.invoke("file:countMp4Files", dirPath),
   checkZipFile: (zipPath: string) =>
     ipcRenderer.invoke("file:checkZipFile", zipPath),
-  renameVideosByTemplate: (basePath: string, template: string, dateValue?: string) =>
-    ipcRenderer.invoke("file:renameVideosByTemplate", basePath, template, dateValue),
+  renameVideosByTemplate: (
+    basePath: string,
+    template: string,
+    dateValue?: string,
+  ) =>
+    ipcRenderer.invoke(
+      "file:renameVideosByTemplate",
+      basePath,
+      template,
+      dateValue,
+    ),
   selectFolder: () => ipcRenderer.invoke("file:selectFolder"),
   extractZip: (
     zipPath: string,
     targetDir?: string,
-    deleteAfterExtract?: boolean
+    deleteAfterExtract?: boolean,
   ) =>
     ipcRenderer.invoke(
       "file:extractZip",
       zipPath,
       targetDir,
-      deleteAfterExtract
+      deleteAfterExtract,
     ),
 
   // ==================== 下载 ====================
@@ -98,7 +161,7 @@ const api = {
   onDownloadProgress: (callback: (progress: DownloadProgress) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      progress: DownloadProgress
+      progress: DownloadProgress,
     ) => callback(progress);
     ipcRenderer.on("download:progress", handler);
     return () => ipcRenderer.removeListener("download:progress", handler);
@@ -109,22 +172,32 @@ const api = {
     ipcRenderer.invoke("api:feishu", endpoint, data, method),
   feishuGetPendingUpload: (tableId?: string) =>
     ipcRenderer.invoke("api:feishuPendingUpload", tableId),
-  feishuGetPendingUploadByDate: (tableId: string | undefined, dateTimestamp: number) =>
+  feishuGetPendingUploadByDate: (
+    tableId: string | undefined,
+    dateTimestamp: number,
+  ) =>
     ipcRenderer.invoke("api:feishuPendingUploadByDate", tableId, dateTimestamp),
   changduRequest: (
     endpoint: string,
     params: unknown,
     headers?: unknown,
-    configType?: 'sanrou' | 'meiri' | 'custom',
+    configType?: "sanrou" | "meiri" | "custom",
     customConfig?: {
-      cookie: string
-      distributorId: string
-      changduAppId: string
-      changduAdUserId: string
-      changduRootAdUserId: string
-    }
+      cookie: string;
+      distributorId: string;
+      changduAppId: string;
+      changduAdUserId: string;
+      changduRootAdUserId: string;
+    },
   ) =>
-    ipcRenderer.invoke("api:changdu", endpoint, params, headers, configType, customConfig),
+    ipcRenderer.invoke(
+      "api:changdu",
+      endpoint,
+      params,
+      headers,
+      configType,
+      customConfig,
+    ),
   uploadToTos: (filePath: string, options: unknown) =>
     ipcRenderer.invoke("api:upload", filePath, options),
   submitMaterial: (materials: unknown) =>
@@ -132,7 +205,7 @@ const api = {
   onUploadProgress: (callback: (progress: UploadProgress) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      progress: UploadProgress
+      progress: UploadProgress,
     ) => callback(progress);
     ipcRenderer.on("upload:progress", handler);
     return () => ipcRenderer.removeListener("upload:progress", handler);
@@ -151,7 +224,7 @@ const api = {
   onTosUploadProgress: (callback: (progress: TosUploadProgress) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      progress: TosUploadProgress
+      progress: TosUploadProgress,
     ) => callback(progress);
     ipcRenderer.on("tos:uploadProgress", handler);
     return () => ipcRenderer.removeListener("tos:uploadProgress", handler);
@@ -159,7 +232,7 @@ const api = {
   onTosUploadComplete: (callback: (result: TosUploadResult) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      result: TosUploadResult
+      result: TosUploadResult,
     ) => callback(result);
     ipcRenderer.on("tos:uploadComplete", handler);
     return () => ipcRenderer.removeListener("tos:uploadComplete", handler);
@@ -201,7 +274,8 @@ const api = {
   dailyBuildCancelTask: (taskId: string) =>
     ipcRenderer.invoke("daily-build:cancelTask", taskId),
   dailyBuildGetLogs: () => ipcRenderer.invoke("daily-build:getLogs"),
-  dailyBuildGetTaskStates: () => ipcRenderer.invoke("daily-build:getTaskStates"),
+  dailyBuildGetTaskStates: () =>
+    ipcRenderer.invoke("daily-build:getTaskStates"),
   dailyBuildClearLogs: () => ipcRenderer.invoke("daily-build:clearLogs"),
 
   // ==================== 巨量调度器 ====================
@@ -225,22 +299,22 @@ const api = {
   juliangSchedulerGetCompletedTasks: () =>
     ipcRenderer.invoke("juliang:scheduler:getCompletedTasks"),
   onJuliangSchedulerLog: (
-    callback: (log: { time: string; message: string }) => void
+    callback: (log: { time: string; message: string }) => void,
   ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      log: { time: string; message: string }
+      log: { time: string; message: string },
     ) => callback(log);
     ipcRenderer.on("juliang:scheduler-log", handler);
     return () => ipcRenderer.removeListener("juliang:scheduler-log", handler);
   },
 
   onJuliangLog: (
-    callback: (log: { time: string; message: string }) => void
+    callback: (log: { time: string; message: string }) => void,
   ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      log: { time: string; message: string }
+      log: { time: string; message: string },
     ) => callback(log);
     ipcRenderer.on("juliang:log", handler);
     return () => ipcRenderer.removeListener("juliang:log", handler);
@@ -255,7 +329,7 @@ const api = {
       successCount: number;
       totalFiles: number;
       message: string;
-    }) => void
+    }) => void,
   ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -268,11 +342,10 @@ const api = {
         successCount: number;
         totalFiles: number;
         message: string;
-      }
+      },
     ) => callback(progress);
     ipcRenderer.on("juliang:upload-progress", handler);
-    return () =>
-      ipcRenderer.removeListener("juliang:upload-progress", handler);
+    return () => ipcRenderer.removeListener("juliang:upload-progress", handler);
   },
   onDailyBuildProgress: (
     callback: (progress: {
@@ -284,7 +357,7 @@ const api = {
       totalRules: number;
       successRuleCount: number;
       failedRuleCount: number;
-    }) => void
+    }) => void,
   ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
@@ -297,17 +370,17 @@ const api = {
         totalRules: number;
         successRuleCount: number;
         failedRuleCount: number;
-      }
+      },
     ) => callback(progress);
     ipcRenderer.on("daily-build:progress", handler);
     return () => ipcRenderer.removeListener("daily-build:progress", handler);
   },
   onDailyBuildLog: (
-    callback: (log: { time: string; message: string }) => void
+    callback: (log: { time: string; message: string }) => void,
   ) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
-      log: { time: string; message: string }
+      log: { time: string; message: string },
     ) => callback(log);
     ipcRenderer.on("daily-build:log", handler);
     return () => ipcRenderer.removeListener("daily-build:log", handler);

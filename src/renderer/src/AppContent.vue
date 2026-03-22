@@ -19,6 +19,7 @@ import {
   EyeOffOutline,
   RocketOutline,
   ConstructOutline,
+  CutOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -79,6 +80,15 @@ const menuOptions = computed(() => {
     });
   }
 
+  // 素材剪辑 - 仅管理员可见
+  if (isAdmin) {
+    options.push({
+      label: "素材剪辑",
+      key: "material-clip",
+      icon: () => h(NIcon, null, { default: () => h(CutOutline) }),
+    });
+  }
+
   // 系统设置 - 仅管理员可见
   if (isAdmin) {
     options.push({
@@ -118,7 +128,7 @@ watch(
       activeKey.value = key;
     }
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 // 退出登录
@@ -151,9 +161,9 @@ async function handleHideToTray() {
 // 刷新页面和配置
 async function handleRefresh() {
   if (refreshing.value) return;
-  
+
   refreshing.value = true;
-  
+
   try {
     console.log("[AppContent] 开始刷新...");
 
@@ -169,10 +179,9 @@ async function handleRefresh() {
     // 2. 重新加载达人配置（强制刷新）
     await darenStore.loadFromServer(true);
     console.log("[AppContent] ✓ 达人配置已刷新");
-    
+
     // 3. 重新加载当前页面（使用浏览器原生刷新）
     window.location.reload();
-    
   } catch (error) {
     console.error("[AppContent] 刷新失败:", error);
     message.error("刷新失败");
@@ -313,7 +322,7 @@ onMounted(async () => {
         </NLayoutSider>
         <NLayoutContent class="main-content">
           <router-view v-slot="{ Component }">
-            <KeepAlive include="Upload,Download,JuliangUpload">
+            <KeepAlive include="Upload,Download,JuliangUpload,MaterialClip">
               <component :is="Component" />
             </KeepAlive>
           </router-view>
