@@ -726,11 +726,9 @@ export class MaterialClipService {
     config: MaterialClipConfig,
   ): Promise<MaterialClipConfig> {
     const apiConfig = await this.configService.getApiConfig();
-    const normalizedOutputDir = this.resolveOutputDir(config);
     const hasDisclaimerText = Boolean(config.disclaimer_text.trim());
     return {
       ...config,
-      output_dir: normalizedOutputDir,
       enable_disclaimer_text:
         config.enable_disclaimer_text || hasDisclaimerText,
       feishu: {
@@ -1192,48 +1190,6 @@ export class MaterialClipService {
       return null;
     }
     return normalized;
-  }
-
-  private getSourceBaseDir(sourceDir: string): string {
-    const normalized = sourceDir.trim().replace(/[\\/]+$/, "");
-    if (!normalized) {
-      return "";
-    }
-
-    const pathModule =
-      /^[a-zA-Z]:[\\/]/.test(normalized) || normalized.includes("\\")
-        ? path.win32
-        : path.posix;
-    const parentDir = pathModule.dirname(normalized);
-    return parentDir === "." ? "" : parentDir;
-  }
-
-  private resolveOutputDir(config: MaterialClipConfig): string {
-    const sourceDir =
-      config.default_source_dir.trim() || config.backup_source_dir.trim();
-    const outputDir = config.output_dir.trim();
-    if (!sourceDir) {
-      return outputDir;
-    }
-
-    const exportBaseDir = this.getSourceBaseDir(sourceDir);
-    if (!outputDir) {
-      return exportBaseDir;
-    }
-
-    try {
-      const pathModule =
-        /^[a-zA-Z]:[\\/]/.test(sourceDir) || sourceDir.includes("\\")
-          ? path.win32
-          : path;
-      if (pathModule.resolve(outputDir) === pathModule.resolve(sourceDir)) {
-        return exportBaseDir;
-      }
-    } catch {
-      return outputDir;
-    }
-
-    return outputDir;
   }
 
   private extractFieldTexts(value: unknown): string[] {
