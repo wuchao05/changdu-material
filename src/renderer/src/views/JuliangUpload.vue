@@ -669,8 +669,8 @@ onUnmounted(() => {
         <div class="config-group-row">
           <div class="config-group half">
             <div class="group-header">
-              <div class="group-title">素材目录与调度</div>
-              <div class="group-desc">设置本地素材目录和轮询重试策略</div>
+              <div class="group-title">素材目录</div>
+              <div class="group-desc">设置本地素材导出的根目录</div>
             </div>
             <div class="compact-grid">
               <div class="compact-field compact-field-wide">
@@ -685,19 +685,6 @@ onUnmounted(() => {
                   <NButton @click="selectLocalRootDir">选择目录</NButton>
                 </div>
                 <div class="config-hint">目录结构: 根目录/M.D导出/剧名/视频文件</div>
-              </div>
-              <div class="compact-field">
-                <div class="compact-label">任务重试次数</div>
-                <div class="compact-control">
-                  <NInputNumber
-                    v-model:value="schedulerConfig.maxTaskRetries"
-                    :min="0"
-                    :max="5"
-                    :step="1"
-                    style="width: 100%"
-                    @update:value="saveSchedulerConfig"
-                  />
-                </div>
               </div>
             </div>
           </div>
