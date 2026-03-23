@@ -618,21 +618,15 @@ onUnmounted(() => {
         <div class="status-message">{{ statusSummary }}</div>
       </div>
 
-      <div class="current-drama-section">
-        <div class="section-title">调度与浏览器</div>
-        <div class="progress-meta">
-          <div class="progress-chip">
-            <span class="progress-chip-label">调度状态</span>
-            <span class="progress-chip-value">{{ schedulerStatusText }}</span>
-          </div>
-          <div class="progress-chip">
-            <span class="progress-chip-label">浏览器</span>
-            <span class="progress-chip-value">{{ browserStatusText }}</span>
-          </div>
-          <div v-if="hasActiveUploadTask && currentTask" class="progress-chip">
-            <span class="progress-chip-label">当前任务</span>
-            <span class="progress-chip-value">{{ currentTask.drama }}</span>
-          </div>
+      <div class="status-inline-bar">
+        <div class="status-inline-item">
+          <span class="status-inline-label">调度状态</span>
+          <span class="status-inline-value">{{ schedulerStatusText }}</span>
+        </div>
+        <div class="status-inline-divider"></div>
+        <div class="status-inline-item">
+          <span class="status-inline-label">浏览器</span>
+          <span class="status-inline-value">{{ browserStatusText }}</span>
         </div>
       </div>
 
@@ -933,6 +927,42 @@ onUnmounted(() => {
   font-weight: 600;
   color: #475569;
   margin-bottom: 12px;
+}
+
+.status-inline-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 46px;
+  padding: 0 16px;
+  margin-bottom: 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  flex-wrap: wrap;
+}
+
+.status-inline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-inline-label {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.status-inline-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.status-inline-divider {
+  width: 1px;
+  height: 16px;
+  background: #dbe4f0;
 }
 
 .current-drama-section {
@@ -1264,6 +1294,15 @@ onUnmounted(() => {
   .hero-row {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .status-inline-bar {
+    display: flex;
+    width: 100%;
+  }
+
+  .status-inline-divider {
+    display: none;
   }
 
   .progress-meta {
