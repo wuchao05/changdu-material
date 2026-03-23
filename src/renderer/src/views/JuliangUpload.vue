@@ -6,15 +6,12 @@ import {
   NButton,
   NSpace,
   NAlert,
-  NProgress,
   NTag,
   NInput,
   NInputNumber,
   NSwitch,
   NCollapse,
   NCollapseItem,
-  NDivider,
-  NDataTable,
   useMessage,
 } from "naive-ui";
 import { useAuthStore } from "../stores/auth";
@@ -376,6 +373,22 @@ const uploadDurationText = computed(() =>
   formatUploadDuration(uploadElapsedSeconds.value),
 );
 
+const statusSummary = computed(() => {
+  if (currentTask.value) {
+    return currentTask.value.message || `正在上传《${currentTask.value.drama}》`;
+  }
+
+  if (schedulerStatus.value === "running") {
+    return "轮询上传运行中";
+  }
+
+  if (schedulerStatus.value === "stopped") {
+    return "轮询上传已停止";
+  }
+
+  return "等待启动调度";
+});
+
 async function handleExpandedNamesChange(
   names: string[] | string | null | undefined,
 ) {
@@ -402,30 +415,12 @@ const schedulerStatusText = computed(() => {
   }
 });
 
-const schedulerStatusType = computed(() => {
-  switch (schedulerStatus.value) {
-    case "running":
-      return "success";
-    case "stopped":
-      return "error";
-    default:
-      return "default";
-  }
-});
-
 // 浏览器状态
 const browserStatusText = computed(() => {
   if (isInitializing.value) return "初始化中...";
   if (!isReady.value) return "未启动";
   if (needLogin.value) return "需要登录";
   return "已就绪";
-});
-
-const browserStatusType = computed(() => {
-  if (isInitializing.value) return "info";
-  if (!isReady.value) return "default";
-  if (needLogin.value) return "warning";
-  return "success";
 });
 
 onMounted(async () => {
@@ -495,173 +490,220 @@ onUnmounted(() => {
 
 <template>
   <div class="juliang-page">
-    <!-- 状态概览 -->
-    <div class="status-bar">
-      <div class="status-item">
-        <span class="status-label">调度状态</span>
-        <NTag :type="schedulerStatusType" size="small">{{
-          schedulerStatusText
-        }}</NTag>
-      </div>
-      <div class="status-item">
-        <span class="status-label">浏览器</span>
-        <NTag :type="browserStatusType" size="small">{{
-          browserStatusText
-        }}</NTag>
-      </div>
-      <div class="status-item" v-if="currentTask">
-        <span class="status-label">当前任务</span>
-        <span class="status-value">{{ currentTask.drama }}</span>
-      </div>
-    </div>
-
-    <!-- 主控制区 -->
-    <NCard class="main-card">
-      <!-- 素材目录配置 -->
-      <div class="config-row">
-        <span class="config-label">素材根目录</span>
-        <NInput
-          v-model:value="schedulerConfig.localRootDir"
-          placeholder="选择本地素材导出的根目录"
-          readonly
-          class="config-input"
-        />
-        <NButton @click="selectLocalRootDir">选择目录</NButton>
-      </div>
-      <div class="config-hint">目录结构: 根目录/M.D导出/剧名/视频文件</div>
-
-      <NDivider style="margin: 16px 0" />
-
-      <!-- 控制按钮 -->
-      <div class="control-buttons">
-        <NButton
-          type="primary"
-          size="large"
-          :disabled="
-            schedulerStatus === 'running' || !schedulerConfig.localRootDir
-          "
-          :loading="isInitializing"
-          @click="startScheduler"
-        >
-          {{ isInitializing ? "初始化中..." : "启动调度" }}
-        </NButton>
-        <NButton
-          size="large"
-          :disabled="schedulerStatus !== 'running'"
-          @click="stopScheduler"
-        >
-          停止调度
-        </NButton>
-        <NButton
-          size="large"
-          :disabled="
-            schedulerStatus !== 'running' || schedulerStats.running > 0
-          "
-          @click="fetchNow"
-        >
-          立即查询
-        </NButton>
-        <NButton
-          size="large"
-          type="error"
-          :disabled="
-            schedulerStatus !== 'running' ||
-            (schedulerStats.pending === 0 && schedulerStats.running === 0)
-          "
-          @click="cancelAll"
-        >
-          取消上传
-        </NButton>
+    <NCard class="overview-card">
+      <div class="hero-row">
+        <div class="hero-title">巨量上传</div>
+        <NSpace class="hero-actions" wrap>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            :disabled="
+              schedulerStatus !== 'running' || schedulerStats.running > 0
+            "
+            @click="fetchNow"
+          >
+            立即查询
+          </NButton>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            type="error"
+            :disabled="
+              schedulerStatus !== 'running' ||
+              (schedulerStats.pending === 0 && schedulerStats.running === 0)
+            "
+            @click="cancelAll"
+          >
+            取消上传
+          </NButton>
+          <NButton
+            v-if="schedulerStatus !== 'running'"
+            type="primary"
+            secondary
+            strong
+            class="hero-action-btn hero-action-btn-primary"
+            :disabled="!schedulerConfig.localRootDir"
+            :loading="isInitializing"
+            @click="startScheduler"
+          >
+            {{ isInitializing ? "初始化中..." : "启动调度" }}
+          </NButton>
+          <NButton
+            v-else
+            type="error"
+            secondary
+            strong
+            class="hero-action-btn hero-action-btn-danger"
+            @click="stopScheduler"
+          >
+            停止调度
+          </NButton>
+        </NSpace>
       </div>
     </NCard>
 
-    <!-- 当前任务进度 -->
-    <NCard
-      v-if="currentTask"
-      :class="[
-        'progress-card',
-        currentTask.status === 'skipped' ? 'cancelled' : '',
-      ]"
-    >
-      <div class="progress-header">
-        <span class="progress-title">{{ currentTask.drama }}</span>
-        <span class="progress-status">{{ currentTask.message }}</span>
+    <NCard class="status-card">
+      <template #header>运行状态</template>
+      <div class="status-header">
+        <div class="status-message">{{ statusSummary }}</div>
       </div>
-      <div v-if="currentTask.status !== 'skipped'" class="progress-info">
-        <span
-          >批次: {{ currentTask.currentBatch }}/{{
-            currentTask.totalBatches
-          }}</span
-        >
-        <span
-          >文件: {{ currentTask.successCount }}/{{
-            currentTask.totalFiles
-          }}</span
-        >
-        <span v-if="uploadStartTime" class="upload-timer"
-          >上传时长: {{ uploadDurationText }}</span
-        >
-      </div>
-      <NProgress
-        v-if="currentTask.status !== 'skipped'"
-        type="line"
-        :percentage="
-          currentTask.totalFiles > 0
-            ? Math.round(
-                (currentTask.successCount / currentTask.totalFiles) * 100,
-              )
-            : 0
-        "
-        :indicator-placement="'inside'"
-        :height="24"
-        :border-radius="4"
-      />
-    </NCard>
 
-    <!-- 已上传列表 -->
-    <NCollapse v-if="completedTasks.length > 0" class="completed-collapse">
-      <NCollapseItem
-        :title="`已上传列表 (${completedTasks.length})`"
-        name="completed"
-      >
-        <div class="completed-table">
-          <table>
-            <thead>
-              <tr>
-                <th>剧名</th>
-                <th>飞书日期</th>
-                <th>素材数</th>
-                <th>状态</th>
-                <th>耗时</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(task, index) in completedTasks" :key="index">
-                <td>{{ task.drama }}</td>
-                <td>{{ task.date }}</td>
-                <td>{{ task.fileCount }}</td>
-                <td>
-                  <NTag
-                    v-if="task.status === 'completed'"
-                    type="success"
-                    size="small"
-                    >成功</NTag
-                  >
-                  <NTag
-                    v-else-if="task.status === 'failed'"
-                    type="error"
-                    size="small"
-                    >失败</NTag
-                  >
-                  <NTag v-else type="warning" size="small">跳过</NTag>
-                </td>
-                <td>{{ task.duration }}</td>
-              </tr>
-            </tbody>
-          </table>
+      <div class="current-drama-section">
+        <div class="section-title">调度与浏览器</div>
+        <div class="progress-meta">
+          <div class="progress-chip">
+            <span class="progress-chip-label">调度状态</span>
+            <span class="progress-chip-value">{{ schedulerStatusText }}</span>
+          </div>
+          <div class="progress-chip">
+            <span class="progress-chip-label">浏览器</span>
+            <span class="progress-chip-value">{{ browserStatusText }}</span>
+          </div>
+          <div
+            v-if="currentTask"
+            class="progress-chip"
+          >
+            <span class="progress-chip-label">当前任务</span>
+            <span class="progress-chip-value">{{ currentTask.drama }}</span>
+          </div>
         </div>
-      </NCollapseItem>
-    </NCollapse>
+      </div>
+
+      <!-- 当前任务进度 -->
+      <div
+        v-if="currentTask"
+        :class="[
+          'current-drama-section',
+          'upload-task-section',
+          currentTask.status === 'skipped' ? 'cancelled' : '',
+        ]"
+      >
+        <div class="section-title">当前上传任务</div>
+        <div class="drama-info">
+          <span class="drama-name">{{ currentTask.drama }}</span>
+          <span class="drama-tag">{{ currentTask.message }}</span>
+        </div>
+        <div v-if="currentTask.status !== 'skipped'" class="progress-info">
+          <div class="progress-meta">
+            <div class="progress-chip">
+              <span class="progress-chip-label">批次</span>
+              <span class="progress-chip-value"
+                >{{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}</span
+              >
+            </div>
+            <div class="progress-chip">
+              <span class="progress-chip-label">文件</span>
+              <span class="progress-chip-value"
+                >{{ currentTask.successCount }}/{{ currentTask.totalFiles }}</span
+              >
+            </div>
+            <div v-if="uploadStartTime" class="progress-chip">
+              <span class="progress-chip-label">上传时长</span>
+              <span class="progress-chip-value">{{ uploadDurationText }}</span>
+            </div>
+          </div>
+          <div class="progress-bar-container">
+            <div
+              class="progress-bar"
+              :style="{
+                width: `${
+                  currentTask.totalFiles > 0
+                    ? Math.round(
+                        (currentTask.successCount / currentTask.totalFiles) * 100,
+                      )
+                    : 0
+                }%`,
+              }"
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      <NCollapse v-if="completedTasks.length > 0" class="status-collapse">
+        <NCollapseItem
+          :title="`已上传列表 (${completedTasks.length})`"
+          name="completed"
+        >
+          <div class="completed-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>剧名</th>
+                  <th>飞书日期</th>
+                  <th>素材数</th>
+                  <th>状态</th>
+                  <th>耗时</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(task, index) in completedTasks" :key="index">
+                  <td>{{ task.drama }}</td>
+                  <td>{{ task.date }}</td>
+                  <td>{{ task.fileCount }}</td>
+                  <td>
+                    <NTag
+                      v-if="task.status === 'completed'"
+                      type="success"
+                      size="small"
+                      >成功</NTag
+                    >
+                    <NTag
+                      v-else-if="task.status === 'failed'"
+                      type="error"
+                      size="small"
+                      >失败</NTag
+                    >
+                    <NTag v-else type="warning" size="small">跳过</NTag>
+                  </td>
+                  <td>{{ task.duration }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </NCollapseItem>
+      </NCollapse>
+    </NCard>
+
+    <NCard class="quick-card" title="快捷配置">
+      <div class="config-groups">
+        <div class="config-group-row">
+          <div class="config-group half">
+            <div class="group-header">
+              <div class="group-title">素材目录与调度</div>
+              <div class="group-desc">设置本地素材目录和轮询重试策略</div>
+            </div>
+            <div class="compact-grid">
+              <div class="compact-field compact-field-wide">
+                <div class="compact-label">素材根目录</div>
+                <div class="compact-control compact-control-inline">
+                  <NInput
+                    v-model:value="schedulerConfig.localRootDir"
+                    placeholder="选择本地素材导出的根目录"
+                    readonly
+                    class="config-input"
+                  />
+                  <NButton @click="selectLocalRootDir">选择目录</NButton>
+                </div>
+                <div class="config-hint">目录结构: 根目录/M.D导出/剧名/视频文件</div>
+              </div>
+              <div class="compact-field">
+                <div class="compact-label">任务重试次数</div>
+                <div class="compact-control">
+                  <NInputNumber
+                    v-model:value="schedulerConfig.maxTaskRetries"
+                    :min="0"
+                    :max="5"
+                    :step="1"
+                    style="width: 100%"
+                    @update:value="saveSchedulerConfig"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </NCard>
 
     <!-- 需要登录提示 -->
     <NAlert
@@ -779,130 +821,163 @@ onUnmounted(() => {
 
 <style scoped>
 .juliang-page {
-  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   height: 100%;
   overflow-y: auto;
   background: #f5f7fa;
 }
 
-.status-bar {
-  display: flex;
-  gap: 24px;
-  padding: 12px 16px;
+.overview-card,
+.status-card,
+.quick-card,
+.advanced-config {
   background: #fff;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-.status-item {
+.hero-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.status-label {
-  color: #666;
-  font-size: 13px;
-}
-
-.status-value {
-  color: #333;
-  font-weight: 500;
-}
-
-.main-card {
-  margin-bottom: 16px;
-}
-
-.config-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.config-label {
-  width: 80px;
-  flex-shrink: 0;
-  color: #666;
-  font-size: 14px;
-}
-
-.config-input {
-  flex: 1;
-}
-
-.config-hint {
-  font-size: 12px;
-  color: #999;
-  margin-top: 4px;
-  margin-left: 92px;
-}
-
-.control-buttons {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.progress-card {
-  margin-bottom: 16px;
-  background: #fff;
-  border-left: 3px solid #2080f0;
-}
-
-.progress-card :deep(.n-card__content) {
-  padding: 16px;
-}
-
-.progress-header {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
+  gap: 24px;
+}
+
+.hero-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.hero-actions {
+  justify-content: flex-end;
+}
+
+.hero-action-btn {
+  border-radius: 999px;
+}
+
+.status-header {
+  margin-bottom: 14px;
+}
+
+.status-message {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
   margin-bottom: 12px;
 }
 
-.progress-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #333;
+.current-drama-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
 }
 
-.progress-status {
-  font-size: 13px;
-  color: #666;
+.upload-task-section.cancelled {
+  border-color: #cbd5e1;
+}
+
+.drama-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.drama-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.drama-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #e2e8f0;
+  color: #475569;
 }
 
 .progress-info {
   display: flex;
-  gap: 24px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.progress-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #dbe4f0;
+}
+
+.progress-chip-label {
   font-size: 13px;
-  margin-bottom: 12px;
-  color: #888;
+  color: #64748b;
 }
 
-.progress-card :deep(.n-progress) {
-  --n-fill-color: #2080f0;
-  --n-rail-color: #e8e8e8;
+.progress-chip-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
 }
 
-.progress-card.cancelled {
-  border-left-color: #999;
+.progress-bar-container {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
 }
 
-.upload-timer {
-  color: #2080f0;
-  font-weight: 500;
+.progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.3s ease;
 }
 
-.completed-collapse {
-  margin-bottom: 16px;
-  background: #fff;
-  border-radius: 8px;
+.status-collapse {
+  margin-top: 20px;
+  background: transparent;
 }
 
-.completed-collapse :deep(.n-collapse-item__header) {
-  padding: 12px 16px !important;
+.status-collapse :deep(.n-collapse-item) {
+  background: transparent;
+}
+
+.status-collapse :deep(.n-collapse-item__header) {
+  padding: 8px 0 12px !important;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.status-collapse :deep(.n-collapse-item__content-inner) {
+  padding-top: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 .completed-table {
@@ -933,7 +1008,7 @@ onUnmounted(() => {
 }
 
 .login-alert {
-  margin-bottom: 16px;
+  border-radius: 12px;
 }
 
 .log-container {
@@ -967,9 +1042,7 @@ onUnmounted(() => {
 }
 
 .advanced-config {
-  margin-top: 16px;
-  background: #fff;
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 .advanced-config :deep(.n-collapse-item__header) {
@@ -1028,5 +1101,110 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   margin-bottom: 12px;
+}
+
+.config-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.config-group {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.config-group-row {
+  display: flex;
+  gap: 24px;
+}
+
+.config-group.half {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-header {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.group-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.group-desc {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.compact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.compact-field {
+  min-width: 0;
+}
+
+.compact-field-wide {
+  grid-column: 1 / -1;
+}
+
+.compact-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.02em;
+}
+
+.compact-control {
+  min-width: 0;
+}
+
+.compact-control-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.config-input {
+  width: 100%;
+}
+
+.config-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+@media (max-width: 900px) {
+  .hero-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .progress-meta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .config-group-row {
+    flex-direction: column;
+  }
+
+  .compact-grid,
+  .compact-control-inline {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
