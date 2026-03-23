@@ -295,6 +295,7 @@ export class MaterialClipService {
   private readonly configService: ConfigService;
   private readonly apiService: ApiService;
   private runState: MaterialClipRunState = this.createEmptyRunState();
+  private activeRunFallbackTotal = 0;
 
   constructor(configService: ConfigService, apiService: ApiService) {
     const userDataPath = app.getPath("userData");
@@ -1293,6 +1294,11 @@ export class MaterialClipService {
       const date = this.normalizeDisplayText(rawDate);
       this.runState.currentDramaName = dramaName;
       this.runState.currentDramaDate = date;
+      if (this.runState.totalMaterials <= 0 && this.activeRunFallbackTotal > 0) {
+        this.runState.totalMaterials = this.activeRunFallbackTotal;
+        this.runState.completedMaterials = 0;
+        this.runState.remainingMaterials = this.activeRunFallbackTotal;
+      }
       this.runState.message = `正在处理《${dramaName}》`;
       const matched = this.findPendingDramaCandidate(dramaName, date ?? null);
       if (matched) {
@@ -1311,33 +1317,49 @@ export class MaterialClipService {
       }
     }
 
-    const planMatch = line.match(
-      /===\s*(.+?)\s+\|[\s\S]*计划生成：(\d+)\s*条/,
-    );
-    if (planMatch) {
-      const [, dramaName, total] = planMatch;
+    const planTotalMatch = line.match(/计划生成：(\d+)\s*条/);
+    if (planTotalMatch) {
+      const dramaName =
+        line.match(/===\s*(.+?)\s+\|/)?.[1] ?? this.runState.currentDramaName;
+      const total = Number(planTotalMatch[1]);
+      if (!dramaName) {
+        this.touchRunState();
+        this.emitRunState();
+        return;
+      }
       this.markDramaAsCurrent(dramaName);
-      this.runState.totalMaterials = Number(total);
+      this.runState.totalMaterials = total;
       this.runState.completedMaterials = 0;
-      this.runState.remainingMaterials = Number(total);
+      this.runState.remainingMaterials = total;
       this.runState.message = `正在处理《${dramaName}》，共 ${total} 条素材`;
     }
 
-    const materialMatch = line.match(
-      /素材完成 \| 剧：(.+?) \| 第 (\d+) 条(?:[\s\S]*?该剧剩余素材：(\d+) 条)?$/,
-    );
-    if (materialMatch) {
-      const [, dramaName, completed, remaining] = materialMatch;
+    if (line.includes("素材完成")) {
+      const dramaName =
+        line.match(/剧：(.+?)\s+\|/)?.[1] ?? this.runState.currentDramaName;
+      const completed = line.match(/第 (\d+) 条/)?.[1];
+      const remaining = line.match(/该剧剩余素材：(\d+) 条/)?.[1];
+      if (!dramaName || !completed) {
+        this.touchRunState();
+        this.emitRunState();
+        return;
+      }
+
       const completedCount = Number(completed);
       const remainingCount =
         remaining !== undefined
           ? Number(remaining)
-          : Math.max(this.runState.totalMaterials - completedCount, 0);
+          : Math.max(
+              Math.max(this.runState.totalMaterials, this.activeRunFallbackTotal) -
+                completedCount,
+              0,
+            );
       this.markDramaAsCurrent(dramaName);
       this.runState.completedMaterials = completedCount;
       this.runState.remainingMaterials = remainingCount;
       this.runState.totalMaterials = Math.max(
         this.runState.totalMaterials,
+        this.activeRunFallbackTotal,
         completedCount + remainingCount,
       );
       if (this.runState.totalMaterials > 0) {
@@ -1763,6 +1785,7 @@ export class MaterialClipService {
           ? `自动剪辑准备开始，待处理 ${pendingDramas.length} 部剧`
           : "手动剪辑准备开始",
     };
+    this.activeRunFallbackTotal = Math.max(params.config.count, 0);
     this.emitRunState();
 
     const runtimeConfig = await this.applyApiConfig(params.config);
@@ -1854,6 +1877,7 @@ export class MaterialClipService {
     signal: NodeJS.Signals | null,
   ) {
     const wasStopping = this.runState.status === "stopping";
+    this.activeRunFallbackTotal = 0;
     this.runState.running = false;
     this.runState.pid = null;
 

@@ -288,6 +288,38 @@ const currentDramaRatingLabel = computed(() => {
   return rating || null;
 });
 
+function getRatingClass(rating: string | null | undefined): string {
+  const normalized = rating?.trim();
+  if (!normalized) {
+    return "default";
+  }
+
+  if (normalized.includes("红")) {
+    return "red";
+  }
+
+  if (normalized.includes("黄")) {
+    return "yellow";
+  }
+
+  if (normalized.includes("绿")) {
+    return "green";
+  }
+
+  const upper = normalized.toUpperCase();
+  if (upper === "S") {
+    return "red";
+  }
+  if (upper === "A") {
+    return "yellow";
+  }
+  if (upper === "B") {
+    return "green";
+  }
+
+  return "default";
+}
+
 const progressPercent = computed(() => {
   if (runState.value.totalMaterials <= 0) {
     return 0;
@@ -725,9 +757,13 @@ onUnmounted(() => {
               <span v-if="currentDramaDateLabel" class="drama-tag">{{
                 currentDramaDateLabel
               }}</span>
-              <span v-if="currentDramaRatingLabel" class="drama-tag rating">{{
-                currentDramaRatingLabel
-              }}</span>
+              <span
+                v-if="currentDramaRatingLabel"
+                class="drama-tag rating"
+                :class="getRatingClass(currentDramaRatingLabel)"
+              >
+                {{ currentDramaRatingLabel }}
+              </span>
             </div>
             <div class="progress-info">
               <div class="progress-text">
@@ -782,7 +818,7 @@ onUnmounted(() => {
                     <td>
                       <span
                         class="rating-badge"
-                        :class="drama.rating?.toLowerCase()"
+                        :class="getRatingClass(drama.rating)"
                         >{{ drama.rating || "-" }}</span
                       >
                     </td>
@@ -1274,9 +1310,24 @@ onUnmounted(() => {
   color: #475569;
 }
 
-.drama-tag.rating {
+.drama-tag.rating.default {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.drama-tag.rating.yellow {
   background: #fef3c7;
   color: #d97706;
+}
+
+.drama-tag.rating.red {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.drama-tag.rating.green {
+  background: #dcfce7;
+  color: #16a34a;
 }
 
 .progress-info {
@@ -1366,17 +1417,17 @@ onUnmounted(() => {
   color: #64748b;
 }
 
-.rating-badge.s {
+.rating-badge.red {
   background: #fee2e2;
-  color: #ef4444;
+  color: #dc2626;
 }
 
-.rating-badge.a {
+.rating-badge.yellow {
   background: #ffedd5;
   color: #f59e0b;
 }
 
-.rating-badge.b {
+.rating-badge.green {
   background: #dcfce7;
   color: #10b981;
 }
