@@ -83,7 +83,7 @@ const currentTask = ref<{
 
 // 日志（合并调度器和上传日志）
 const logs = ref<Array<{ time: string; message: string; type?: string }>>([]);
-const showLogs = ref(false);
+const expandedPanels = ref<string[]>([]);
 
 // 已完成任务列表
 const completedTasks = ref<
@@ -99,7 +99,7 @@ const completedTasks = ref<
 
 // 上传计时
 const uploadStartTime = ref<number | null>(null);
-const uploadElapsedMinutes = ref("0.0");
+const uploadElapsedSeconds = ref(0);
 let uploadTimerInterval: ReturnType<typeof setInterval> | null = null;
 
 // 进度监听器
@@ -195,7 +195,6 @@ async function startScheduler() {
     );
     if (result.success) {
       schedulerStatus.value = "running";
-      showLogs.value = true; // 自动展开日志
       message.success("调度器已启动");
     } else {
       message.error(`启动失败: ${result.error}`);
@@ -324,11 +323,13 @@ async function refreshCompletedTasks() {
 function startUploadTimer() {
   stopUploadTimer();
   uploadStartTime.value = Date.now();
-  uploadElapsedMinutes.value = "0.0";
+  uploadElapsedSeconds.value = 0;
   uploadTimerInterval = setInterval(() => {
     if (uploadStartTime.value) {
-      const elapsed = (Date.now() - uploadStartTime.value) / 60000;
-      uploadElapsedMinutes.value = elapsed.toFixed(1);
+      uploadElapsedSeconds.value = Math.max(
+        0,
+        Math.floor((Date.now() - uploadStartTime.value) / 1000),
+      );
     }
   }, 1000);
 }
@@ -365,10 +366,29 @@ async function loadAllLogs() {
   }
 }
 
-// 切换日志显示
-async function toggleLogs() {
-  showLogs.value = !showLogs.value;
-  if (showLogs.value) {
+function formatUploadDuration(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((item) => String(item).padStart(2, "0"))
+    .join(":");
+}
+
+const uploadDurationText = computed(() =>
+  formatUploadDuration(uploadElapsedSeconds.value),
+);
+
+async function handleExpandedNamesChange(
+  names: string[] | string | null | undefined,
+) {
+  expandedPanels.value = Array.isArray(names)
+    ? names.map((item) => String(item))
+    : names
+      ? [String(names)]
+      : [];
+
+  if (expandedPanels.value.includes("logs")) {
     await loadAllLogs();
   }
 }
@@ -597,9 +617,6 @@ onUnmounted(() => {
         >
           取消上传
         </NButton>
-        <NButton size="large" @click="toggleLogs">
-          {{ showLogs ? "隐藏日志" : "查看日志" }}
-        </NButton>
       </div>
     </NCard>
 
@@ -627,7 +644,7 @@ onUnmounted(() => {
           }}</span
         >
         <span v-if="uploadStartTime" class="upload-timer"
-          >已用时: {{ uploadElapsedMinutes }} 分钟</span
+          >上传时长: {{ uploadDurationText }}</span
         >
       </div>
       <NProgress
@@ -701,28 +718,23 @@ onUnmounted(() => {
       请在弹出的浏览器窗口中登录巨量创意后台。登录后系统会自动检测并继续上传任务。
     </NAlert>
 
-    <!-- 日志面板 -->
-    <NCard v-if="showLogs" class="log-card">
-      <template #header>
-        <span>运行日志</span>
-      </template>
-      <template #header-extra>
-        <NButton size="small" quaternary @click="clearLogs">清空</NButton>
-      </template>
-      <div class="log-container">
-        <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
-        <div v-for="(log, index) in logs" :key="index" class="log-item">
-          <span class="log-time">[{{ log.time }}]</span>
-          <span class="log-message">{{ log.message }}</span>
-        </div>
-      </div>
-    </NCard>
-
     <!-- 高级配置 -->
-    <NCollapse class="advanced-config">
+    <NCollapse
+      class="advanced-config"
+      :expanded-names="expandedPanels"
+      @update:expanded-names="handleExpandedNamesChange"
+    >
       <NCollapseItem title="高级配置" name="config">
         <div class="advanced-config-content">
           <div class="config-grid">
+            <div class="config-row">
+              <span class="config-label">无头模式</span>
+              <NSwitch
+                v-model:value="config.headless"
+                @update:value="saveConfig"
+              />
+              <span class="config-desc">开启后浏览器窗口不可见</span>
+            </div>
             <div class="config-row">
               <span class="config-label">每批文件数</span>
               <NInputNumber
@@ -760,14 +772,6 @@ onUnmounted(() => {
               <span class="config-desc">单批失败后最多额外重试的次数</span>
             </div>
             <div class="config-row">
-              <span class="config-label">无头模式</span>
-              <NSwitch
-                v-model:value="config.headless"
-                @update:value="saveConfig"
-              />
-              <span class="config-desc">开启后浏览器窗口不可见</span>
-            </div>
-            <div class="config-row">
               <span class="config-label">容许缺失个数</span>
               <NInputNumber
                 v-model:value="config.allowedMissingCount"
@@ -795,6 +799,21 @@ onUnmounted(() => {
               <span class="config-desc"
                 >调度器模式下整部剧上传失败后最多额外重试的次数</span
               >
+            </div>
+          </div>
+        </div>
+      </NCollapseItem>
+
+      <NCollapseItem title="运行日志" name="logs">
+        <div class="advanced-config-content">
+          <div class="log-panel-actions">
+            <NButton size="small" quaternary @click="clearLogs">清空</NButton>
+          </div>
+          <div class="log-container">
+            <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
+            <div v-for="(log, index) in logs" :key="index" class="log-item">
+              <span class="log-time">[{{ log.time }}]</span>
+              <span class="log-message">{{ log.message }}</span>
             </div>
           </div>
         </div>
@@ -902,6 +921,7 @@ onUnmounted(() => {
 .control-buttons {
   display: flex;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .progress-card {
@@ -995,10 +1015,6 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
-.log-card {
-  margin-bottom: 16px;
-}
-
 .log-container {
   height: 250px;
   overflow-y: auto;
@@ -1067,8 +1083,9 @@ onUnmounted(() => {
 }
 
 .advanced-config .config-label {
-  width: 80px;
+  width: 112px;
   flex-shrink: 0;
+  white-space: nowrap;
   color: #333;
   font-size: 14px;
   font-weight: 500;
@@ -1084,5 +1101,11 @@ onUnmounted(() => {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid #eee;
+}
+
+.log-panel-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 </style>
