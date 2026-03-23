@@ -232,6 +232,7 @@ const isManualRunning = ref(false);
 const refreshingPending = ref(false);
 const saving = ref(false);
 const showLogs = ref(true);
+const dramaTablesExpanded = ref(["pending", "processed"]);
 const manualDramaNames = ref("");
 const logs = ref<MaterialClipLogEntry[]>([]);
 const config = ref<MaterialClipConfig | null>(null);
@@ -946,108 +947,110 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div
-            v-if="runState.pendingDramas && runState.pendingDramas.length > 0"
-            class="pending-dramas-section"
+          <NCollapse
+            v-if="hasQueueData || hasProcessedData"
+            v-model:expanded-names="dramaTablesExpanded"
+            class="status-collapse"
           >
-            <div class="section-title">
-              待处理剧目 ({{ runState.pendingDramas.length }})
-            </div>
-            <div class="table-container">
-              <table class="beautiful-table">
-                <thead>
-                  <tr>
-                    <th width="60">序号</th>
-                    <th width="120">日期</th>
-                    <th>剧名</th>
-                    <th width="90">素材数</th>
-                    <th width="80">评级</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="drama in runState.pendingDramas"
-                    :key="drama.order"
-                  >
-                    <td class="text-center">{{ drama.order }}</td>
-                    <td>
-                      {{
-                        drama.date === "未知" || drama.date === "未知日期"
-                          ? "-"
-                          : drama.date
-                      }}
-                    </td>
-                    <td class="font-medium">{{ drama.dramaName }}</td>
-                    <td>{{ formatMaterialCount(drama.plannedMaterials) }}</td>
-                    <td>
-                      <span
-                        class="rating-badge"
-                        :class="getRatingClass(drama.rating)"
-                        >{{ drama.rating || "-" }}</span
-                      >
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+            <NCollapseItem
+              v-if="runState.pendingDramas && runState.pendingDramas.length > 0"
+              :title="`待处理剧目 (${runState.pendingDramas.length})`"
+              name="pending"
+            >
+              <div class="table-container">
+                <table class="beautiful-table">
+                  <thead>
+                    <tr>
+                      <th width="60">序号</th>
+                      <th width="120">日期</th>
+                      <th>剧名</th>
+                      <th width="90">素材数</th>
+                      <th width="80">评级</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="drama in runState.pendingDramas"
+                      :key="drama.order"
+                    >
+                      <td class="text-center">{{ drama.order }}</td>
+                      <td>
+                        {{
+                          drama.date === "未知" || drama.date === "未知日期"
+                            ? "-"
+                            : drama.date
+                        }}
+                      </td>
+                      <td class="font-medium">{{ drama.dramaName }}</td>
+                      <td>{{ formatMaterialCount(drama.plannedMaterials) }}</td>
+                      <td>
+                        <span
+                          class="rating-badge"
+                          :class="getRatingClass(drama.rating)"
+                          >{{ drama.rating || "-" }}</span
+                        >
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </NCollapseItem>
 
-          <div
-            v-if="runState.processedDramas && runState.processedDramas.length > 0"
-            class="pending-dramas-section"
-          >
-            <div class="section-title">
-              已处理剧目 ({{ runState.processedDramas.length }})
-            </div>
-            <div class="table-container">
-              <table class="beautiful-table">
-                <thead>
-                  <tr>
-                    <th width="60">序号</th>
-                    <th width="120">日期</th>
-                    <th>剧名</th>
-                    <th width="90">素材数</th>
-                    <th width="80">评级</th>
-                    <th width="160">完成时间</th>
-                    <th width="100">剪辑时长</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="drama in runState.processedDramas"
-                    :key="`${drama.recordId}-${drama.order}`"
-                  >
-                    <td class="text-center">{{ drama.order }}</td>
-                    <td>
-                      {{
-                        drama.date === "未知" || drama.date === "未知日期"
-                          ? "-"
-                          : drama.date
-                      }}
-                    </td>
-                    <td class="font-medium">{{ drama.dramaName }}</td>
-                    <td>
-                      {{
-                        formatMaterialCount(
-                          drama.plannedMaterials,
-                          drama.completedMaterials,
-                        )
-                      }}
-                    </td>
-                    <td>
-                      <span
-                        class="rating-badge"
-                        :class="getRatingClass(drama.rating)"
-                        >{{ drama.rating || "-" }}</span
-                      >
-                    </td>
-                    <td>{{ formatCompletedAt(drama.completedAt) }}</td>
-                    <td>{{ formatElapsedMinutes(drama.elapsedSeconds) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
+            <NCollapseItem
+              v-if="runState.processedDramas && runState.processedDramas.length > 0"
+              :title="`已处理剧目 (${runState.processedDramas.length})`"
+              name="processed"
+            >
+              <div class="table-container">
+                <table class="beautiful-table">
+                  <thead>
+                    <tr>
+                      <th width="60">序号</th>
+                      <th width="120">日期</th>
+                      <th>剧名</th>
+                      <th width="90">素材数</th>
+                      <th width="80">评级</th>
+                      <th width="160">完成时间</th>
+                      <th width="100">剪辑时长</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="drama in runState.processedDramas"
+                      :key="`${drama.recordId}-${drama.order}`"
+                    >
+                      <td class="text-center">{{ drama.order }}</td>
+                      <td>
+                        {{
+                          drama.date === "未知" || drama.date === "未知日期"
+                            ? "-"
+                            : drama.date
+                        }}
+                      </td>
+                      <td class="font-medium">{{ drama.dramaName }}</td>
+                      <td>
+                        {{
+                          formatMaterialCount(
+                            drama.plannedMaterials,
+                            drama.completedMaterials,
+                          )
+                        }}
+                      </td>
+                      <td>
+                        <span
+                          class="rating-badge"
+                          :class="getRatingClass(drama.rating)"
+                          >{{ drama.rating || "-" }}</span
+                        >
+                      </td>
+                      <td>{{ formatCompletedAt(drama.completedAt) }}</td>
+                      <td>{{ formatElapsedMinutes(drama.elapsedSeconds) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </NCollapseItem>
+          </NCollapse>
         </NCard>
       </template>
 
@@ -1673,6 +1676,28 @@ onUnmounted(() => {
 
 .pending-dramas-section {
   margin-top: 20px;
+}
+
+.status-collapse {
+  margin-top: 20px;
+  background: transparent;
+}
+
+.status-collapse :deep(.n-collapse-item) {
+  background: transparent;
+}
+
+.status-collapse :deep(.n-collapse-item__header) {
+  padding: 8px 0 12px !important;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.status-collapse :deep(.n-collapse-item__content-inner) {
+  padding-top: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
 .table-container {
