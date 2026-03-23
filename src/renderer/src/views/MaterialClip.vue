@@ -197,10 +197,23 @@ interface MaterialClipRunState {
     uploadTime: number | null;
     plannedMaterials: number | null;
   }>;
+  processedDramas: Array<{
+    order: number;
+    date: string;
+    dramaName: string;
+    rating: string | null;
+    recordId: string;
+    fullDate: string | null;
+    plannedMaterials: number | null;
+    completedMaterials: number;
+    completedAt: string;
+    elapsedSeconds: number | null;
+  }>;
   currentDramaName: string | null;
   currentDramaDate: string | null;
   currentDramaRating: string | null;
   currentRecordId: string | null;
+  currentDramaStartedAt: string | null;
   totalMaterials: number;
   completedMaterials: number;
   remainingMaterials: number;
@@ -231,10 +244,12 @@ const runState = ref<MaterialClipRunState>({
   message: "",
   pid: null,
   pendingDramas: [],
+  processedDramas: [],
   currentDramaName: null,
   currentDramaDate: null,
   currentDramaRating: null,
   currentRecordId: null,
+  currentDramaStartedAt: null,
   totalMaterials: 0,
   completedMaterials: 0,
   remainingMaterials: 0,
@@ -243,6 +258,10 @@ const runState = ref<MaterialClipRunState>({
 });
 
 const hasQueueData = computed(() => runState.value.pendingDramas.length > 0);
+const hasProcessedData = computed(
+  () => runState.value.processedDramas.length > 0,
+);
+const nowMs = ref(Date.now());
 
 const statusSummary = computed(() => {
   const state = runState.value;
@@ -289,6 +308,25 @@ const currentDramaRatingLabel = computed(() => {
   return rating || null;
 });
 
+const currentDramaTimerText = computed(() => {
+  if (
+    (runState.value.status !== "running" &&
+      runState.value.status !== "stopping") ||
+    !runState.value.currentDramaStartedAt
+  ) {
+    return null;
+  }
+
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor(
+      (nowMs.value - new Date(runState.value.currentDramaStartedAt).getTime()) /
+        1000,
+    ),
+  );
+  return formatElapsedTimer(elapsedSeconds);
+});
+
 function getRatingClass(rating: string | null | undefined): string {
   const normalized = rating?.trim();
   if (!normalized) {
@@ -321,6 +359,64 @@ function getRatingClass(rating: string | null | undefined): string {
   return "default";
 }
 
+function formatElapsedTimer(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds]
+    .map((item) => String(item).padStart(2, "0"))
+    .join(":");
+}
+
+function formatCompletedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+function formatElapsedMinutes(value: number | null): string {
+  if (!value || value <= 0) {
+    return "-";
+  }
+
+  if (value < 60) {
+    return "1分钟";
+  }
+
+  return `${Math.floor(value / 60)}分钟`;
+}
+
+function formatMaterialCount(
+  plannedMaterials: number | null,
+  completedMaterials?: number,
+): string {
+  if (
+    completedMaterials !== undefined &&
+    plannedMaterials &&
+    completedMaterials !== plannedMaterials
+  ) {
+    return `${completedMaterials} / ${plannedMaterials}`;
+  }
+
+  if (plannedMaterials) {
+    return String(plannedMaterials);
+  }
+
+  if (completedMaterials !== undefined) {
+    return String(completedMaterials);
+  }
+
+  return "-";
+}
+
 const progressPercent = computed(() => {
   if (runState.value.totalMaterials <= 0) {
     return 0;
@@ -336,6 +432,7 @@ const progressPercent = computed(() => {
 
 let unsubscribeLog: (() => void) | null = null;
 let unsubscribeState: (() => void) | null = null;
+let currentDramaTimer: number | null = null;
 
 const prettyConfig = computed(() => configEditorText.value.trim());
 
@@ -578,6 +675,10 @@ async function loadRunState() {
 }
 
 onMounted(async () => {
+  currentDramaTimer = window.setInterval(() => {
+    nowMs.value = Date.now();
+  }, 1000);
+
   await loadLogs();
   await loadEnvironmentStatus();
   if (environmentStatus.value?.ready) {
@@ -603,6 +704,9 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (currentDramaTimer !== null) {
+    window.clearInterval(currentDramaTimer);
+  }
   if (unsubscribeLog) {
     unsubscribeLog();
   }
@@ -743,7 +847,7 @@ onUnmounted(() => {
         </div>
       </NCard>
 
-      <template v-if="runState.status !== 'idle' || hasQueueData">
+      <template v-if="runState.status !== 'idle' || hasQueueData || hasProcessedData">
         <NCard class="status-card" title="运行状态">
           <div class="status-header">
             <div class="status-message">
@@ -776,6 +880,9 @@ onUnmounted(() => {
                   >剩余: {{ runState.remainingMaterials }}</span
                 >
               </div>
+              <div v-if="currentDramaTimerText" class="current-drama-timer">
+                剪辑时长：{{ currentDramaTimerText }}
+              </div>
               <div class="progress-bar-container">
                 <div
                   class="progress-bar"
@@ -799,6 +906,7 @@ onUnmounted(() => {
                     <th width="60">序号</th>
                     <th width="120">日期</th>
                     <th>剧名</th>
+                    <th width="90">素材数</th>
                     <th width="80">评级</th>
                   </tr>
                 </thead>
@@ -816,6 +924,7 @@ onUnmounted(() => {
                       }}
                     </td>
                     <td class="font-medium">{{ drama.dramaName }}</td>
+                    <td>{{ formatMaterialCount(drama.plannedMaterials) }}</td>
                     <td>
                       <span
                         class="rating-badge"
@@ -823,6 +932,63 @@ onUnmounted(() => {
                         >{{ drama.rating || "-" }}</span
                       >
                     </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div
+            v-if="runState.processedDramas && runState.processedDramas.length > 0"
+            class="pending-dramas-section"
+          >
+            <div class="section-title">
+              已处理剧目 ({{ runState.processedDramas.length }})
+            </div>
+            <div class="table-container">
+              <table class="beautiful-table">
+                <thead>
+                  <tr>
+                    <th width="60">序号</th>
+                    <th width="120">日期</th>
+                    <th>剧名</th>
+                    <th width="90">素材数</th>
+                    <th width="80">评级</th>
+                    <th width="160">完成时间</th>
+                    <th width="100">剪辑时长</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="drama in runState.processedDramas"
+                    :key="`${drama.recordId}-${drama.order}`"
+                  >
+                    <td class="text-center">{{ drama.order }}</td>
+                    <td>
+                      {{
+                        drama.date === "未知" || drama.date === "未知日期"
+                          ? "-"
+                          : drama.date
+                      }}
+                    </td>
+                    <td class="font-medium">{{ drama.dramaName }}</td>
+                    <td>
+                      {{
+                        formatMaterialCount(
+                          drama.plannedMaterials,
+                          drama.completedMaterials,
+                        )
+                      }}
+                    </td>
+                    <td>
+                      <span
+                        class="rating-badge"
+                        :class="getRatingClass(drama.rating)"
+                        >{{ drama.rating || "-" }}</span
+                      >
+                    </td>
+                    <td>{{ formatCompletedAt(drama.completedAt) }}</td>
+                    <td>{{ formatElapsedMinutes(drama.elapsedSeconds) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1335,6 +1501,11 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.current-drama-timer {
+  font-size: 13px;
+  color: #475569;
 }
 
 .progress-text {

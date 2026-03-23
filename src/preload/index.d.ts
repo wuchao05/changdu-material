@@ -337,16 +337,31 @@ interface MaterialClipPendingDrama {
   plannedMaterials: number | null;
 }
 
+interface MaterialClipProcessedDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  plannedMaterials: number | null;
+  completedMaterials: number;
+  completedAt: string;
+  elapsedSeconds: number | null;
+}
+
 interface MaterialClipRunState {
   running: boolean;
   mode: "idle" | "auto" | "manual";
   status: "idle" | "running" | "stopping" | "stopped" | "completed" | "failed";
   pid: number | null;
   pendingDramas: MaterialClipPendingDrama[];
+  processedDramas: MaterialClipProcessedDrama[];
   currentDramaName: string | null;
   currentDramaDate: string | null;
   currentDramaRating: string | null;
   currentRecordId: string | null;
+  currentDramaStartedAt: string | null;
   totalMaterials: number;
   completedMaterials: number;
   remainingMaterials: number;

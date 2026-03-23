@@ -205,16 +205,31 @@ export interface MaterialClipPendingDrama {
   plannedMaterials: number | null;
 }
 
+export interface MaterialClipProcessedDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  plannedMaterials: number | null;
+  completedMaterials: number;
+  completedAt: string;
+  elapsedSeconds: number | null;
+}
+
 export interface MaterialClipRunState {
   running: boolean;
   mode: MaterialClipProcessMode;
   status: "idle" | "running" | "stopping" | "stopped" | "completed" | "failed";
   pid: number | null;
   pendingDramas: MaterialClipPendingDrama[];
+  processedDramas: MaterialClipProcessedDrama[];
   currentDramaName: string | null;
   currentDramaDate: string | null;
   currentDramaRating: string | null;
   currentRecordId: string | null;
+  currentDramaStartedAt: string | null;
   totalMaterials: number;
   completedMaterials: number;
   remainingMaterials: number;
@@ -364,6 +379,7 @@ export class MaterialClipService {
       this.runState.currentDramaDate = null;
       this.runState.currentDramaRating = null;
       this.runState.currentRecordId = null;
+      this.runState.currentDramaStartedAt = null;
       this.runState.totalMaterials = 0;
       this.runState.completedMaterials = 0;
       this.runState.remainingMaterials = 0;
@@ -388,10 +404,12 @@ export class MaterialClipService {
       status: "idle",
       pid: null,
       pendingDramas: [],
+      processedDramas: [],
       currentDramaName: null,
       currentDramaDate: null,
       currentDramaRating: null,
       currentRecordId: null,
+      currentDramaStartedAt: null,
       totalMaterials: 0,
       completedMaterials: 0,
       remainingMaterials: 0,
@@ -405,6 +423,9 @@ export class MaterialClipService {
     return {
       ...this.runState,
       pendingDramas: this.runState.pendingDramas.map((item) => ({ ...item })),
+      processedDramas: this.runState.processedDramas.map((item) => ({
+        ...item,
+      })),
     };
   }
 
@@ -1104,6 +1125,67 @@ export class MaterialClipService {
     return maxNumber > 0 ? maxNumber : null;
   }
 
+  private ensureCurrentDramaStarted(dramaName: string) {
+    if (this.runState.currentDramaName !== dramaName) {
+      this.runState.currentDramaStartedAt = new Date().toISOString();
+      return;
+    }
+
+    if (!this.runState.currentDramaStartedAt) {
+      this.runState.currentDramaStartedAt = new Date().toISOString();
+    }
+  }
+
+  private upsertProcessedDrama(
+    dramaName: string,
+    completedMaterials: number,
+    plannedMaterials: number,
+  ) {
+    const matched = this.findPendingDramaCandidate(
+      dramaName,
+      this.runState.currentDramaDate,
+    );
+    const startedAt = this.runState.currentDramaStartedAt;
+    const elapsedSeconds = startedAt
+      ? Math.max(
+          0,
+          Math.round((Date.now() - new Date(startedAt).getTime()) / 1000),
+        )
+      : null;
+    const nextItem: MaterialClipProcessedDrama = {
+      order: 0,
+      dramaName,
+      recordId: matched?.recordId || this.runState.currentRecordId || dramaName,
+      date: matched?.date || this.runState.currentDramaDate || "未知",
+      fullDate: matched?.fullDate || null,
+      rating: matched?.rating || this.runState.currentDramaRating || null,
+      plannedMaterials:
+        matched?.plannedMaterials || plannedMaterials || completedMaterials || null,
+      completedMaterials,
+      completedAt: new Date().toISOString(),
+      elapsedSeconds,
+    };
+
+    const existingIndex = this.runState.processedDramas.findIndex(
+      (item) => item.recordId === nextItem.recordId,
+    );
+    if (existingIndex >= 0) {
+      this.runState.processedDramas[existingIndex] = {
+        ...this.runState.processedDramas[existingIndex],
+        ...nextItem,
+      };
+    } else {
+      this.runState.processedDramas.push(nextItem);
+    }
+
+    this.runState.processedDramas = this.runState.processedDramas.map(
+      (item, index) => ({
+        ...item,
+        order: index + 1,
+      }),
+    );
+  }
+
   private normalizeDisplayText(value: string | null | undefined): string | null {
     const normalized = value?.trim();
     if (!normalized || normalized === "未知" || normalized === "未知日期") {
@@ -1335,6 +1417,7 @@ export class MaterialClipService {
     if (selectedDramaMatch) {
       const [, rawDate, dramaName] = selectedDramaMatch;
       const date = this.normalizeDisplayText(rawDate);
+      this.ensureCurrentDramaStarted(dramaName);
       this.runState.currentDramaName = dramaName;
       this.runState.currentDramaDate = date;
       this.runState.message = `正在处理《${dramaName}》`;
@@ -1418,6 +1501,11 @@ export class MaterialClipService {
       this.runState.completedMaterials = Number(completed);
       this.runState.totalMaterials = Number(total);
       this.runState.remainingMaterials = 0;
+      this.upsertProcessedDrama(
+        dramaName,
+        Number(completed),
+        Number(total),
+      );
       this.runState.message = `《${dramaName}》已完成，生成 ${completed}/${total} 条素材`;
     }
 
@@ -1426,6 +1514,7 @@ export class MaterialClipService {
   }
 
   private markDramaAsCurrent(dramaName: string, dramaDate?: string | null) {
+    this.ensureCurrentDramaStarted(dramaName);
     this.runState.currentDramaName = dramaName;
     this.runState.currentDramaDate =
       this.normalizeDisplayText(dramaDate) ?? this.runState.currentDramaDate;
@@ -1822,10 +1911,12 @@ export class MaterialClipService {
       status: "running",
       pid: null,
       pendingDramas,
+      processedDramas: [],
       currentDramaName: null,
       currentDramaDate: null,
       currentDramaRating: null,
       currentRecordId: null,
+      currentDramaStartedAt: null,
       totalMaterials: 0,
       completedMaterials: 0,
       remainingMaterials: 0,
@@ -1929,6 +2020,7 @@ export class MaterialClipService {
     const wasStopping = this.runState.status === "stopping";
     this.runState.running = false;
     this.runState.pid = null;
+    this.runState.currentDramaStartedAt = null;
 
     if (wasStopping) {
       this.runState.mode = "idle";
