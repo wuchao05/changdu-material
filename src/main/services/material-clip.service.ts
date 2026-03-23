@@ -385,7 +385,7 @@ export class MaterialClipService {
       this.runState.totalMaterials = 0;
       this.runState.completedMaterials = 0;
       this.runState.remainingMaterials = 0;
-      this.runState.message = "飞书轮询已停止，当前剧目已回退为待剪辑";
+      this.runState.message = "轮询剪辑已停止，当前剧目已回退为待剪辑";
       this.touchRunState();
       this.emitRunState();
       return { success: true };
@@ -1970,7 +1970,7 @@ export class MaterialClipService {
       lastUpdatedAt: new Date().toISOString(),
       message:
         params.mode === "auto"
-          ? `飞书轮询准备启动，当前待处理 ${pendingDramas.length} 部剧`
+          ? `轮询剪辑准备启动，当前待处理 ${pendingDramas.length} 部剧`
           : "手动剪辑准备开始",
     };
     this.emitRunState();
@@ -2077,11 +2077,11 @@ export class MaterialClipService {
     if (wasStopping) {
       this.runState.mode = "idle";
       this.runState.status = "stopped";
-      this.runState.message = "飞书轮询已停止";
+      this.runState.message = "轮询剪辑已停止";
     } else if (code === 0) {
       this.runState.mode = "idle";
       this.runState.status = "completed";
-      this.runState.message = "飞书轮询已结束";
+      this.runState.message = "轮询剪辑已结束";
     } else {
       this.runState.mode = "idle";
       this.runState.status = "failed";

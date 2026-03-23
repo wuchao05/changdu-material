@@ -286,7 +286,7 @@ const statusSummary = computed(() => {
     if (state.currentDramaName) {
       return `正在处理《${state.currentDramaName}》`;
     }
-    return state.mode === "auto" ? "飞书轮询中..." : "手动剪辑运行中...";
+    return state.mode === "auto" ? "轮询剪辑运行中..." : "手动剪辑运行中...";
   }
 
   if (hasQueueData.value) {
@@ -601,13 +601,13 @@ async function startAutoClip() {
   try {
     const result = await window.api.clipAutoRun();
     if (result.success) {
-      message.success("飞书轮询已启动");
+      message.success("轮询剪辑已启动");
       showLogs.value = true;
     } else {
-      message.error(result.error || "飞书轮询启动失败");
+      message.error(result.error || "轮询剪辑启动失败");
     }
   } catch (error) {
-    message.error(`飞书轮询启动失败: ${error}`);
+    message.error(`轮询剪辑启动失败: ${error}`);
   } finally {
     // isAutoRunning will be updated by state listener
   }
@@ -617,7 +617,7 @@ async function stopAutoClip() {
   try {
     const result = await window.api.clipStopAutoRun();
     if (!result.success) {
-      message.error(result.error || "停止轮询失败");
+      message.error(result.error || "停止轮询剪辑失败");
       return;
     }
     message.success("已发送停止指令，等待轮询进程退出...");
@@ -866,7 +866,7 @@ onUnmounted(() => {
               class="hero-action-btn hero-action-btn-primary"
               @click="startAutoClip"
             >
-              启动轮询
+              启动轮询剪辑
             </NButton>
             <NButton
               v-else
@@ -877,7 +877,7 @@ onUnmounted(() => {
               :loading="runState.status === 'stopping'"
               @click="stopAutoClip"
             >
-              停止轮询
+              停止轮询剪辑
             </NButton>
           </NSpace>
         </div>
