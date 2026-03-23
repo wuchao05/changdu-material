@@ -229,6 +229,7 @@ const envChecking = ref(true);
 const installingEnvironment = ref(false);
 const isAutoRunning = ref(false);
 const isManualRunning = ref(false);
+const refreshingPending = ref(false);
 const saving = ref(false);
 const showLogs = ref(true);
 const manualDramaNames = ref("");
@@ -526,7 +527,7 @@ async function importRuntime() {
   }
 }
 
-async function saveConfig(): Promise<boolean> {
+async function saveConfig(showSuccess = true): Promise<boolean> {
   if (!prettyConfig.value) {
     message.warning("配置内容不能为空");
     return false;
@@ -537,7 +538,9 @@ async function saveConfig(): Promise<boolean> {
     const parsed = JSON.parse(prettyConfig.value) as MaterialClipConfig;
     config.value = await window.api.saveClipConfig(parsed);
     syncEditorFromConfig();
-    message.success("素材剪辑配置已保存");
+    if (showSuccess) {
+      message.success("素材剪辑配置已保存");
+    }
     return true;
   } catch (error) {
     message.error(`保存配置失败: ${error}`);
@@ -558,6 +561,29 @@ async function selectDirectory(field: "default_source_dir" | "output_dir") {
     });
   } catch (error) {
     message.error(`选择目录失败: ${error}`);
+  }
+}
+
+async function refreshPendingQueue() {
+  if (refreshingPending.value || runState.value.running) {
+    return;
+  }
+
+  refreshingPending.value = true;
+  try {
+    if (config.value) {
+      const saved = await saveConfig(false);
+      if (!saved) {
+        return;
+      }
+    }
+
+    await loadRunState();
+    message.success("待剪辑列表已更新");
+  } catch (error) {
+    message.error(`查询待剪辑失败: ${error}`);
+  } finally {
+    refreshingPending.value = false;
   }
 }
 
@@ -811,26 +837,33 @@ onUnmounted(() => {
     <template v-else>
       <NCard class="overview-card">
         <div class="hero-row">
-          <div>
-            <div class="hero-title">素材剪辑</div>
-            <div class="hero-subtitle">
-              复用当前客户端的飞书配置，调用 `dramas_processor`
-              完成待剪辑查询、本地源视频匹配和批量剪辑。
-            </div>
-          </div>
-          <NSpace>
-            <NButton @click="loadEnvironmentStatus">重新检测</NButton>
+          <div class="hero-title">素材剪辑</div>
+          <NSpace class="hero-actions" wrap>
+            <NButton quaternary class="hero-action-btn" @click="loadEnvironmentStatus"
+              >重新检测</NButton
+            >
             <NButton
+              quaternary
+              class="hero-action-btn"
               :loading="importingRuntime"
               :disabled="installingEnvironment || isAutoRunning || isManualRunning"
               @click="importRuntime"
             >
               重新导入运行时
             </NButton>
-            <NButton :loading="saving" @click="saveConfig">保存配置</NButton>
+            <NButton
+              quaternary
+              class="hero-action-btn"
+              :loading="saving"
+              @click="saveConfig"
+              >保存配置</NButton
+            >
             <NButton
               v-if="!isAutoRunning"
               type="primary"
+              secondary
+              strong
+              class="hero-action-btn hero-action-btn-primary"
               @click="startAutoClip"
             >
               自动剪辑
@@ -838,6 +871,9 @@ onUnmounted(() => {
             <NButton
               v-else
               type="error"
+              secondary
+              strong
+              class="hero-action-btn hero-action-btn-danger"
               :loading="runState.status === 'stopping'"
               @click="stopAutoClip"
             >
@@ -848,7 +884,19 @@ onUnmounted(() => {
       </NCard>
 
       <template v-if="runState.status !== 'idle' || hasQueueData || hasProcessedData">
-        <NCard class="status-card" title="运行状态">
+        <NCard class="status-card">
+          <template #header>运行状态</template>
+          <template #header-extra>
+            <NButton
+              quaternary
+              class="hero-action-btn"
+              :disabled="runState.running"
+              :loading="refreshingPending"
+              @click="refreshPendingQueue"
+            >
+              查询待剪辑
+            </NButton>
+          </template>
           <div class="status-header">
             <div class="status-message">
               {{ statusSummary }}
@@ -871,17 +919,23 @@ onUnmounted(() => {
               </span>
             </div>
             <div class="progress-info">
-              <div class="progress-text">
-                <span
-                  >素材进度: {{ runState.completedMaterials }} /
-                  {{ runState.totalMaterials }}</span
-                >
-                <span v-if="runState.remainingMaterials > 0" class="remaining"
-                  >剩余: {{ runState.remainingMaterials }}</span
-                >
-              </div>
-              <div v-if="currentDramaTimerText" class="current-drama-timer">
-                剪辑时长：{{ currentDramaTimerText }}
+              <div class="progress-meta">
+                <div class="progress-chip">
+                  <span class="progress-chip-label">素材进度</span>
+                  <span class="progress-chip-value"
+                    >{{ runState.completedMaterials }} /
+                    {{ runState.totalMaterials }}</span
+                  >
+                  <span v-if="runState.remainingMaterials > 0" class="remaining"
+                    >剩余 {{ runState.remainingMaterials }}</span
+                  >
+                </div>
+                <div v-if="currentDramaTimerText" class="progress-chip">
+                  <span class="progress-chip-label">剪辑时长</span>
+                  <span class="progress-chip-value">{{
+                    currentDramaTimerText
+                  }}</span>
+                </div>
               </div>
               <div class="progress-bar-container">
                 <div
@@ -1118,47 +1172,49 @@ onUnmounted(() => {
         </div>
       </NCard>
 
-      <NCard class="manual-card" title="手动剪辑">
-        <div
-          v-if="config"
-          class="manual-config-row"
-          style="margin-bottom: 16px"
-        >
-          <NForm inline>
-            <NFormItem label="输出目录">
+      <NCollapse class="advanced-collapse" :default-expanded-names="[]">
+        <NCollapseItem title="手动剪辑" name="manual">
+          <NCard class="manual-card" :bordered="false">
+            <div
+              v-if="config"
+              class="manual-config-row"
+              style="margin-bottom: 16px"
+            >
+              <NForm inline>
+                <NFormItem label="输出目录">
+                  <NInput
+                    :value="config.output_dir"
+                    readonly
+                    placeholder="选择素材输出目录"
+                    style="width: 300px"
+                  />
+                  <NButton
+                    style="margin-left: 12px"
+                    @click="selectDirectory('output_dir')"
+                    >选择</NButton
+                  >
+                </NFormItem>
+              </NForm>
+            </div>
+            <div class="manual-row">
               <NInput
-                :value="config.output_dir"
-                readonly
-                placeholder="选择素材输出目录"
-                style="width: 300px"
+                v-model:value="manualDramaNames"
+                type="textarea"
+                :rows="3"
+                placeholder="输入要剪辑的剧名，支持逗号或换行分隔"
               />
               <NButton
-                style="margin-left: 12px"
-                @click="selectDirectory('output_dir')"
-                >选择</NButton
+                type="primary"
+                secondary
+                :loading="isManualRunning"
+                @click="startManualClip"
               >
-            </NFormItem>
-          </NForm>
-        </div>
-        <div class="manual-row">
-          <NInput
-            v-model:value="manualDramaNames"
-            type="textarea"
-            :rows="3"
-            placeholder="输入要剪辑的剧名，支持逗号或换行分隔"
-          />
-          <NButton
-            type="primary"
-            secondary
-            :loading="isManualRunning"
-            @click="startManualClip"
-          >
-            开始剪辑
-          </NButton>
-        </div>
-      </NCard>
+                开始剪辑
+              </NButton>
+            </div>
+          </NCard>
+        </NCollapseItem>
 
-      <NCollapse class="advanced-collapse" :default-expanded-names="['logs']">
         <NCollapseItem
           title="完整配置 JSON（所有配置项开放）"
           name="json-config"
@@ -1221,9 +1277,17 @@ onUnmounted(() => {
 
 .hero-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
+}
+
+.hero-actions {
+  justify-content: flex-end;
+}
+
+.hero-action-btn {
+  border-radius: 999px;
 }
 
 .hero-title {
@@ -1488,7 +1552,7 @@ onUnmounted(() => {
 
 /* Status Card Styles */
 .status-header {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .status-message {
@@ -1557,22 +1621,40 @@ onUnmounted(() => {
 .progress-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.current-drama-timer {
-  font-size: 13px;
-  color: #475569;
-}
-
-.progress-text {
+.progress-meta {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.progress-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #dbe4f0;
+}
+
+.progress-chip-label {
   font-size: 13px;
   color: #64748b;
 }
 
-.progress-text .remaining {
+.progress-chip-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.progress-chip .remaining {
   color: #f59e0b;
 }
 
@@ -1680,6 +1762,11 @@ onUnmounted(() => {
 
   .quick-grid {
     grid-template-columns: 1fr;
+  }
+
+  .progress-meta {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .field-row,
