@@ -195,6 +195,7 @@ interface MaterialClipRunState {
     recordId: string;
     fullDate: string | null;
     uploadTime: number | null;
+    plannedMaterials: number | null;
   }>;
   currentDramaName: string | null;
   currentDramaDate: string | null;

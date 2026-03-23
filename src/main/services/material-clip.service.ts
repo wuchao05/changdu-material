@@ -202,6 +202,7 @@ export interface MaterialClipPendingDrama {
   fullDate: string | null;
   rating: string | null;
   uploadTime: number | null;
+  plannedMaterials: number | null;
 }
 
 export interface MaterialClipRunState {
@@ -295,7 +296,6 @@ export class MaterialClipService {
   private readonly configService: ConfigService;
   private readonly apiService: ApiService;
   private runState: MaterialClipRunState = this.createEmptyRunState();
-  private activeRunFallbackTotal = 0;
 
   constructor(configService: ConfigService, apiService: ApiService) {
     const userDataPath = app.getPath("userData");
@@ -965,9 +965,11 @@ export class MaterialClipService {
     }
 
     const ratingField = config.feishu.rating_field_name || "评级";
+    const douyinField =
+      config.feishu.douyin_material_field_name || "抖音素材";
     const endpoint = `/open-apis/bitable/v1/apps/${config.feishu.app_token}/tables/${config.feishu.table_id}/records/search`;
     const payload = {
-      field_names: ["剧名", "日期", "上架时间", ratingField],
+      field_names: ["剧名", "日期", "上架时间", ratingField, douyinField],
       page_size: config.feishu.page_size || 200,
       filter: {
         conjunction: "and",
@@ -1001,7 +1003,7 @@ export class MaterialClipService {
 
       return response.data.items
         .map((record, index) =>
-          this.normalizePendingDrama(record, ratingField, index),
+          this.normalizePendingDrama(record, ratingField, douyinField, index),
         )
         .filter((item): item is MaterialClipPendingDrama => item !== null);
     } catch (error) {
@@ -1014,6 +1016,7 @@ export class MaterialClipService {
   private normalizePendingDrama(
     record: MaterialClipFeishuRecord,
     ratingField: string,
+    douyinField: string,
     index: number,
   ): MaterialClipPendingDrama | null {
     const dramaName = this.extractFieldText(record.fields["剧名"]);
@@ -1032,6 +1035,7 @@ export class MaterialClipService {
       fullDate,
       rating: this.extractFieldText(record.fields[ratingField]),
       uploadTime,
+      plannedMaterials: this.parseDouyinMaterialCount(record.fields[douyinField]),
     };
   }
 
@@ -1059,6 +1063,45 @@ export class MaterialClipService {
         order: index + 1,
       }),
     );
+  }
+
+  private parseDouyinMaterialCount(value: unknown): number | null {
+    const configText = this.extractFieldText(value);
+    if (!configText) {
+      return null;
+    }
+
+    let maxNumber = 0;
+    const lines = configText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const parts = line.split(/\s+/);
+      if (parts.length < 3) {
+        continue;
+      }
+
+      const rangeText = parts[parts.length - 1];
+      if (!/^\d+(?:-\d+|,\d+)*$/.test(rangeText)) {
+        continue;
+      }
+
+      const numbers = rangeText
+        .split(",")
+        .flatMap((segment) => segment.split("-"))
+        .map((segment) => Number(segment.trim()))
+        .filter((segment) => Number.isFinite(segment));
+
+      if (numbers.length === 0) {
+        continue;
+      }
+
+      maxNumber = Math.max(maxNumber, ...numbers);
+    }
+
+    return maxNumber > 0 ? maxNumber : null;
   }
 
   private normalizeDisplayText(value: string | null | undefined): string | null {
@@ -1294,16 +1337,20 @@ export class MaterialClipService {
       const date = this.normalizeDisplayText(rawDate);
       this.runState.currentDramaName = dramaName;
       this.runState.currentDramaDate = date;
-      if (this.runState.totalMaterials <= 0 && this.activeRunFallbackTotal > 0) {
-        this.runState.totalMaterials = this.activeRunFallbackTotal;
-        this.runState.completedMaterials = 0;
-        this.runState.remainingMaterials = this.activeRunFallbackTotal;
-      }
       this.runState.message = `正在处理《${dramaName}》`;
       const matched = this.findPendingDramaCandidate(dramaName, date ?? null);
       if (matched) {
         this.runState.currentDramaRating = matched.rating;
         this.runState.currentRecordId = matched.recordId;
+        if (
+          this.runState.totalMaterials <= 0 &&
+          matched.plannedMaterials &&
+          matched.plannedMaterials > 0
+        ) {
+          this.runState.totalMaterials = matched.plannedMaterials;
+          this.runState.completedMaterials = 0;
+          this.runState.remainingMaterials = matched.plannedMaterials;
+        }
       }
     }
 
@@ -1349,17 +1396,12 @@ export class MaterialClipService {
       const remainingCount =
         remaining !== undefined
           ? Number(remaining)
-          : Math.max(
-              Math.max(this.runState.totalMaterials, this.activeRunFallbackTotal) -
-                completedCount,
-              0,
-            );
+          : Math.max(this.runState.totalMaterials - completedCount, 0);
       this.markDramaAsCurrent(dramaName);
       this.runState.completedMaterials = completedCount;
       this.runState.remainingMaterials = remainingCount;
       this.runState.totalMaterials = Math.max(
         this.runState.totalMaterials,
-        this.activeRunFallbackTotal,
         completedCount + remainingCount,
       );
       if (this.runState.totalMaterials > 0) {
@@ -1398,6 +1440,15 @@ export class MaterialClipService {
     this.runState.currentDramaDate = this.normalizeDisplayText(matched.date);
     this.runState.currentDramaRating = matched.rating;
     this.runState.currentRecordId = matched.recordId;
+    if (
+      this.runState.totalMaterials <= 0 &&
+      matched.plannedMaterials &&
+      matched.plannedMaterials > 0
+    ) {
+      this.runState.totalMaterials = matched.plannedMaterials;
+      this.runState.completedMaterials = 0;
+      this.runState.remainingMaterials = matched.plannedMaterials;
+    }
     this.runState.pendingDramas = this.runState.pendingDramas.filter(
       (item) => item.recordId !== matched.recordId,
     );
@@ -1785,7 +1836,6 @@ export class MaterialClipService {
           ? `自动剪辑准备开始，待处理 ${pendingDramas.length} 部剧`
           : "手动剪辑准备开始",
     };
-    this.activeRunFallbackTotal = Math.max(params.config.count, 0);
     this.emitRunState();
 
     const runtimeConfig = await this.applyApiConfig(params.config);
@@ -1877,7 +1927,6 @@ export class MaterialClipService {
     signal: NodeJS.Signals | null,
   ) {
     const wasStopping = this.runState.status === "stopping";
-    this.activeRunFallbackTotal = 0;
     this.runState.running = false;
     this.runState.pid = null;
 

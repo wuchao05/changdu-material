@@ -76,6 +76,7 @@ interface MaterialClipPendingDrama {
   fullDate: string | null;
   rating: string | null;
   uploadTime: number | null;
+  plannedMaterials: number | null;
 }
 
 interface MaterialClipRunState {
