@@ -1005,25 +1005,23 @@ onUnmounted(() => {
                 <div class="group-title">基础路径与飞书</div>
                 <div class="group-desc">设置本地视频源及飞书多维表格关联</div>
               </div>
-              <div class="group-content">
-                <NForm
-                  label-placement="left"
-                  label-width="120"
-                  require-mark-placement="right-hanging"
-                >
-                  <NFormItem label="本地源目录">
+              <div class="compact-grid">
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">本地源目录</div>
+                  <div class="compact-control compact-control-inline">
                     <NInput
                       :value="config.default_source_dir"
                       readonly
                       placeholder="选择本地源视频目录"
                     />
-                    <NButton
-                      style="margin-left: 12px"
-                      @click="selectDirectory('default_source_dir')"
+                    <NButton @click="selectDirectory('default_source_dir')"
                       >选择</NButton
                     >
-                  </NFormItem>
-                  <NFormItem label="飞书 Table ID">
+                  </div>
+                </div>
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">飞书 Table ID</div>
+                  <div class="compact-control">
                     <NInput
                       :value="config.feishu.table_id"
                       placeholder="自动剪辑要查询的飞书多维表格 ID"
@@ -1034,8 +1032,8 @@ onUnmounted(() => {
                           })
                       "
                     />
-                  </NFormItem>
-                </NForm>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1044,13 +1042,10 @@ onUnmounted(() => {
                 <div class="group-title">功能开关与文本</div>
                 <div class="group-desc">附加功能及视频内嵌文本设置</div>
               </div>
-              <div class="group-content">
-                <NForm
-                  label-placement="left"
-                  label-width="120"
-                  require-mark-placement="right-hanging"
-                >
-                  <NFormItem label="浮动水印">
+              <div class="compact-grid">
+                <div class="switch-grid compact-field-wide">
+                  <div class="switch-chip">
+                    <span class="switch-chip-label">浮动水印</span>
                     <NSwitch
                       :value="config.enable_floating_watermark"
                       @update:value="
@@ -1060,8 +1055,9 @@ onUnmounted(() => {
                           })
                       "
                     />
-                  </NFormItem>
-                  <NFormItem label="首屏文案">
+                  </div>
+                  <div class="switch-chip">
+                    <span class="switch-chip-label">首屏文案</span>
                     <NSwitch
                       :value="config.enable_hook_text"
                       @update:value="
@@ -1071,8 +1067,9 @@ onUnmounted(() => {
                           })
                       "
                     />
-                  </NFormItem>
-                  <NFormItem label="启用免责声明">
+                  </div>
+                  <div class="switch-chip">
+                    <span class="switch-chip-label">启用免责声明</span>
                     <NSwitch
                       :value="config.enable_disclaimer_text"
                       @update:value="
@@ -1082,8 +1079,9 @@ onUnmounted(() => {
                           })
                       "
                     />
-                  </NFormItem>
-                  <NFormItem label="删除源视频">
+                  </div>
+                  <div class="switch-chip">
+                    <span class="switch-chip-label">删除源视频</span>
                     <NSwitch
                       :value="config.auto_delete_source_after_completion"
                       @update:value="
@@ -1093,11 +1091,13 @@ onUnmounted(() => {
                           })
                       "
                     />
-                  </NFormItem>
-                  <NFormItem label="免责声明文案">
+                  </div>
+                </div>
+
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">免责声明文案</div>
+                  <div class="compact-control">
                     <NInput
-                      type="textarea"
-                      :rows="3"
                       :value="config.disclaimer_text"
                       placeholder="剧情纯属虚构 请勿模仿"
                       @update:value="
@@ -1110,8 +1110,8 @@ onUnmounted(() => {
                           })
                       "
                     />
-                  </NFormItem>
-                </NForm>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1429,6 +1429,63 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.compact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.compact-field {
+  min-width: 0;
+}
+
+.compact-field-wide {
+  grid-column: 1 / -1;
+}
+
+.compact-label {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.02em;
+}
+
+.compact-control {
+  min-width: 0;
+}
+
+.compact-control-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.switch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.switch-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.switch-chip-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
 /* Status Card Styles */
 .status-header {
   margin-bottom: 16px;
@@ -1613,6 +1670,12 @@ onUnmounted(() => {
 
   .config-group-row {
     flex-direction: column;
+  }
+
+  .compact-grid,
+  .switch-grid,
+  .compact-control-inline {
+    grid-template-columns: 1fr;
   }
 
   .quick-grid {
