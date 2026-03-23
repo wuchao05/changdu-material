@@ -6,9 +6,6 @@ import {
   NButton,
   NSpace,
   NAlert,
-  NStatistic,
-  NGrid,
-  NGi,
   NProgress,
   NTag,
   NInput,
@@ -520,48 +517,6 @@ onUnmounted(() => {
 
     <!-- 主控制区 -->
     <NCard class="main-card">
-      <!-- 统计数据 -->
-      <NGrid :cols="6" :x-gap="16" class="stats-grid">
-        <NGi>
-          <div class="stat-item">
-            <div class="stat-value">{{ schedulerStats.pending }}</div>
-            <div class="stat-label">待处理</div>
-          </div>
-        </NGi>
-        <NGi>
-          <div class="stat-item running">
-            <div class="stat-value">{{ schedulerStats.running }}</div>
-            <div class="stat-label">进行中</div>
-          </div>
-        </NGi>
-        <NGi>
-          <div class="stat-item success">
-            <div class="stat-value">{{ schedulerStats.completed }}</div>
-            <div class="stat-label">已完成</div>
-          </div>
-        </NGi>
-        <NGi>
-          <div class="stat-item">
-            <div class="stat-value">{{ schedulerStats.skipped }}</div>
-            <div class="stat-label">已跳过</div>
-          </div>
-        </NGi>
-        <NGi>
-          <div class="stat-item error">
-            <div class="stat-value">{{ schedulerStats.failed }}</div>
-            <div class="stat-label">失败</div>
-          </div>
-        </NGi>
-        <NGi>
-          <div class="stat-item">
-            <div class="stat-value">{{ schedulerStats.total }}</div>
-            <div class="stat-label">总计</div>
-          </div>
-        </NGi>
-      </NGrid>
-
-      <NDivider style="margin: 16px 0" />
-
       <!-- 素材目录配置 -->
       <div class="config-row">
         <span class="config-label">素材根目录</span>
@@ -858,40 +813,6 @@ onUnmounted(() => {
 
 .main-card {
   margin-bottom: 16px;
-}
-
-.stats-grid {
-  margin-bottom: 8px;
-}
-
-.stat-item {
-  text-align: center;
-  padding: 12px 0;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 600;
-  color: #333;
-  line-height: 1.2;
-}
-
-.stat-item.running .stat-value {
-  color: #2080f0;
-}
-
-.stat-item.success .stat-value {
-  color: #18a058;
-}
-
-.stat-item.error .stat-value {
-  color: #d03050;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: #888;
-  margin-top: 4px;
 }
 
 .config-row {
