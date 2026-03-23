@@ -434,4 +434,97 @@ onMounted(async () => {
   overflow: auto;
   background: #f5f7fa;
 }
+
+.main-content :deep(.n-card) {
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  box-shadow: none;
+  background: #ffffff;
+}
+
+.main-content :deep(.n-card > .n-card-header) {
+  padding: 18px 20px 0;
+}
+
+.main-content :deep(.n-card > .n-card__content),
+.main-content :deep(.n-card > .n-card__footer) {
+  padding: 18px 20px;
+}
+
+.main-content :deep(.n-button) {
+  border-radius: 999px;
+  box-shadow: none;
+  border-color: #d8e1ec;
+  background: #ffffff;
+  color: #334155;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.main-content :deep(.n-button:not(.n-button--disabled):hover) {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.main-content :deep(.n-button.n-button--primary-type) {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #2563eb;
+}
+
+.main-content :deep(.n-button.n-button--primary-type:not(.n-button--disabled):hover) {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.main-content :deep(.n-button.n-button--error-type) {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.main-content :deep(.n-button.n-button--error-type:not(.n-button--disabled):hover) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.main-content :deep(.n-button.n-button--warning-type) {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #ea580c;
+}
+
+.main-content :deep(.n-button.n-button--success-type) {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #16a34a;
+}
+
+.main-content :deep(.n-input .n-input-wrapper),
+.main-content :deep(.n-input-number),
+.main-content :deep(.n-base-selection) {
+  border-radius: 14px;
+  box-shadow: none;
+}
+
+.main-content :deep(.n-collapse) {
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+}
+
+.main-content :deep(.n-collapse-item) {
+  background: transparent;
+}
+
+.main-content :deep(.n-collapse-item__header) {
+  padding: 16px 18px !important;
+  font-weight: 600;
+  color: #334155;
+}
 </style>
