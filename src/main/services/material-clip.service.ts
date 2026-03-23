@@ -704,8 +704,13 @@ export class MaterialClipService {
     config: MaterialClipConfig,
   ): Promise<MaterialClipConfig> {
     const apiConfig = await this.configService.getApiConfig();
+    const normalizedOutputDir = this.resolveOutputDir(config);
+    const hasDisclaimerText = Boolean(config.disclaimer_text.trim());
     return {
       ...config,
+      output_dir: normalizedOutputDir,
+      enable_disclaimer_text:
+        config.enable_disclaimer_text || hasDisclaimerText,
       feishu: {
         ...config.feishu,
         app_id: apiConfig.feishuAppId,
@@ -1055,26 +1060,104 @@ export class MaterialClipService {
     );
   }
 
-  private extractFieldText(value: unknown): string | null {
-    if (!Array.isArray(value) || value.length === 0) {
+  private normalizeDisplayText(value: string | null | undefined): string | null {
+    const normalized = value?.trim();
+    if (!normalized || normalized === "未知" || normalized === "未知日期") {
       return null;
     }
+    return normalized;
+  }
 
-    const firstItem = value[0] as MaterialClipFeishuRecordFieldValue | string;
-    if (typeof firstItem === "string") {
-      return firstItem;
+  private resolveOutputDir(config: MaterialClipConfig): string {
+    const sourceDir =
+      config.default_source_dir.trim() || config.backup_source_dir.trim();
+    const outputDir = config.output_dir.trim();
+    if (!sourceDir) {
+      return outputDir;
     }
 
-    return typeof firstItem?.text === "string" ? firstItem.text : null;
+    const exportBaseDir = path.dirname(sourceDir);
+    if (!outputDir) {
+      return exportBaseDir;
+    }
+
+    try {
+      if (path.resolve(outputDir) === path.resolve(sourceDir)) {
+        return exportBaseDir;
+      }
+    } catch {
+      return outputDir;
+    }
+
+    return outputDir;
+  }
+
+  private extractFieldTexts(value: unknown): string[] {
+    if (value === null || value === undefined) {
+      return [];
+    }
+
+    if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "boolean"
+    ) {
+      return [String(value)];
+    }
+
+    if (Array.isArray(value)) {
+      return value.flatMap((item) => this.extractFieldTexts(item));
+    }
+
+    if (!isPlainObject(value)) {
+      return [];
+    }
+
+    const textCandidates = ["text", "name", "label"];
+    for (const field of textCandidates) {
+      const candidate = value[field];
+      if (typeof candidate === "string" && candidate.trim()) {
+        return [candidate];
+      }
+    }
+
+    const nestedCandidates = ["value", "values"];
+    for (const field of nestedCandidates) {
+      const candidate = value[field];
+      if (candidate !== undefined && candidate !== null) {
+        const texts = this.extractFieldTexts(candidate);
+        if (texts.length > 0) {
+          return texts;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  private extractFieldText(value: unknown): string | null {
+    const text = this.extractFieldTexts(value)
+      .map((item) => item.trim())
+      .find(Boolean);
+    return text || null;
   }
 
   private parseFeishuTimestamp(value: unknown): number | null {
     const raw = this.extractFieldText(value);
-    if (!raw || !/^\d+$/.test(raw)) {
+    if (!raw) {
       return null;
     }
 
-    return Number(raw);
+    if (/^\d+$/.test(raw)) {
+      return Number(raw);
+    }
+
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) {
+      return null;
+    }
+
+    return parsed;
   }
 
   private parseFeishuDate(value: unknown): {
@@ -1099,6 +1182,31 @@ export class MaterialClipService {
       return {
         date: `${Number(month)}.${Number(day)}`,
         fullDate: raw,
+      };
+    }
+
+    if (/^\d{1,2}\.\d{1,2}$/.test(raw)) {
+      const [month, day] = raw.split(".");
+      return {
+        date: `${Number(month)}.${Number(day)}`,
+        fullDate: null,
+      };
+    }
+
+    if (/^\d{1,2}-\d{1,2}$/.test(raw)) {
+      const [month, day] = raw.split("-");
+      return {
+        date: `${Number(month)}.${Number(day)}`,
+        fullDate: null,
+      };
+    }
+
+    const parsed = Date.parse(raw);
+    if (!Number.isNaN(parsed)) {
+      const date = new Date(parsed);
+      return {
+        date: `${date.getMonth() + 1}.${date.getDate()}`,
+        fullDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
       };
     }
 
@@ -1179,21 +1287,21 @@ export class MaterialClipService {
       return;
     }
 
-    this.runState.message = line;
-
-    const selectedDramaMatch = line.match(/^🎯 选择处理：\[(.+?)\] (.+)$/);
+    const selectedDramaMatch = line.match(/🎯 选择处理：\[(.+?)\]\s+(.+)$/);
     if (selectedDramaMatch) {
-      const [, date, dramaName] = selectedDramaMatch;
+      const [, rawDate, dramaName] = selectedDramaMatch;
+      const date = this.normalizeDisplayText(rawDate);
       this.runState.currentDramaName = dramaName;
       this.runState.currentDramaDate = date;
-      const matched = this.findPendingDramaCandidate(dramaName, date);
+      this.runState.message = `正在处理《${dramaName}》`;
+      const matched = this.findPendingDramaCandidate(dramaName, date ?? null);
       if (matched) {
         this.runState.currentDramaRating = matched.rating;
         this.runState.currentRecordId = matched.recordId;
       }
     }
 
-    const statusMatch = line.match(/^✅ 已更新 '(.+)' 状态为 '(.+)'$/);
+    const statusMatch = line.match(/已更新 '(.+)' 状态为 ?'(.+)'/);
     if (statusMatch) {
       const [, dramaName, nextStatus] = statusMatch;
       if (nextStatus === "剪辑中") {
@@ -1203,22 +1311,28 @@ export class MaterialClipService {
       }
     }
 
-    const planMatch = line.match(/^=== (.+?) \| .*计划生成：(\d+) 条/);
+    const planMatch = line.match(
+      /===\s*(.+?)\s+\|[\s\S]*计划生成：(\d+)\s*条/,
+    );
     if (planMatch) {
       const [, dramaName, total] = planMatch;
       this.markDramaAsCurrent(dramaName);
       this.runState.totalMaterials = Number(total);
       this.runState.completedMaterials = 0;
       this.runState.remainingMaterials = Number(total);
+      this.runState.message = `正在处理《${dramaName}》，共 ${total} 条素材`;
     }
 
     const materialMatch = line.match(
-      /^✅ 素材完成 \| 剧：(.+?) \| 第 (\d+) 条 .*?该剧剩余素材：(\d+) 条$/,
+      /素材完成 \| 剧：(.+?) \| 第 (\d+) 条(?:[\s\S]*?该剧剩余素材：(\d+) 条)?$/,
     );
     if (materialMatch) {
       const [, dramaName, completed, remaining] = materialMatch;
       const completedCount = Number(completed);
-      const remainingCount = Number(remaining);
+      const remainingCount =
+        remaining !== undefined
+          ? Number(remaining)
+          : Math.max(this.runState.totalMaterials - completedCount, 0);
       this.markDramaAsCurrent(dramaName);
       this.runState.completedMaterials = completedCount;
       this.runState.remainingMaterials = remainingCount;
@@ -1226,10 +1340,13 @@ export class MaterialClipService {
         this.runState.totalMaterials,
         completedCount + remainingCount,
       );
+      if (this.runState.totalMaterials > 0) {
+        this.runState.message = `正在处理《${dramaName}》，已完成 ${completedCount}/${this.runState.totalMaterials}`;
+      }
     }
 
     const dramaDoneMatch = line.match(
-      /^📦 本剧完成 \| (.+?) \| 本轮生成 (\d+)\/(\d+) 条/,
+      /本剧完成 \| (.+?) \| 本轮生成 (\d+)\/(\d+) 条/,
     );
     if (dramaDoneMatch) {
       const [, dramaName, completed, total] = dramaDoneMatch;
@@ -1237,14 +1354,17 @@ export class MaterialClipService {
       this.runState.completedMaterials = Number(completed);
       this.runState.totalMaterials = Number(total);
       this.runState.remainingMaterials = 0;
+      this.runState.message = `《${dramaName}》已完成，生成 ${completed}/${total} 条素材`;
     }
 
     this.touchRunState();
     this.emitRunState();
   }
 
-  private markDramaAsCurrent(dramaName: string) {
+  private markDramaAsCurrent(dramaName: string, dramaDate?: string | null) {
     this.runState.currentDramaName = dramaName;
+    this.runState.currentDramaDate =
+      this.normalizeDisplayText(dramaDate) ?? this.runState.currentDramaDate;
     const matched = this.findPendingDramaCandidate(
       dramaName,
       this.runState.currentDramaDate,
@@ -1253,7 +1373,7 @@ export class MaterialClipService {
       return;
     }
 
-    this.runState.currentDramaDate = matched.date;
+    this.runState.currentDramaDate = this.normalizeDisplayText(matched.date);
     this.runState.currentDramaRating = matched.rating;
     this.runState.currentRecordId = matched.recordId;
     this.runState.pendingDramas = this.runState.pendingDramas.filter(

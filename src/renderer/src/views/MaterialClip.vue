@@ -243,6 +243,51 @@ const runState = ref<MaterialClipRunState>({
 
 const hasQueueData = computed(() => runState.value.pendingDramas.length > 0);
 
+const statusSummary = computed(() => {
+  const state = runState.value;
+  if (state.status === "failed" && state.message) {
+    return state.message;
+  }
+
+  if (state.status === "completed" && state.message) {
+    return state.message;
+  }
+
+  if (state.status === "stopped" && state.message) {
+    return state.message;
+  }
+
+  if (state.status === "stopping") {
+    return state.message || "正在停止自动剪辑...";
+  }
+
+  if (state.status === "running") {
+    if (state.currentDramaName) {
+      return `正在处理《${state.currentDramaName}》`;
+    }
+    return state.mode === "auto" ? "自动剪辑运行中..." : "手动剪辑运行中...";
+  }
+
+  if (hasQueueData.value) {
+    return `已同步待剪辑队列，共 ${state.pendingDramas.length} 部剧`;
+  }
+
+  return "等待开始剪辑";
+});
+
+const currentDramaDateLabel = computed(() => {
+  const date = runState.value.currentDramaDate?.trim();
+  if (!date || date === "未知" || date === "未知日期") {
+    return null;
+  }
+  return date;
+});
+
+const currentDramaRatingLabel = computed(() => {
+  const rating = runState.value.currentDramaRating?.trim();
+  return rating || null;
+});
+
 const progressPercent = computed(() => {
   if (runState.value.totalMaterials <= 0) {
     return 0;
@@ -637,6 +682,14 @@ onUnmounted(() => {
             </div>
           </div>
           <NSpace>
+            <NButton @click="loadEnvironmentStatus">重新检测</NButton>
+            <NButton
+              :loading="importingRuntime"
+              :disabled="installingEnvironment || isAutoRunning || isManualRunning"
+              @click="importRuntime"
+            >
+              重新导入运行时
+            </NButton>
             <NButton :loading="saving" @click="saveConfig">保存配置</NButton>
             <NButton
               v-if="!isAutoRunning"
@@ -661,16 +714,7 @@ onUnmounted(() => {
         <NCard class="status-card" title="运行状态">
           <div class="status-header">
             <div class="status-message">
-              {{
-                runState.message ||
-                (runState.status === "running"
-                  ? "正在运行中..."
-                  : runState.status === "stopping"
-                    ? "正在停止..."
-                    : hasQueueData
-                      ? "已同步待剪辑队列"
-                      : "等待开始剪辑")
-              }}
+              {{ statusSummary }}
             </div>
           </div>
 
@@ -678,14 +722,12 @@ onUnmounted(() => {
             <div class="section-title">当前处理剧目</div>
             <div class="drama-info">
               <span class="drama-name">{{ runState.currentDramaName }}</span>
-              <span v-if="runState.currentDramaDate" class="drama-tag">{{
-                runState.currentDramaDate
+              <span v-if="currentDramaDateLabel" class="drama-tag">{{
+                currentDramaDateLabel
               }}</span>
-              <span
-                v-if="runState.currentDramaRating"
-                class="drama-tag rating"
-                >{{ runState.currentDramaRating }}</span
-              >
+              <span v-if="currentDramaRatingLabel" class="drama-tag rating">{{
+                currentDramaRatingLabel
+              }}</span>
             </div>
             <div class="progress-info">
               <div class="progress-text">
@@ -729,7 +771,13 @@ onUnmounted(() => {
                     :key="drama.order"
                   >
                     <td class="text-center">{{ drama.order }}</td>
-                    <td>{{ drama.date }}</td>
+                    <td>
+                      {{
+                        drama.date === "未知" || drama.date === "未知日期"
+                          ? "-"
+                          : drama.date
+                      }}
+                    </td>
                     <td class="font-medium">{{ drama.dramaName }}</td>
                     <td>
                       <span
@@ -821,6 +869,17 @@ onUnmounted(() => {
                       "
                     />
                   </NFormItem>
+                  <NFormItem label="启用免责声明">
+                    <NSwitch
+                      :value="config.enable_disclaimer_text"
+                      @update:value="
+                        (value) =>
+                          updateConfig((draft) => {
+                            draft.enable_disclaimer_text = value;
+                          })
+                      "
+                    />
+                  </NFormItem>
                   <NFormItem label="删除源视频">
                     <NSwitch
                       :value="config.auto_delete_source_after_completion"
@@ -832,7 +891,7 @@ onUnmounted(() => {
                       "
                     />
                   </NFormItem>
-                  <NFormItem label="免责声明">
+                  <NFormItem label="免责声明文案">
                     <NInput
                       type="textarea"
                       :rows="3"
@@ -842,6 +901,9 @@ onUnmounted(() => {
                         (value) =>
                           updateConfig((draft) => {
                             draft.disclaimer_text = value;
+                            if (value.trim()) {
+                              draft.enable_disclaimer_text = true;
+                            }
                           })
                       "
                     />
