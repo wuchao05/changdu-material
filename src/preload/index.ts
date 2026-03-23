@@ -68,6 +68,34 @@ interface MaterialClipRuntimeImportResult {
   runtimeRoot?: string;
 }
 
+interface MaterialClipPendingDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  uploadTime: number | null;
+}
+
+interface MaterialClipRunState {
+  running: boolean;
+  mode: "idle" | "auto" | "manual";
+  status: "idle" | "running" | "stopping" | "stopped" | "completed" | "failed";
+  pid: number | null;
+  pendingDramas: MaterialClipPendingDrama[];
+  currentDramaName: string | null;
+  currentDramaDate: string | null;
+  currentDramaRating: string | null;
+  currentRecordId: string | null;
+  totalMaterials: number;
+  completedMaterials: number;
+  remainingMaterials: number;
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
+  message: string;
+}
+
 // Custom APIs for renderer
 const api = {
   // ==================== 配置管理 ====================
@@ -99,6 +127,9 @@ const api = {
   clipAutoRun: () => ipcRenderer.invoke("clip:autoRun"),
   clipManualRun: (dramaNames: string) =>
     ipcRenderer.invoke("clip:manualRun", dramaNames),
+  clipGetRunState: (): Promise<MaterialClipRunState> =>
+    ipcRenderer.invoke("clip:getRunState"),
+  clipStopAutoRun: () => ipcRenderer.invoke("clip:stopAutoRun"),
   clipGetLogs: () => ipcRenderer.invoke("clip:getLogs"),
   clipClearLogs: () => ipcRenderer.invoke("clip:clearLogs"),
   onClipLog: (callback: (log: MaterialClipLog) => void) => {
@@ -106,6 +137,14 @@ const api = {
       callback(log);
     ipcRenderer.on("material-clip:log", handler);
     return () => ipcRenderer.removeListener("material-clip:log", handler);
+  },
+  onClipState: (callback: (state: MaterialClipRunState) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      state: MaterialClipRunState,
+    ) => callback(state);
+    ipcRenderer.on("material-clip:state", handler);
+    return () => ipcRenderer.removeListener("material-clip:state", handler);
   },
 
   // ==================== 文件系统 ====================

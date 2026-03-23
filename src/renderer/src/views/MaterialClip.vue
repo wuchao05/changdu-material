@@ -8,13 +8,11 @@ import {
   NCard,
   NCollapse,
   NCollapseItem,
-  NDivider,
   NForm,
   NFormItem,
   NGrid,
   NGridItem,
   NInput,
-  NInputNumber,
   NSpace,
   NSwitch,
   useMessage,
@@ -183,6 +181,32 @@ interface MaterialClipEnvironmentStatus {
   error?: string;
 }
 
+interface MaterialClipRunState {
+  running: boolean;
+  status: "idle" | "running" | "stopping" | "stopped" | "completed" | "failed";
+  mode: "idle" | "auto" | "manual";
+  message: string;
+  pid: number | null;
+  pendingDramas: Array<{
+    order: number;
+    date: string;
+    dramaName: string;
+    rating: string | null;
+    recordId: string;
+    fullDate: string | null;
+    uploadTime: number | null;
+  }>;
+  currentDramaName: string | null;
+  currentDramaDate: string | null;
+  currentDramaRating: string | null;
+  currentRecordId: string | null;
+  totalMaterials: number;
+  completedMaterials: number;
+  remainingMaterials: number;
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
+}
+
 const importingRuntime = ref(false);
 
 const message = useMessage();
@@ -199,7 +223,41 @@ const config = ref<MaterialClipConfig | null>(null);
 const configEditorText = ref("");
 const environmentStatus = ref<MaterialClipEnvironmentStatus | null>(null);
 
+const runState = ref<MaterialClipRunState>({
+  running: false,
+  status: "idle",
+  mode: "idle",
+  message: "",
+  pid: null,
+  pendingDramas: [],
+  currentDramaName: null,
+  currentDramaDate: null,
+  currentDramaRating: null,
+  currentRecordId: null,
+  totalMaterials: 0,
+  completedMaterials: 0,
+  remainingMaterials: 0,
+  startedAt: null,
+  lastUpdatedAt: null,
+});
+
+const hasQueueData = computed(() => runState.value.pendingDramas.length > 0);
+
+const progressPercent = computed(() => {
+  if (runState.value.totalMaterials <= 0) {
+    return 0;
+  }
+
+  return Math.min(
+    100,
+    Math.round(
+      (runState.value.completedMaterials / runState.value.totalMaterials) * 100,
+    ),
+  );
+});
+
 let unsubscribeLog: (() => void) | null = null;
+let unsubscribeState: (() => void) | null = null;
 
 const prettyConfig = computed(() => configEditorText.value.trim());
 
@@ -219,20 +277,6 @@ function updateConfig(updater: (draft: MaterialClipConfig) => void) {
   syncEditorFromConfig();
 }
 
-function updateNumberField(
-  field: keyof MaterialClipConfig,
-  value: number | null,
-) {
-  if (value === null) {
-    return;
-  }
-  updateConfig((draft) => {
-    if (typeof draft[field] === "number") {
-      (draft[field] as number) = value;
-    }
-  });
-}
-
 async function loadConfig() {
   try {
     config.value = await window.api.getClipConfig();
@@ -241,20 +285,6 @@ async function loadConfig() {
     console.error("加载素材剪辑配置失败:", error);
     message.error(`加载配置失败: ${error}`);
   }
-}
-
-function updateDurationMinutes(
-  field: "min_duration" | "max_duration",
-  value: number | null,
-) {
-  if (value === null) {
-    return;
-  }
-
-  const seconds = Math.max(1, Math.round(value * 60));
-  updateConfig((draft) => {
-    draft[field] = seconds;
-  });
 }
 
 async function loadEnvironmentStatus(showSuccess = false) {
@@ -378,7 +408,20 @@ async function startAutoClip() {
   } catch (error) {
     message.error(`自动剪辑启动失败: ${error}`);
   } finally {
-    isAutoRunning.value = false;
+    // isAutoRunning will be updated by state listener
+  }
+}
+
+async function stopAutoClip() {
+  try {
+    const result = await window.api.clipStopAutoRun();
+    if (!result.success) {
+      message.error(result.error || "停止自动剪辑失败");
+      return;
+    }
+    message.success("已发送停止指令，等待当前任务完成...");
+  } catch (error) {
+    message.error(`停止失败: ${error}`);
   }
 }
 
@@ -411,7 +454,7 @@ async function startManualClip() {
   } catch (error) {
     message.error(`手动剪辑启动失败: ${error}`);
   } finally {
-    isManualRunning.value = false;
+    // isManualRunning will be updated by state listener
   }
 }
 
@@ -440,23 +483,53 @@ async function toggleLogs() {
   }
 }
 
+async function loadRunState() {
+  try {
+    const state = await window.api.clipGetRunState();
+    if (state) {
+      runState.value = state;
+      isAutoRunning.value =
+        (state.status === "running" || state.status === "stopping") &&
+        state.mode === "auto";
+      isManualRunning.value =
+        state.status === "running" && state.mode === "manual";
+    }
+  } catch (error) {
+    console.error("加载运行状态失败:", error);
+  }
+}
+
 onMounted(async () => {
   await loadLogs();
   await loadEnvironmentStatus();
   if (environmentStatus.value?.ready) {
     await loadConfig();
   }
+  await loadRunState();
+
   unsubscribeLog = window.api.onClipLog((log) => {
     logs.value.push(log);
     if (logs.value.length > 500) {
       logs.value.shift();
     }
   });
+
+  unsubscribeState = window.api.onClipState((state) => {
+    runState.value = state;
+    isAutoRunning.value =
+      (state.status === "running" || state.status === "stopping") &&
+      state.mode === "auto";
+    isManualRunning.value =
+      state.status === "running" && state.mode === "manual";
+  });
 });
 
 onUnmounted(() => {
   if (unsubscribeLog) {
     unsubscribeLog();
+  }
+  if (unsubscribeState) {
+    unsubscribeState();
   }
 });
 </script>
@@ -566,83 +639,120 @@ onUnmounted(() => {
           <NSpace>
             <NButton :loading="saving" @click="saveConfig">保存配置</NButton>
             <NButton
+              v-if="!isAutoRunning"
               type="primary"
-              :loading="isAutoRunning"
               @click="startAutoClip"
             >
               自动剪辑
+            </NButton>
+            <NButton
+              v-else
+              type="error"
+              :loading="runState.status === 'stopping'"
+              @click="stopAutoClip"
+            >
+              停止自动剪辑
             </NButton>
           </NSpace>
         </div>
       </NCard>
 
-      <NCard class="quick-card" title="快捷配置">
-        <div v-if="config" class="config-groups">
-          <div class="config-group">
-            <div class="group-header">
-              <div class="group-title">基础路径与飞书</div>
-              <div class="group-desc">
-                设置本地视频源、输出目录及飞书多维表格关联
-              </div>
-            </div>
-            <div class="group-content">
-              <NForm
-                label-placement="top"
-                require-mark-placement="right-hanging"
-              >
-                <NGrid :cols="24" :x-gap="24" item-responsive>
-                  <NGridItem span="24 m:12">
-                    <NFormItem label="本地源目录">
-                      <NInput
-                        :value="config.default_source_dir"
-                        readonly
-                        placeholder="选择本地源视频目录"
-                      />
-                      <NButton
-                        style="margin-left: 12px"
-                        @click="selectDirectory('default_source_dir')"
-                        >选择</NButton
-                      >
-                    </NFormItem>
-                  </NGridItem>
-                  <NGridItem span="24 m:12">
-                    <NFormItem label="输出目录">
-                      <NInput
-                        :value="config.output_dir"
-                        readonly
-                        placeholder="选择素材输出目录"
-                      />
-                      <NButton
-                        style="margin-left: 12px"
-                        @click="selectDirectory('output_dir')"
-                        >选择</NButton
-                      >
-                    </NFormItem>
-                  </NGridItem>
-                  <NGridItem span="24">
-                    <NFormItem label="飞书 Table ID">
-                      <NInput
-                        :value="config.feishu.table_id"
-                        placeholder="自动剪辑要查询的飞书多维表格 ID"
-                        @update:value="
-                          (value) =>
-                            updateConfig((draft) => {
-                              draft.feishu.table_id = value;
-                            })
-                        "
-                      />
-                    </NFormItem>
-                  </NGridItem>
-                </NGrid>
-              </NForm>
+      <template v-if="runState.status !== 'idle' || hasQueueData">
+        <NCard class="status-card" title="运行状态">
+          <div class="status-header">
+            <div class="status-message">
+              {{
+                runState.message ||
+                (runState.status === "running"
+                  ? "正在运行中..."
+                  : runState.status === "stopping"
+                    ? "正在停止..."
+                    : hasQueueData
+                      ? "已同步待剪辑队列"
+                      : "等待开始剪辑")
+              }}
             </div>
           </div>
 
+          <div v-if="runState.currentDramaName" class="current-drama-section">
+            <div class="section-title">当前处理剧目</div>
+            <div class="drama-info">
+              <span class="drama-name">{{ runState.currentDramaName }}</span>
+              <span v-if="runState.currentDramaDate" class="drama-tag">{{
+                runState.currentDramaDate
+              }}</span>
+              <span
+                v-if="runState.currentDramaRating"
+                class="drama-tag rating"
+                >{{ runState.currentDramaRating }}</span
+              >
+            </div>
+            <div class="progress-info">
+              <div class="progress-text">
+                <span
+                  >素材进度: {{ runState.completedMaterials }} /
+                  {{ runState.totalMaterials }}</span
+                >
+                <span v-if="runState.remainingMaterials > 0" class="remaining"
+                  >剩余: {{ runState.remainingMaterials }}</span
+                >
+              </div>
+              <div class="progress-bar-container">
+                <div
+                  class="progress-bar"
+                  :style="{ width: `${progressPercent}%` }"
+                ></div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="runState.pendingDramas && runState.pendingDramas.length > 0"
+            class="pending-dramas-section"
+          >
+            <div class="section-title">
+              待处理剧目 ({{ runState.pendingDramas.length }})
+            </div>
+            <div class="table-container">
+              <table class="beautiful-table">
+                <thead>
+                  <tr>
+                    <th width="60">序号</th>
+                    <th width="120">日期</th>
+                    <th>剧名</th>
+                    <th width="80">评级</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="drama in runState.pendingDramas"
+                    :key="drama.order"
+                  >
+                    <td class="text-center">{{ drama.order }}</td>
+                    <td>{{ drama.date }}</td>
+                    <td class="font-medium">{{ drama.dramaName }}</td>
+                    <td>
+                      <span
+                        class="rating-badge"
+                        :class="drama.rating?.toLowerCase()"
+                        >{{ drama.rating || "-" }}</span
+                      >
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </NCard>
+      </template>
+
+      <NCard class="quick-card" title="快捷配置">
+        <div v-if="config" class="config-groups">
           <div class="config-group-row">
             <div class="config-group half">
               <div class="group-header">
-                <div class="group-title">剪辑参数</div>
-                <div class="group-desc">控制视频生成的数量、时长与并发</div>
+                <div class="group-title">基础路径与飞书</div>
+                <div class="group-desc">设置本地视频源及飞书多维表格关联</div>
               </div>
               <div class="group-content">
                 <NForm
@@ -650,62 +760,26 @@ onUnmounted(() => {
                   label-width="120"
                   require-mark-placement="right-hanging"
                 >
-                  <NFormItem label="每部剧条数">
-                    <NInputNumber
-                      :value="config.count"
-                      :min="1"
-                      :max="100"
-                      style="width: 100%"
-                      @update:value="
-                        (value) => updateNumberField('count', value)
-                      "
-                    />
-                  </NFormItem>
-                  <NFormItem label="并发数">
-                    <NInputNumber
-                      :value="config.jobs"
-                      :min="1"
-                      :max="16"
-                      style="width: 100%"
-                      @update:value="
-                        (value) => updateNumberField('jobs', value)
-                      "
-                    />
-                  </NFormItem>
-                  <NFormItem label="最小时长">
-                    <NInputNumber
-                      :value="config.min_duration / 60"
-                      :min="1"
-                      :max="120"
-                      style="width: 100%"
-                      @update:value="
-                        (value) => updateDurationMinutes('min_duration', value)
-                      "
-                    >
-                      <template #suffix>分钟</template>
-                    </NInputNumber>
-                  </NFormItem>
-                  <NFormItem label="最大时长">
-                    <NInputNumber
-                      :value="config.max_duration / 60"
-                      :min="1"
-                      :max="120"
-                      style="width: 100%"
-                      @update:value="
-                        (value) => updateDurationMinutes('max_duration', value)
-                      "
-                    >
-                      <template #suffix>分钟</template>
-                    </NInputNumber>
-                  </NFormItem>
-                  <NFormItem label="素材代号">
+                  <NFormItem label="本地源目录">
                     <NInput
-                      :value="config.material_code"
-                      placeholder="如 xl / xh"
+                      :value="config.default_source_dir"
+                      readonly
+                      placeholder="选择本地源视频目录"
+                    />
+                    <NButton
+                      style="margin-left: 12px"
+                      @click="selectDirectory('default_source_dir')"
+                      >选择</NButton
+                    >
+                  </NFormItem>
+                  <NFormItem label="飞书 Table ID">
+                    <NInput
+                      :value="config.feishu.table_id"
+                      placeholder="自动剪辑要查询的飞书多维表格 ID"
                       @update:value="
                         (value) =>
                           updateConfig((draft) => {
-                            draft.material_code = value;
+                            draft.feishu.table_id = value;
                           })
                       "
                     />
@@ -725,13 +799,13 @@ onUnmounted(() => {
                   label-width="120"
                   require-mark-placement="right-hanging"
                 >
-                  <NFormItem label="快速模式">
+                  <NFormItem label="浮动水印">
                     <NSwitch
-                      :value="config.fast_mode"
+                      :value="config.enable_floating_watermark"
                       @update:value="
                         (value) =>
                           updateConfig((draft) => {
-                            draft.fast_mode = value;
+                            draft.enable_floating_watermark = value;
                           })
                       "
                     />
@@ -780,6 +854,27 @@ onUnmounted(() => {
       </NCard>
 
       <NCard class="manual-card" title="手动剪辑">
+        <div
+          v-if="config"
+          class="manual-config-row"
+          style="margin-bottom: 16px"
+        >
+          <NForm inline>
+            <NFormItem label="输出目录">
+              <NInput
+                :value="config.output_dir"
+                readonly
+                placeholder="选择素材输出目录"
+                style="width: 300px"
+              />
+              <NButton
+                style="margin-left: 12px"
+                @click="selectDirectory('output_dir')"
+                >选择</NButton
+              >
+            </NFormItem>
+          </NForm>
+        </div>
         <div class="manual-row">
           <NInput
             v-model:value="manualDramaNames"
@@ -854,6 +949,7 @@ onUnmounted(() => {
 .overview-card,
 .quick-card,
 .manual-card,
+.status-card,
 .advanced-collapse {
   background: #fff;
 }
@@ -1066,6 +1162,161 @@ onUnmounted(() => {
 
 .config-group :deep(.n-form-item-label__text) {
   white-space: nowrap;
+}
+
+/* Status Card Styles */
+.status-header {
+  margin-bottom: 16px;
+}
+
+.status-message {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2563eb;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 12px;
+}
+
+.current-drama-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.drama-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.drama-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.drama-tag {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.drama-tag.rating {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.progress-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.progress-text .remaining {
+  color: #f59e0b;
+}
+
+.progress-bar-container {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #3b82f6;
+  transition: width 0.3s ease;
+}
+
+.pending-dramas-section {
+  margin-top: 20px;
+}
+
+.table-container {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.beautiful-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.beautiful-table th {
+  background: #f8fafc;
+  padding: 12px 16px;
+  font-weight: 600;
+  color: #475569;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.beautiful-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #1e293b;
+}
+
+.beautiful-table tr:last-child td {
+  border-bottom: none;
+}
+
+.beautiful-table tr:hover td {
+  background: #f1f5f9;
+}
+
+.text-center {
+  text-align: center;
+}
+
+.font-medium {
+  font-weight: 500;
+}
+
+.rating-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.rating-badge.s {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.rating-badge.a {
+  background: #ffedd5;
+  color: #f59e0b;
+}
+
+.rating-badge.b {
+  background: #dcfce7;
+  color: #10b981;
 }
 
 @media (max-width: 900px) {

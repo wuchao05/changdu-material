@@ -4,6 +4,7 @@ import fsp from "fs/promises";
 import path from "path";
 import { spawn, type ChildProcessByStdio } from "child_process";
 import type { Readable } from "stream";
+import type { ApiService } from "./api.service";
 import type { ConfigService } from "./config.service";
 import {
   importRuntimeCandidate,
@@ -191,6 +192,53 @@ export interface MaterialClipRuntimeImportResult {
   runtimeRoot?: string;
 }
 
+export type MaterialClipProcessMode = "idle" | "auto" | "manual";
+
+export interface MaterialClipPendingDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  uploadTime: number | null;
+}
+
+export interface MaterialClipRunState {
+  running: boolean;
+  mode: MaterialClipProcessMode;
+  status: "idle" | "running" | "stopping" | "stopped" | "completed" | "failed";
+  pid: number | null;
+  pendingDramas: MaterialClipPendingDrama[];
+  currentDramaName: string | null;
+  currentDramaDate: string | null;
+  currentDramaRating: string | null;
+  currentRecordId: string | null;
+  totalMaterials: number;
+  completedMaterials: number;
+  remainingMaterials: number;
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
+  message: string;
+}
+
+interface MaterialClipFeishuRecordFieldValue {
+  text?: string;
+}
+
+interface MaterialClipFeishuRecord {
+  record_id: string;
+  fields: Record<string, unknown>;
+}
+
+interface MaterialClipFeishuSearchResponse {
+  code: number;
+  msg?: string;
+  data?: {
+    items?: MaterialClipFeishuRecord[];
+  };
+}
+
 type PythonCommand = {
   command: string;
   prefixArgs: string[];
@@ -245,8 +293,10 @@ export class MaterialClipService {
     Readable
   > | null = null;
   private readonly configService: ConfigService;
+  private readonly apiService: ApiService;
+  private runState: MaterialClipRunState = this.createEmptyRunState();
 
-  constructor(configService: ConfigService) {
+  constructor(configService: ConfigService, apiService: ApiService) {
     const userDataPath = app.getPath("userData");
     this.configPath = path.join(userDataPath, "material-clip-config.json");
     this.runtimeRunConfigPath = path.join(
@@ -262,10 +312,112 @@ export class MaterialClipService {
       "material-clip-runtime",
     );
     this.configService = configService;
+    this.apiService = apiService;
   }
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
+  }
+
+  async getRunState(): Promise<MaterialClipRunState> {
+    if (!this.runState.running && this.runState.mode === "idle") {
+      await this.refreshPendingDramas();
+    }
+    return this.getRunStateSnapshot();
+  }
+
+  async stopAutoRun(): Promise<{ success: boolean; error?: string }> {
+    if (!this.runningProcess || this.runState.mode !== "auto") {
+      return { success: false, error: "当前没有自动剪辑任务在运行" };
+    }
+
+    if (this.runState.status === "stopping") {
+      return { success: false, error: "正在停止自动剪辑，请稍候" };
+    }
+
+    this.runState.status = "stopping";
+    this.runState.message = `正在停止《${this.runState.currentDramaName || "当前剧目"}》...`;
+    this.touchRunState();
+    this.emitRunState();
+
+    const processToStop = this.runningProcess;
+    const currentRecordId =
+      this.runState.currentRecordId ??
+      this.findPendingDramaCandidate(
+        this.runState.currentDramaName || "",
+        this.runState.currentDramaDate,
+      )?.recordId ??
+      null;
+
+    try {
+      await this.terminateProcess(processToStop);
+      if (currentRecordId) {
+        await this.revertRecordToPending(currentRecordId);
+      }
+      await this.refreshPendingDramas();
+      this.runState.running = false;
+      this.runState.mode = "idle";
+      this.runState.status = "stopped";
+      this.runState.pid = null;
+      this.runState.currentDramaName = null;
+      this.runState.currentDramaDate = null;
+      this.runState.currentDramaRating = null;
+      this.runState.currentRecordId = null;
+      this.runState.totalMaterials = 0;
+      this.runState.completedMaterials = 0;
+      this.runState.remainingMaterials = 0;
+      this.runState.message = "自动剪辑已停止，当前剧目已回退为待剪辑";
+      this.touchRunState();
+      this.emitRunState();
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.runState.status = "running";
+      this.runState.message = `停止自动剪辑失败：${message}`;
+      this.touchRunState();
+      this.emitRunState();
+      return { success: false, error: message };
+    }
+  }
+
+  private createEmptyRunState(): MaterialClipRunState {
+    return {
+      running: false,
+      mode: "idle",
+      status: "idle",
+      pid: null,
+      pendingDramas: [],
+      currentDramaName: null,
+      currentDramaDate: null,
+      currentDramaRating: null,
+      currentRecordId: null,
+      totalMaterials: 0,
+      completedMaterials: 0,
+      remainingMaterials: 0,
+      startedAt: null,
+      lastUpdatedAt: null,
+      message: "等待开始剪辑",
+    };
+  }
+
+  private getRunStateSnapshot(): MaterialClipRunState {
+    return {
+      ...this.runState,
+      pendingDramas: this.runState.pendingDramas.map((item) => ({ ...item })),
+    };
+  }
+
+  private touchRunState() {
+    this.runState.lastUpdatedAt = new Date().toISOString();
+  }
+
+  private emitRunState() {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send(
+        "material-clip:state",
+        this.getRunStateSnapshot(),
+      );
+    }
   }
 
   async getConfig(): Promise<MaterialClipConfig> {
@@ -310,10 +462,15 @@ export class MaterialClipService {
       return { success: false, error: "请先配置飞书 table_id" };
     }
 
+    const autoConfig: MaterialClipConfig = {
+      ...config,
+      output_dir: "",
+    };
+
     return this.startProcess({
       mode: "auto",
-      config,
-      extraArgs: ["feishu", "run", config.default_source_dir, "--yes"],
+      config: autoConfig,
+      extraArgs: ["feishu", "run", autoConfig.default_source_dir, "--yes"],
     });
   }
 
@@ -785,6 +942,223 @@ export class MaterialClipService {
     };
   }
 
+  private async refreshPendingDramas(
+    config?: MaterialClipConfig,
+  ): Promise<void> {
+    const resolvedConfig = config ?? (await this.getConfig());
+    this.runState.pendingDramas = await this.fetchPendingDramas(resolvedConfig);
+    this.touchRunState();
+    this.emitRunState();
+  }
+
+  private async fetchPendingDramas(
+    config: MaterialClipConfig,
+  ): Promise<MaterialClipPendingDrama[]> {
+    if (!config.feishu.table_id.trim()) {
+      return [];
+    }
+
+    const ratingField = config.feishu.rating_field_name || "评级";
+    const endpoint = `/open-apis/bitable/v1/apps/${config.feishu.app_token}/tables/${config.feishu.table_id}/records/search`;
+    const payload = {
+      field_names: ["剧名", "日期", "上架时间", ratingField],
+      page_size: config.feishu.page_size || 200,
+      filter: {
+        conjunction: "and",
+        conditions: [
+          {
+            field_name: config.feishu.status_field_name,
+            operator: "is",
+            value: [config.feishu.pending_status_value],
+          },
+        ],
+      },
+      sort: [
+        {
+          field_name: "日期",
+          desc: false,
+        },
+      ],
+    };
+
+    try {
+      const response = (await this.apiService.feishuRequest(
+        endpoint,
+        payload,
+        "POST",
+        this.configService,
+      )) as MaterialClipFeishuSearchResponse;
+
+      if (response.code !== 0 || !response.data?.items) {
+        return [];
+      }
+
+      return response.data.items
+        .map((record, index) =>
+          this.normalizePendingDrama(record, ratingField, index),
+        )
+        .filter((item): item is MaterialClipPendingDrama => item !== null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`获取待剪辑列表失败：${message}`);
+      return [];
+    }
+  }
+
+  private normalizePendingDrama(
+    record: MaterialClipFeishuRecord,
+    ratingField: string,
+    index: number,
+  ): MaterialClipPendingDrama | null {
+    const dramaName = this.extractFieldText(record.fields["剧名"]);
+    if (!dramaName) {
+      return null;
+    }
+
+    const { date, fullDate } = this.parseFeishuDate(record.fields["日期"]);
+    const uploadTime = this.parseFeishuTimestamp(record.fields["上架时间"]);
+
+    return {
+      order: index + 1,
+      dramaName,
+      recordId: record.record_id,
+      date,
+      fullDate,
+      rating: this.extractFieldText(record.fields[ratingField]),
+      uploadTime,
+    };
+  }
+
+  private findPendingDramaCandidate(
+    dramaName: string,
+    dramaDate?: string | null,
+  ): MaterialClipPendingDrama | undefined {
+    const matchedByDate = this.runState.pendingDramas.find(
+      (item) =>
+        item.dramaName === dramaName && (!dramaDate || item.date === dramaDate),
+    );
+    if (matchedByDate) {
+      return matchedByDate;
+    }
+
+    return this.runState.pendingDramas.find(
+      (item) => item.dramaName === dramaName,
+    );
+  }
+
+  private reindexPendingDramas() {
+    this.runState.pendingDramas = this.runState.pendingDramas.map(
+      (item, index) => ({
+        ...item,
+        order: index + 1,
+      }),
+    );
+  }
+
+  private extractFieldText(value: unknown): string | null {
+    if (!Array.isArray(value) || value.length === 0) {
+      return null;
+    }
+
+    const firstItem = value[0] as MaterialClipFeishuRecordFieldValue | string;
+    if (typeof firstItem === "string") {
+      return firstItem;
+    }
+
+    return typeof firstItem?.text === "string" ? firstItem.text : null;
+  }
+
+  private parseFeishuTimestamp(value: unknown): number | null {
+    const raw = this.extractFieldText(value);
+    if (!raw || !/^\d+$/.test(raw)) {
+      return null;
+    }
+
+    return Number(raw);
+  }
+
+  private parseFeishuDate(value: unknown): {
+    date: string;
+    fullDate: string | null;
+  } {
+    const raw = this.extractFieldText(value);
+    if (!raw) {
+      return { date: "未知", fullDate: null };
+    }
+
+    if (/^\d+$/.test(raw)) {
+      const date = new Date(Number(raw));
+      return {
+        date: `${date.getMonth() + 1}.${date.getDate()}`,
+        fullDate: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+      };
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      const [, month, day] = raw.split("-");
+      return {
+        date: `${Number(month)}.${Number(day)}`,
+        fullDate: raw,
+      };
+    }
+
+    return {
+      date: raw,
+      fullDate: null,
+    };
+  }
+
+  private async revertRecordToPending(recordId: string): Promise<void> {
+    const config = await this.getConfig();
+    const updated = await this.apiService.updateFeishuRecordStatus(
+      recordId,
+      config.feishu.pending_status_value,
+      this.configService,
+      config.feishu.table_id,
+    );
+
+    if (!updated) {
+      throw new Error("飞书状态回退失败");
+    }
+  }
+
+  private async terminateProcess(
+    child: ChildProcessByStdio<null, Readable, Readable>,
+  ): Promise<void> {
+    if (child.killed) {
+      return;
+    }
+
+    if (process.platform === "win32" && child.pid) {
+      await new Promise<void>((resolve, reject) => {
+        const killer = spawn(
+          "taskkill",
+          ["/pid", String(child.pid), "/t", "/f"],
+          {
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+
+        let stderr = "";
+        killer.stderr.on("data", (chunk) => {
+          stderr += chunk.toString();
+        });
+
+        killer.once("error", reject);
+        killer.once("close", (code) => {
+          if (code === 0) {
+            resolve();
+            return;
+          }
+          reject(new Error(stderr.trim() || `taskkill 退出码 ${code ?? -1}`));
+        });
+      });
+      return;
+    }
+
+    child.kill("SIGTERM");
+  }
+
   private log(message: string) {
     const entry = {
       time: new Date().toLocaleTimeString(),
@@ -798,6 +1172,105 @@ export class MaterialClipService {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send("material-clip:log", entry);
     }
+  }
+
+  private updateRunStateFromLine(line: string) {
+    if (!this.runState.running) {
+      return;
+    }
+
+    this.runState.message = line;
+
+    const selectedDramaMatch = line.match(/^🎯 选择处理：\[(.+?)\] (.+)$/);
+    if (selectedDramaMatch) {
+      const [, date, dramaName] = selectedDramaMatch;
+      this.runState.currentDramaName = dramaName;
+      this.runState.currentDramaDate = date;
+      const matched = this.findPendingDramaCandidate(dramaName, date);
+      if (matched) {
+        this.runState.currentDramaRating = matched.rating;
+        this.runState.currentRecordId = matched.recordId;
+      }
+    }
+
+    const statusMatch = line.match(/^✅ 已更新 '(.+)' 状态为 '(.+)'$/);
+    if (statusMatch) {
+      const [, dramaName, nextStatus] = statusMatch;
+      if (nextStatus === "剪辑中") {
+        this.markDramaAsCurrent(dramaName);
+      } else if (nextStatus === "待上传") {
+        this.completeCurrentDrama(dramaName);
+      }
+    }
+
+    const planMatch = line.match(/^=== (.+?) \| .*计划生成：(\d+) 条/);
+    if (planMatch) {
+      const [, dramaName, total] = planMatch;
+      this.markDramaAsCurrent(dramaName);
+      this.runState.totalMaterials = Number(total);
+      this.runState.completedMaterials = 0;
+      this.runState.remainingMaterials = Number(total);
+    }
+
+    const materialMatch = line.match(
+      /^✅ 素材完成 \| 剧：(.+?) \| 第 (\d+) 条 .*?该剧剩余素材：(\d+) 条$/,
+    );
+    if (materialMatch) {
+      const [, dramaName, completed, remaining] = materialMatch;
+      const completedCount = Number(completed);
+      const remainingCount = Number(remaining);
+      this.markDramaAsCurrent(dramaName);
+      this.runState.completedMaterials = completedCount;
+      this.runState.remainingMaterials = remainingCount;
+      this.runState.totalMaterials = Math.max(
+        this.runState.totalMaterials,
+        completedCount + remainingCount,
+      );
+    }
+
+    const dramaDoneMatch = line.match(
+      /^📦 本剧完成 \| (.+?) \| 本轮生成 (\d+)\/(\d+) 条/,
+    );
+    if (dramaDoneMatch) {
+      const [, dramaName, completed, total] = dramaDoneMatch;
+      this.markDramaAsCurrent(dramaName);
+      this.runState.completedMaterials = Number(completed);
+      this.runState.totalMaterials = Number(total);
+      this.runState.remainingMaterials = 0;
+    }
+
+    this.touchRunState();
+    this.emitRunState();
+  }
+
+  private markDramaAsCurrent(dramaName: string) {
+    this.runState.currentDramaName = dramaName;
+    const matched = this.findPendingDramaCandidate(
+      dramaName,
+      this.runState.currentDramaDate,
+    );
+    if (!matched) {
+      return;
+    }
+
+    this.runState.currentDramaDate = matched.date;
+    this.runState.currentDramaRating = matched.rating;
+    this.runState.currentRecordId = matched.recordId;
+    this.runState.pendingDramas = this.runState.pendingDramas.filter(
+      (item) => item.recordId !== matched.recordId,
+    );
+    this.reindexPendingDramas();
+  }
+
+  private completeCurrentDrama(dramaName: string) {
+    if (
+      this.runState.currentDramaName &&
+      this.runState.currentDramaName !== dramaName
+    ) {
+      this.markDramaAsCurrent(dramaName);
+    }
+    this.runState.completedMaterials = this.runState.totalMaterials;
+    this.runState.remainingMaterials = 0;
   }
 
   private async resolveProcessorRuntime(): Promise<{
@@ -884,12 +1357,14 @@ export class MaterialClipService {
         const trimmed = line.trim();
         if (!trimmed) continue;
         this.log(isError ? `[stderr] ${trimmed}` : trimmed);
+        this.updateRunStateFromLine(trimmed);
       }
     });
     stream.on("end", () => {
       const trimmed = buffer.trim();
       if (trimmed) {
         this.log(isError ? `[stderr] ${trimmed}` : trimmed);
+        this.updateRunStateFromLine(trimmed);
       }
     });
   }
@@ -1143,6 +1618,33 @@ export class MaterialClipService {
       return { success: false, error: "未找到素材剪辑运行时" };
     }
 
+    const pendingDramas =
+      params.mode === "auto"
+        ? await this.fetchPendingDramas(params.config)
+        : [];
+
+    this.runState = {
+      running: true,
+      mode: params.mode,
+      status: "running",
+      pid: null,
+      pendingDramas,
+      currentDramaName: null,
+      currentDramaDate: null,
+      currentDramaRating: null,
+      currentRecordId: null,
+      totalMaterials: 0,
+      completedMaterials: 0,
+      remainingMaterials: 0,
+      startedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(),
+      message:
+        params.mode === "auto"
+          ? `自动剪辑准备开始，待处理 ${pendingDramas.length} 部剧`
+          : "手动剪辑准备开始",
+    };
+    this.emitRunState();
+
     const runtimeConfig = await this.applyApiConfig(params.config);
     await this.writeRuntimeConfig(runtimeConfig);
 
@@ -1185,6 +1687,7 @@ export class MaterialClipService {
         this.log(`素材剪辑进程已结束，exitCode=${code ?? -1}`);
       }
       this.runningProcess = null;
+      void this.handleProcessExit(code, signal);
     });
 
     return await new Promise<MaterialClipRunResult>((resolve) => {
@@ -1194,6 +1697,9 @@ export class MaterialClipService {
         if (settled) {
           return;
         }
+        this.runState.pid = child.pid ?? null;
+        this.touchRunState();
+        this.emitRunState();
         settled = true;
         resolve({
           success: true,
@@ -1204,6 +1710,13 @@ export class MaterialClipService {
       child.once("error", (error) => {
         this.log(`素材剪辑进程启动失败：${error.message}`);
         this.runningProcess = null;
+        this.runState.running = false;
+        this.runState.mode = "idle";
+        this.runState.status = "failed";
+        this.runState.pid = null;
+        this.runState.message = `素材剪辑进程启动失败：${error.message}`;
+        this.touchRunState();
+        this.emitRunState();
         if (settled) {
           return;
         }
@@ -1214,5 +1727,37 @@ export class MaterialClipService {
         });
       });
     });
+  }
+
+  private async handleProcessExit(
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ) {
+    const wasStopping = this.runState.status === "stopping";
+    this.runState.running = false;
+    this.runState.pid = null;
+
+    if (wasStopping) {
+      this.runState.mode = "idle";
+      this.runState.status = "stopped";
+      this.runState.message = "自动剪辑已停止";
+    } else if (code === 0) {
+      this.runState.mode = "idle";
+      this.runState.status = "completed";
+      this.runState.message = "素材剪辑已完成";
+    } else {
+      this.runState.mode = "idle";
+      this.runState.status = "failed";
+      this.runState.message = signal
+        ? `素材剪辑被中断（${signal}）`
+        : `素材剪辑异常结束，退出码 ${code ?? -1}`;
+    }
+
+    if (this.runState.mode === "idle") {
+      await this.refreshPendingDramas();
+    }
+
+    this.touchRunState();
+    this.emitRunState();
   }
 }

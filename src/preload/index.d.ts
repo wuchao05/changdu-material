@@ -326,6 +326,34 @@ interface MaterialClipRuntimeImportResult {
   runtimeRoot?: string;
 }
 
+interface MaterialClipPendingDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  uploadTime: number | null;
+}
+
+interface MaterialClipRunState {
+  running: boolean;
+  mode: "idle" | "auto" | "manual";
+  status: "idle" | "running" | "stopping" | "stopped" | "completed" | "failed";
+  pid: number | null;
+  pendingDramas: MaterialClipPendingDrama[];
+  currentDramaName: string | null;
+  currentDramaDate: string | null;
+  currentDramaRating: string | null;
+  currentRecordId: string | null;
+  totalMaterials: number;
+  completedMaterials: number;
+  remainingMaterials: number;
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
+  message: string;
+}
+
 interface Api {
   // 配置管理
   getDarenConfig: () => Promise<{ darenList: DarenInfo[] }>;
@@ -348,9 +376,12 @@ interface Api {
   saveClipConfig: (config: MaterialClipConfig) => Promise<MaterialClipConfig>;
   clipAutoRun: () => Promise<MaterialClipRunResult>;
   clipManualRun: (dramaNames: string) => Promise<MaterialClipRunResult>;
+  clipGetRunState: () => Promise<MaterialClipRunState>;
+  clipStopAutoRun: () => Promise<{ success: boolean; error?: string }>;
   clipGetLogs: () => Promise<MaterialClipLogEntry[]>;
   clipClearLogs: () => Promise<{ success: boolean }>;
   onClipLog: (callback: (log: MaterialClipLogEntry) => void) => () => void;
+  onClipState: (callback: (state: MaterialClipRunState) => void) => () => void;
 
   // 文件系统
   scanVideos: (basePath: string) => Promise<VideoMaterial[]>;

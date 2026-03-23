@@ -62,7 +62,7 @@ const router = createRouter({
 });
 
 // 路由守卫
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const isLoggedIn = localStorage.getItem("auth-token");
   const userText = localStorage.getItem("auth-user");
   const darenCacheText = localStorage.getItem("daren-list-cache");
@@ -93,6 +93,16 @@ router.beforeEach((to, _from, next) => {
     } catch {
       canMaterialClip = false;
     }
+  }
+
+  if (to.meta.requiresMaterialClip && !isAdmin && currentUserId) {
+    try {
+      const latestConfig = await window.api.getDarenConfig();
+      const currentDaren = latestConfig.darenList?.find(
+        (item) => item.id === currentUserId,
+      );
+      canMaterialClip = currentDaren?.enableMaterialClip === true;
+    } catch {}
   }
 
   if (to.meta.requiresAuth && !isLoggedIn) {

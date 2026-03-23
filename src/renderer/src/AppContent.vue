@@ -45,21 +45,30 @@ const menuOptions = computed(() => {
   // 管理员可以看到所有菜单
   const isAdmin = authStore.isAdmin;
 
-  // 形天上传 - 管理员或有上传权限的达人可见
-  if (isAdmin || darenStore.canUpload) {
-    options.push({
-      label: "形天上传",
-      key: "upload",
-      icon: () => h(NIcon, null, { default: () => h(CloudUploadOutline) }),
-    });
-  }
-
   // 剧目下载 - 管理员或有下载权限的达人可见
   if (isAdmin || darenStore.canDownload) {
     options.push({
       label: "剧目下载",
       key: "download",
       icon: () => h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
+    });
+  }
+
+  // 素材剪辑 - 管理员或有素材剪辑权限的达人可见
+  if (isAdmin || darenStore.canMaterialClip) {
+    options.push({
+      label: "素材剪辑",
+      key: "material-clip",
+      icon: () => h(NIcon, null, { default: () => h(CutOutline) }),
+    });
+  }
+
+  // 形天上传 - 管理员或有上传权限的达人可见
+  if (isAdmin || darenStore.canUpload) {
+    options.push({
+      label: "形天上传",
+      key: "upload",
+      icon: () => h(NIcon, null, { default: () => h(CloudUploadOutline) }),
     });
   }
 
@@ -72,20 +81,12 @@ const menuOptions = computed(() => {
     });
   }
 
+  // 上传搭建 - 管理员或有上传搭建权限的达人可见
   if (isAdmin || darenStore.canUploadBuild) {
     options.push({
       label: "上传搭建",
       key: "upload-build",
       icon: () => h(NIcon, null, { default: () => h(ConstructOutline) }),
-    });
-  }
-
-  // 素材剪辑 - 管理员或有素材剪辑权限的达人可见
-  if (isAdmin || darenStore.canMaterialClip) {
-    options.push({
-      label: "素材剪辑",
-      key: "material-clip",
-      icon: () => h(NIcon, null, { default: () => h(CutOutline) }),
     });
   }
 
@@ -103,12 +104,12 @@ const menuOptions = computed(() => {
 
 // 获取默认路由
 const defaultRoute = computed(() => {
-  if (authStore.isAdmin) return "/upload";
-  if (darenStore.canUpload) return "/upload";
   if (darenStore.canDownload) return "/download";
+  if (darenStore.canMaterialClip) return "/material-clip";
+  if (authStore.isAdmin) return "/download";
+  if (darenStore.canUpload) return "/upload";
   if (darenStore.canJuliang) return "/juliang";
   if (darenStore.canUploadBuild) return "/upload-build";
-  if (darenStore.canMaterialClip) return "/material-clip";
   return "/login";
 });
 

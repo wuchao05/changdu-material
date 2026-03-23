@@ -75,7 +75,7 @@ const juliangScheduler = getJuliangScheduler(
   fileService,
   configService,
 );
-const materialClipService = new MaterialClipService(configService);
+const materialClipService = new MaterialClipService(configService, apiService);
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -272,6 +272,20 @@ function registerIpcHandlers(): void {
       materialClipService.setMainWindow(mainWindow);
     }
     return await materialClipService.runManualClip(dramaNames);
+  });
+
+  ipcMain.handle("clip:getRunState", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.getRunState();
+  });
+
+  ipcMain.handle("clip:stopAutoRun", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.stopAutoRun();
   });
 
   ipcMain.handle("clip:getLogs", async () => {
