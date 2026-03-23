@@ -37,6 +37,11 @@ const schedulerStats = ref({
   failed: 0,
   skipped: 0,
 });
+const schedulerPolling = ref({
+  fetchIntervalMinutes: 20,
+  lastFetchAt: null as string | null,
+  nextFetchAt: null as string | null,
+});
 const schedulerConfig = ref({
   fetchIntervalMinutes: 20,
   localRootDir: "",
@@ -246,6 +251,11 @@ async function refreshSchedulerStatus() {
     const result = await window.api.juliangSchedulerGetStatus();
     schedulerStatus.value = result.status;
     schedulerStats.value = result.stats;
+    schedulerPolling.value = {
+      fetchIntervalMinutes: result.fetchIntervalMinutes,
+      lastFetchAt: result.lastFetchAt,
+      nextFetchAt: result.nextFetchAt,
+    };
   } catch (error) {
     console.error("刷新调度器状态失败:", error);
   }
@@ -255,6 +265,8 @@ async function refreshSchedulerStatus() {
 async function loadSchedulerConfig() {
   try {
     schedulerConfig.value = await window.api.juliangSchedulerGetConfig();
+    schedulerPolling.value.fetchIntervalMinutes =
+      schedulerConfig.value.fetchIntervalMinutes;
   } catch (error) {
     console.error("加载调度器配置失败:", error);
   }
@@ -373,8 +385,29 @@ const uploadDurationText = computed(() =>
   formatUploadDuration(uploadElapsedSeconds.value),
 );
 
+function formatPollingTime(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+const hasActiveUploadTask = computed(() => {
+  if (!currentTask.value) {
+    return false;
+  }
+
+  return !["completed", "failed", "skipped"].includes(currentTask.value.status);
+});
+
 const statusSummary = computed(() => {
-  if (currentTask.value) {
+  if (hasActiveUploadTask.value && currentTask.value) {
     return currentTask.value.message || `正在上传《${currentTask.value.drama}》`;
   }
 
@@ -388,6 +421,23 @@ const statusSummary = computed(() => {
 
   return "等待启动调度";
 });
+
+const showSchedulerPollingMeta = computed(() => {
+  return schedulerStatus.value === "running" && !hasActiveUploadTask.value;
+});
+
+const schedulerPollIntervalText = computed(() => {
+  const minutes = schedulerPolling.value.fetchIntervalMinutes;
+  return minutes > 0 ? `${minutes}分钟` : null;
+});
+
+const schedulerLastPollText = computed(() =>
+  formatPollingTime(schedulerPolling.value.lastFetchAt),
+);
+
+const schedulerNextPollText = computed(() =>
+  formatPollingTime(schedulerPolling.value.nextFetchAt),
+);
 
 async function handleExpandedNamesChange(
   names: string[] | string | null | undefined,
@@ -454,6 +504,7 @@ onMounted(async () => {
       progress.status === "skipped"
     ) {
       stopUploadTimer();
+      void refreshSchedulerStatus();
     }
   });
 
@@ -471,6 +522,7 @@ onMounted(async () => {
     if (logs.value.length > 500) {
       logs.value.shift();
     }
+    void refreshSchedulerStatus();
   });
 
   // 定时刷新调度器状态和已完成任务
@@ -540,6 +592,24 @@ onUnmounted(() => {
           </NButton>
         </NSpace>
       </div>
+      <div v-if="showSchedulerPollingMeta" class="polling-meta-row">
+        <div class="progress-chip">
+          <span class="progress-chip-label">状态</span>
+          <span class="progress-chip-value">等待下一轮轮询上传</span>
+        </div>
+        <div v-if="schedulerPollIntervalText" class="progress-chip">
+          <span class="progress-chip-label">轮询时间</span>
+          <span class="progress-chip-value">{{ schedulerPollIntervalText }}</span>
+        </div>
+        <div v-if="schedulerLastPollText" class="progress-chip">
+          <span class="progress-chip-label">上一轮轮询</span>
+          <span class="progress-chip-value">{{ schedulerLastPollText }}</span>
+        </div>
+        <div v-if="schedulerNextPollText" class="progress-chip">
+          <span class="progress-chip-label">下一轮轮询</span>
+          <span class="progress-chip-value">{{ schedulerNextPollText }}</span>
+        </div>
+      </div>
     </NCard>
 
     <NCard class="status-card">
@@ -559,10 +629,7 @@ onUnmounted(() => {
             <span class="progress-chip-label">浏览器</span>
             <span class="progress-chip-value">{{ browserStatusText }}</span>
           </div>
-          <div
-            v-if="currentTask"
-            class="progress-chip"
-          >
+          <div v-if="hasActiveUploadTask && currentTask" class="progress-chip">
             <span class="progress-chip-label">当前任务</span>
             <span class="progress-chip-value">{{ currentTask.drama }}</span>
           </div>
@@ -571,7 +638,7 @@ onUnmounted(() => {
 
       <!-- 当前任务进度 -->
       <div
-        v-if="currentTask"
+        v-if="hasActiveUploadTask && currentTask"
         :class="[
           'current-drama-section',
           'upload-task-section',
@@ -842,6 +909,13 @@ onUnmounted(() => {
 
 .hero-action-btn {
   border-radius: 999px;
+}
+
+.polling-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .status-header {

@@ -616,10 +616,7 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("juliang:scheduler:getStatus", async () => {
-    return {
-      status: juliangScheduler.getStatus(),
-      stats: juliangScheduler.getQueueStats(),
-    };
+    return juliangScheduler.getStatusSnapshot();
   });
 
   ipcMain.handle("juliang:scheduler:getConfig", async () => {

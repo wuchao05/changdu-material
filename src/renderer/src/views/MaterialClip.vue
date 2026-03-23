@@ -219,6 +219,9 @@ interface MaterialClipRunState {
   remainingMaterials: number;
   startedAt: string | null;
   lastUpdatedAt: string | null;
+  pollIntervalSeconds: number | null;
+  lastPollAt: string | null;
+  nextPollAt: string | null;
 }
 
 const importingRuntime = ref(false);
@@ -257,6 +260,9 @@ const runState = ref<MaterialClipRunState>({
   remainingMaterials: 0,
   startedAt: null,
   lastUpdatedAt: null,
+  pollIntervalSeconds: null,
+  lastPollAt: null,
+  nextPollAt: null,
 });
 
 const hasQueueData = computed(() => runState.value.pendingDramas.length > 0);
@@ -264,6 +270,36 @@ const hasProcessedData = computed(
   () => runState.value.processedDramas.length > 0,
 );
 const nowMs = ref(Date.now());
+
+function formatPollingTime(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function formatPollInterval(seconds: number | null): string | null {
+  if (!seconds || seconds <= 0) {
+    return null;
+  }
+
+  if (seconds % 60 === 0) {
+    return `${seconds / 60}分钟`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainSeconds = seconds % 60;
+  if (minutes <= 0) {
+    return `${remainSeconds}秒`;
+  }
+  return `${minutes}分${remainSeconds}秒`;
+}
 
 const statusSummary = computed(() => {
   const state = runState.value;
@@ -296,6 +332,28 @@ const statusSummary = computed(() => {
 
   return "等待开始剪辑";
 });
+
+const showClipPollingMeta = computed(() => {
+  const state = runState.value;
+  return (
+    state.mode === "auto" &&
+    state.running &&
+    state.status === "running" &&
+    !state.currentDramaName
+  );
+});
+
+const clipPollIntervalText = computed(() =>
+  formatPollInterval(runState.value.pollIntervalSeconds),
+);
+
+const clipLastPollText = computed(() =>
+  formatPollingTime(runState.value.lastPollAt),
+);
+
+const clipNextPollText = computed(() =>
+  formatPollingTime(runState.value.nextPollAt),
+);
 
 const currentDramaDateLabel = computed(() => {
   const date = runState.value.currentDramaDate?.trim();
@@ -882,6 +940,24 @@ onUnmounted(() => {
             </NButton>
           </NSpace>
         </div>
+        <div v-if="showClipPollingMeta" class="polling-meta-row">
+          <div class="progress-chip">
+            <span class="progress-chip-label">状态</span>
+            <span class="progress-chip-value">等待飞书下一轮查询</span>
+          </div>
+          <div v-if="clipPollIntervalText" class="progress-chip">
+            <span class="progress-chip-label">轮询时间</span>
+            <span class="progress-chip-value">{{ clipPollIntervalText }}</span>
+          </div>
+          <div v-if="clipLastPollText" class="progress-chip">
+            <span class="progress-chip-label">上一轮轮询</span>
+            <span class="progress-chip-value">{{ clipLastPollText }}</span>
+          </div>
+          <div v-if="clipNextPollText" class="progress-chip">
+            <span class="progress-chip-label">下一轮轮询</span>
+            <span class="progress-chip-value">{{ clipNextPollText }}</span>
+          </div>
+        </div>
       </NCard>
 
       <template v-if="runState.status !== 'idle' || hasQueueData || hasProcessedData">
@@ -1304,6 +1380,13 @@ onUnmounted(() => {
   max-width: 780px;
   color: #667085;
   line-height: 1.6;
+}
+
+.polling-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .hint-card {

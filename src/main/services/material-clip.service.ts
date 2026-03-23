@@ -235,6 +235,9 @@ export interface MaterialClipRunState {
   remainingMaterials: number;
   startedAt: string | null;
   lastUpdatedAt: string | null;
+  pollIntervalSeconds: number | null;
+  lastPollAt: string | null;
+  nextPollAt: string | null;
   message: string;
 }
 
@@ -417,6 +420,9 @@ export class MaterialClipService {
       remainingMaterials: 0,
       startedAt: null,
       lastUpdatedAt: null,
+      pollIntervalSeconds: null,
+      lastPollAt: null,
+      nextPollAt: null,
       message: "等待开始剪辑",
     };
   }
@@ -433,6 +439,44 @@ export class MaterialClipService {
 
   private touchRunState() {
     this.runState.lastUpdatedAt = new Date().toISOString();
+  }
+
+  private markPollCycleStarted(at = new Date()) {
+    if (this.runState.mode !== "auto") {
+      return;
+    }
+
+    this.runState.lastPollAt = at.toISOString();
+    if (
+      this.runState.pollIntervalSeconds &&
+      this.runState.pollIntervalSeconds > 0
+    ) {
+      this.runState.nextPollAt = new Date(
+        at.getTime() + this.runState.pollIntervalSeconds * 1000,
+      ).toISOString();
+      return;
+    }
+
+    this.runState.nextPollAt = null;
+  }
+
+  private scheduleNextPoll(at = new Date()) {
+    if (
+      this.runState.mode !== "auto" ||
+      !this.runState.pollIntervalSeconds ||
+      this.runState.pollIntervalSeconds <= 0
+    ) {
+      this.runState.nextPollAt = null;
+      return;
+    }
+
+    this.runState.nextPollAt = new Date(
+      at.getTime() + this.runState.pollIntervalSeconds * 1000,
+    ).toISOString();
+  }
+
+  private clearPollingSchedule() {
+    this.runState.nextPollAt = null;
   }
 
   private emitRunState() {
@@ -1548,6 +1592,14 @@ export class MaterialClipService {
       line.includes("所有待剪辑的剧已处理完成") ||
       line.includes("日期任务完成，立即查找其他日期的待剪辑剧")
     ) {
+      if (line.includes("查询飞书")) {
+        this.markPollCycleStarted();
+      } else if (
+        line.includes("当前没有待剪辑的剧") ||
+        line.includes("所有待剪辑的剧已处理完成")
+      ) {
+        this.scheduleNextPoll();
+      }
       shouldRefreshPending = true;
     }
 
@@ -1561,6 +1613,7 @@ export class MaterialClipService {
 
   private markDramaAsCurrent(dramaName: string, dramaDate?: string | null) {
     this.ensureCurrentDramaStarted(dramaName);
+    this.clearPollingSchedule();
     this.runState.currentDramaName = dramaName;
     this.runState.currentDramaDate =
       this.normalizeDisplayText(dramaDate) ?? this.runState.currentDramaDate;
@@ -1968,6 +2021,10 @@ export class MaterialClipService {
       remainingMaterials: 0,
       startedAt: new Date().toISOString(),
       lastUpdatedAt: new Date().toISOString(),
+      pollIntervalSeconds:
+        params.mode === "auto" ? params.config.feishu_watcher.poll_interval : null,
+      lastPollAt: null,
+      nextPollAt: null,
       message:
         params.mode === "auto"
           ? `轮询剪辑准备启动，当前待处理 ${pendingDramas.length} 部剧`
@@ -2073,6 +2130,7 @@ export class MaterialClipService {
     this.runState.running = false;
     this.runState.pid = null;
     this.runState.currentDramaStartedAt = null;
+    this.clearPollingSchedule();
 
     if (wasStopping) {
       this.runState.mode = "idle";

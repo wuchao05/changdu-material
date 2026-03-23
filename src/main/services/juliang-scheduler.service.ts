@@ -71,6 +71,8 @@ export class JuliangSchedulerService {
   private maxLogs = 500;
   private completedTasks: CompletedTask[] = [];
   private maxCompletedTasks = 100;
+  private lastFetchAt: string | null = null;
+  private nextFetchAt: string | null = null;
 
   private config: SchedulerConfig = {
     fetchIntervalMinutes: 20,
@@ -196,6 +198,16 @@ export class JuliangSchedulerService {
     return this.status;
   }
 
+  getStatusSnapshot() {
+    return {
+      status: this.status,
+      stats: this.getQueueStats(),
+      fetchIntervalMinutes: this.config.fetchIntervalMinutes,
+      lastFetchAt: this.lastFetchAt,
+      nextFetchAt: this.nextFetchAt,
+    };
+  }
+
   /**
    * 获取队列统计
    */
@@ -222,6 +234,20 @@ export class JuliangSchedulerService {
    */
   clearLogs() {
     this.logs = [];
+  }
+
+  private markFetchStarted(at = new Date()) {
+    this.lastFetchAt = at.toISOString();
+    this.nextFetchAt = null;
+  }
+
+  private scheduleNextFetch(at = new Date()) {
+    const intervalMs = this.config.fetchIntervalMinutes * 60 * 1000;
+    this.nextFetchAt = new Date(at.getTime() + intervalMs).toISOString();
+  }
+
+  private clearNextFetch() {
+    this.nextFetchAt = null;
   }
 
   /**
@@ -292,6 +318,8 @@ export class JuliangSchedulerService {
     }
 
     this.status = "running";
+    this.lastFetchAt = null;
+    this.nextFetchAt = null;
     this.log("调度器已启动");
 
     // 立即查询一次
@@ -320,6 +348,7 @@ export class JuliangSchedulerService {
 
     this.status = "stopped";
     this.stopScheduledFetching();
+    this.clearNextFetch();
 
     // 关闭浏览器
     await juliangService.close();
@@ -454,6 +483,7 @@ export class JuliangSchedulerService {
    */
   private async fetchAndEnqueueTasks(): Promise<number> {
     try {
+      this.markFetchStarted();
       this.log("开始从飞书拉取待上传任务");
 
       // 清理已完成和已跳过的任务
@@ -740,6 +770,7 @@ export class JuliangSchedulerService {
 
     const intervalMs = this.config.fetchIntervalMinutes * 60 * 1000;
     this.log(`定时拉取已启动，间隔: ${this.config.fetchIntervalMinutes} 分钟`);
+    this.scheduleNextFetch();
 
     this.fetchTimer = setInterval(async () => {
       if (this.isTaskProcessing) {
@@ -753,7 +784,11 @@ export class JuliangSchedulerService {
       if (count > 0) {
         this.log("查询到新任务，停止定时轮询，转为事件驱动模式");
         this.stopScheduledFetching();
+        this.clearNextFetch();
+        return;
       }
+
+      this.scheduleNextFetch();
     }, intervalMs);
   }
 
@@ -766,6 +801,7 @@ export class JuliangSchedulerService {
       this.fetchTimer = null;
       this.log("定时拉取已停止");
     }
+    this.clearNextFetch();
   }
 
   /**

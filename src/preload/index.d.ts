@@ -367,6 +367,9 @@ interface MaterialClipRunState {
   remainingMaterials: number;
   startedAt: string | null;
   lastUpdatedAt: string | null;
+  pollIntervalSeconds: number | null;
+  lastPollAt: string | null;
+  nextPollAt: string | null;
   message: string;
 }
 
@@ -580,6 +583,9 @@ interface Api {
   juliangSchedulerGetStatus: () => Promise<{
     status: "idle" | "running" | "stopped";
     stats: JuliangSchedulerStats;
+    fetchIntervalMinutes: number;
+    lastFetchAt: string | null;
+    nextFetchAt: string | null;
   }>;
   juliangSchedulerGetConfig: () => Promise<{
     fetchIntervalMinutes: number;

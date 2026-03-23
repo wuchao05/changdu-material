@@ -81,6 +81,16 @@ const hasDownloadingTasks = computed(() => {
   return downloadTasks.value.some((t) => t.status === "downloading");
 });
 
+const showAutoDownloadPollingMeta = computed(() => {
+  return autoDownloadEnabled.value && !hasDownloadingTasks.value;
+});
+
+const autoDownloadIntervalText = computed(() => {
+  return autoDownloadIntervalMinutes.value > 0
+    ? `${autoDownloadIntervalMinutes.value}分钟`
+    : "";
+});
+
 // 正在下载的任务数量
 const downloadingCount = computed(() => {
   return downloadTasks.value.filter((t) => t.status === "downloading").length;
@@ -1642,6 +1652,23 @@ const columns: DataTableColumns<DownloadTask> = [
       </NSpace>
     </NCard>
 
+    <NAlert
+      v-if="showAutoDownloadPollingMeta"
+      type="info"
+      class="auto-download-alert"
+    >
+      <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap">
+        <span>状态：等待下一轮轮询下载</span>
+        <span>轮询时间：{{ autoDownloadIntervalText }}</span>
+        <span v-if="lastAutoDownloadTime" style="color: #1890ff">
+          上一轮轮询：{{ lastAutoDownloadTime }}
+        </span>
+        <span v-if="nextAutoDownloadTime" style="color: #52c41a">
+          下一轮轮询：{{ nextAutoDownloadTime }}
+        </span>
+      </div>
+    </NAlert>
+
     <!-- 保存路径 -->
     <NCard class="path-card">
       <NSpace align="center">
@@ -1689,33 +1716,6 @@ const columns: DataTableColumns<DownloadTask> = [
         </NCard>
       </NGi>
     </NGrid>
-
-    <!-- 自动下载提示 -->
-    <NAlert
-      v-if="autoDownloadEnabled"
-      type="info"
-      closable
-      class="auto-download-alert"
-    >
-      <div style="display: flex; align-items: center; gap: 24px">
-        <span
-          >自动下载已开启，每
-          {{ autoDownloadIntervalMinutes }} 分钟检查一次</span
-        >
-        <span
-          v-if="lastAutoDownloadTime && !hasDownloadingTasks"
-          style="color: #1890ff"
-        >
-          上一轮: {{ lastAutoDownloadTime }}
-        </span>
-        <span
-          v-if="nextAutoDownloadTime && !hasDownloadingTasks"
-          style="color: #52c41a"
-        >
-          下一轮: {{ nextAutoDownloadTime }}
-        </span>
-      </div>
-    </NAlert>
 
     <!-- 下载列表 -->
     <NCard class="table-card">
