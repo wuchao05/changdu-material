@@ -1771,10 +1771,18 @@ onUnmounted(() => {
 }
 
 .status-collapse :deep(.n-collapse-item__header) {
-  padding: 8px 0 12px !important;
+  padding: 8px 6px 12px !important;
   font-size: 14px;
   font-weight: 600;
   color: #475569;
+}
+
+.status-collapse :deep(.n-collapse-item-arrow) {
+  margin-right: 12px;
+}
+
+.status-collapse :deep(.n-collapse-item__header-main) {
+  min-width: 0;
 }
 
 .status-collapse :deep(.n-collapse-item__content-inner) {

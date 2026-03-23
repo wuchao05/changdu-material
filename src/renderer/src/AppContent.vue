@@ -527,4 +527,12 @@ onMounted(async () => {
   font-weight: 600;
   color: #334155;
 }
+
+.main-content :deep(.n-collapse-item-arrow) {
+  margin-right: 10px;
+}
+
+.main-content :deep(.n-collapse-item__header-main) {
+  min-width: 0;
+}
 </style>
