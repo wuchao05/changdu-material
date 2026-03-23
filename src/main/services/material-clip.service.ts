@@ -1194,6 +1194,20 @@ export class MaterialClipService {
     return normalized;
   }
 
+  private getSourceBaseDir(sourceDir: string): string {
+    const normalized = sourceDir.trim().replace(/[\\/]+$/, "");
+    if (!normalized) {
+      return "";
+    }
+
+    const pathModule =
+      /^[a-zA-Z]:[\\/]/.test(normalized) || normalized.includes("\\")
+        ? path.win32
+        : path.posix;
+    const parentDir = pathModule.dirname(normalized);
+    return parentDir === "." ? "" : parentDir;
+  }
+
   private resolveOutputDir(config: MaterialClipConfig): string {
     const sourceDir =
       config.default_source_dir.trim() || config.backup_source_dir.trim();
@@ -1202,13 +1216,17 @@ export class MaterialClipService {
       return outputDir;
     }
 
-    const exportBaseDir = path.dirname(sourceDir);
+    const exportBaseDir = this.getSourceBaseDir(sourceDir);
     if (!outputDir) {
       return exportBaseDir;
     }
 
     try {
-      if (path.resolve(outputDir) === path.resolve(sourceDir)) {
+      const pathModule =
+        /^[a-zA-Z]:[\\/]/.test(sourceDir) || sourceDir.includes("\\")
+          ? path.win32
+          : path;
+      if (pathModule.resolve(outputDir) === pathModule.resolve(sourceDir)) {
         return exportBaseDir;
       }
     } catch {
