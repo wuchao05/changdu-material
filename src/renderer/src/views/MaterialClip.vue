@@ -18,6 +18,7 @@ import {
   NSwitch,
   useMessage,
 } from "naive-ui";
+import { useDarenStore } from "../stores/daren";
 
 interface MaterialClipVideoConfig {
   hw_codec: string;
@@ -227,6 +228,7 @@ interface MaterialClipRunState {
 const importingRuntime = ref(false);
 
 const message = useMessage();
+const darenStore = useDarenStore();
 
 const resolutionOptions = [
   { label: "跟随源视频", value: "auto" },
@@ -501,6 +503,17 @@ let unsubscribeState: (() => void) | null = null;
 let currentDramaTimer: number | null = null;
 
 const prettyConfig = computed(() => configEditorText.value.trim());
+const currentClipTableId = computed(
+  () => darenStore.currentDaren?.feishuDramaStatusTableId?.trim() || "",
+);
+
+function applyClipFixedFields(draft: MaterialClipConfig): MaterialClipConfig {
+  const next = JSON.parse(JSON.stringify(draft)) as MaterialClipConfig;
+  if (currentClipTableId.value) {
+    next.feishu.table_id = currentClipTableId.value;
+  }
+  return next;
+}
 
 function syncEditorFromConfig() {
   if (!config.value) {
@@ -547,9 +560,53 @@ function updateResolution(value: string | null) {
   });
 }
 
+function getBitrateInputValue(value: string | null | undefined): string {
+  return String(value || "")
+    .trim()
+    .replace(/k$/i, "");
+}
+
+function formatBitrateValue(value: string): string {
+  const normalized = value.replace(/[^0-9.]/g, "").trim();
+  if (!normalized) {
+    return "";
+  }
+  return `${normalized}k`;
+}
+
+function formatBufferSizeValue(value: string): string {
+  const normalized = value.replace(/[^0-9.]/g, "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric)) {
+    return "";
+  }
+
+  const result = numeric * 2;
+  return `${Number.isInteger(result) ? result : result.toString()}k`;
+}
+
+function updateVideoBitrate(value: string) {
+  updateConfig((draft) => {
+    const bitrate = formatBitrateValue(value);
+    draft.video.bitrate = bitrate;
+    draft.video.max_rate = bitrate;
+    draft.video.buffer_size = formatBufferSizeValue(value);
+  });
+}
+
+function updateAudioBitrate(value: string) {
+  updateConfig((draft) => {
+    draft.audio.bitrate = formatBitrateValue(value);
+  });
+}
+
 async function loadConfig() {
   try {
-    config.value = await window.api.getClipConfig();
+    config.value = applyClipFixedFields(await window.api.getClipConfig());
     syncEditorFromConfig();
   } catch (error) {
     console.error("加载素材剪辑配置失败:", error);
@@ -630,9 +687,12 @@ async function resolveEditorConfig(): Promise<MaterialClipConfig | null> {
   resolvingConfig.value = true;
   try {
     const parsed = JSON.parse(prettyConfig.value) as unknown;
-    config.value = await window.api.getClipConfig(parsed);
+    const normalizedConfig = applyClipFixedFields(
+      await window.api.getClipConfig(parsed),
+    );
+    config.value = normalizedConfig;
     syncEditorFromConfig();
-    return config.value;
+    return JSON.parse(JSON.stringify(normalizedConfig)) as MaterialClipConfig;
   } catch (error) {
     message.error(`配置解析失败: ${error}`);
     return null;
@@ -648,7 +708,7 @@ async function resetConfigToDefault() {
 
   resolvingConfig.value = true;
   try {
-    config.value = await window.api.getClipConfig();
+    config.value = applyClipFixedFields(await window.api.getClipConfig());
     syncEditorFromConfig();
     message.success("已恢复默认配置");
   } catch (error) {
@@ -822,6 +882,10 @@ onMounted(async () => {
   currentDramaTimer = window.setInterval(() => {
     nowMs.value = Date.now();
   }, 1000);
+
+  if (!darenStore.darenList.length) {
+    await darenStore.loadFromServer();
+  }
 
   await loadLogs();
   await loadEnvironmentStatus();
@@ -1204,10 +1268,10 @@ onUnmounted(() => {
       <NCard class="quick-card" title="快捷配置">
         <div v-if="config" class="config-groups">
           <div class="config-group-row">
-            <div class="config-group half">
+            <div class="config-group">
               <div class="group-header">
-                <div class="group-title">基础路径与飞书</div>
-                <div class="group-desc">设置本地视频源及飞书多维表格关联</div>
+                <div class="group-title">基础路径、编码与输出</div>
+                <div class="group-desc">设置本地源目录与导出分辨率、音视频码率</div>
               </div>
               <div class="compact-grid">
                 <div class="compact-field compact-field-wide">
@@ -1224,30 +1288,6 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div class="compact-field compact-field-wide">
-                  <div class="compact-label">飞书 Table ID</div>
-                  <div class="compact-control">
-                    <NInput
-                      :value="config.feishu.table_id"
-                      placeholder="自动剪辑要查询的飞书多维表格 ID"
-                      @update:value="
-                        (value) =>
-                          updateConfig((draft) => {
-                            draft.feishu.table_id = value;
-                          })
-                      "
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="config-group half">
-              <div class="group-header">
-                <div class="group-title">编码与输出</div>
-                <div class="group-desc">控制导出分辨率与音视频码率</div>
-              </div>
-              <div class="compact-grid">
-                <div class="compact-field compact-field-wide">
                   <div class="compact-label">输出分辨率</div>
                   <div class="compact-control">
                     <NSelect
@@ -1261,60 +1301,24 @@ onUnmounted(() => {
                   <div class="compact-label">视频码率</div>
                   <div class="compact-control">
                     <NInput
-                      :value="config.video.bitrate"
-                      placeholder="例如 4000k"
-                      @update:value="
-                        (value) =>
-                          updateConfig((draft) => {
-                            draft.video.bitrate = value.trim();
-                          })
-                      "
-                    />
+                      :value="getBitrateInputValue(config.video.bitrate)"
+                      placeholder="例如 1104"
+                      @update:value="updateVideoBitrate"
+                    >
+                      <template #suffix>K</template>
+                    </NInput>
                   </div>
                 </div>
                 <div class="compact-field">
-                  <div class="compact-label">最大码率</div>
+                  <div class="compact-label">音频码率</div>
                   <div class="compact-control">
                     <NInput
-                      :value="config.video.max_rate"
-                      placeholder="例如 4000k"
-                      @update:value="
-                        (value) =>
-                          updateConfig((draft) => {
-                            draft.video.max_rate = value.trim();
-                          })
-                      "
-                    />
-                  </div>
-                </div>
-                <div class="compact-field">
-                  <div class="compact-label">缓冲区</div>
-                  <div class="compact-control">
-                    <NInput
-                      :value="config.video.buffer_size"
-                      placeholder="例如 6000k"
-                      @update:value="
-                        (value) =>
-                          updateConfig((draft) => {
-                            draft.video.buffer_size = value.trim();
-                          })
-                      "
-                    />
-                  </div>
-                </div>
-                <div class="compact-field">
-                  <div class="compact-label">音频比特率</div>
-                  <div class="compact-control">
-                    <NInput
-                      :value="config.audio.bitrate"
-                      placeholder="例如 128k"
-                      @update:value="
-                        (value) =>
-                          updateConfig((draft) => {
-                            draft.audio.bitrate = value.trim();
-                          })
-                      "
-                    />
+                      :value="getBitrateInputValue(config.audio.bitrate)"
+                      placeholder="例如 128"
+                      @update:value="updateAudioBitrate"
+                    >
+                      <template #suffix>K</template>
+                    </NInput>
                   </div>
                 </div>
               </div>
@@ -1322,7 +1326,7 @@ onUnmounted(() => {
           </div>
 
           <div class="config-group-row">
-            <div class="config-group half">
+            <div class="config-group">
               <div class="group-header">
                 <div class="group-title">功能开关与文本</div>
                 <div class="group-desc">附加功能及视频内嵌文本设置</div>
@@ -1399,18 +1403,6 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-
-            <div class="config-group half">
-              <div class="group-header">
-                <div class="group-title">配置说明</div>
-                <div class="group-desc">当前页面配置仅作为本次运行覆盖项</div>
-              </div>
-              <NAlert type="info" :show-icon="false">
-                快捷配置和完整配置 JSON 使用的是同一份数据，不会再保存到本地。
-                点击“恢复默认配置”会把快捷配置和 JSON 中的所有手动修改一起恢复为代码默认值；
-                重新导入运行时后，页面也会重新加载这一份默认配置。
-              </NAlert>
-            </div>
           </div>
         </div>
       </NCard>
@@ -1470,11 +1462,6 @@ onUnmounted(() => {
               :rows="28"
               placeholder="在这里直接编辑完整配置 JSON"
             />
-            <div class="editor-actions">
-              <NAlert type="info" :show-icon="false">
-                当前 JSON 仅在“查询待剪辑”“启动轮询剪辑”“开始剪辑”时作为覆盖配置生效，不会写入本地。
-              </NAlert>
-            </div>
           </div>
         </NCollapseItem>
 

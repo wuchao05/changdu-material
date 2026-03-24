@@ -913,7 +913,7 @@ export class MaterialClipService {
       jobs: 1,
       canvas: "720x1280",
       reference_resolution: [720, 1280],
-      default_source_dir: "",
+      default_source_dir: "D:\\短剧剪辑\\源素材视频",
       backup_source_dir: "",
       temp_dir: null,
       output_dir: "",
