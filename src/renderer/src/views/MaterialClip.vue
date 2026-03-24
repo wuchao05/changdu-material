@@ -96,7 +96,6 @@ interface MaterialClipDateDeduplicationConfig {
 }
 
 interface MaterialClipConfig {
-  active_user: string | null;
   target_fps: number;
   smart_fps: boolean;
   fast_mode: boolean;
@@ -240,7 +239,7 @@ const installingEnvironment = ref(false);
 const isAutoRunning = ref(false);
 const isManualRunning = ref(false);
 const refreshingPending = ref(false);
-const saving = ref(false);
+const resolvingConfig = ref(false);
 const showLogs = ref(true);
 const dramaTablesExpanded = ref(["pending", "processed"]);
 const manualDramaNames = ref("");
@@ -622,26 +621,40 @@ async function importRuntime() {
   }
 }
 
-async function saveConfig(showSuccess = true): Promise<boolean> {
+async function resolveEditorConfig(): Promise<MaterialClipConfig | null> {
   if (!prettyConfig.value) {
     message.warning("配置内容不能为空");
-    return false;
+    return null;
   }
 
-  saving.value = true;
+  resolvingConfig.value = true;
   try {
-    const parsed = JSON.parse(prettyConfig.value) as MaterialClipConfig;
-    config.value = await window.api.saveClipConfig(parsed);
+    const parsed = JSON.parse(prettyConfig.value) as unknown;
+    config.value = await window.api.getClipConfig(parsed);
     syncEditorFromConfig();
-    if (showSuccess) {
-      message.success("素材剪辑配置已保存");
-    }
-    return true;
+    return config.value;
   } catch (error) {
-    message.error(`保存配置失败: ${error}`);
-    return false;
+    message.error(`配置解析失败: ${error}`);
+    return null;
   } finally {
-    saving.value = false;
+    resolvingConfig.value = false;
+  }
+}
+
+async function resetConfigToDefault() {
+  if (resolvingConfig.value) {
+    return;
+  }
+
+  resolvingConfig.value = true;
+  try {
+    config.value = await window.api.getClipConfig();
+    syncEditorFromConfig();
+    message.success("已恢复默认配置");
+  } catch (error) {
+    message.error(`恢复默认配置失败: ${error}`);
+  } finally {
+    resolvingConfig.value = false;
   }
 }
 
@@ -666,14 +679,11 @@ async function refreshPendingQueue() {
 
   refreshingPending.value = true;
   try {
-    if (config.value) {
-      const saved = await saveConfig(false);
-      if (!saved) {
-        return;
-      }
+    const resolvedConfig = await resolveEditorConfig();
+    if (!resolvedConfig) {
+      return;
     }
-
-    await loadRunState();
+    runState.value = await window.api.clipRefreshPending(resolvedConfig);
     message.success("待剪辑列表已更新");
   } catch (error) {
     message.error(`查询待剪辑失败: ${error}`);
@@ -687,14 +697,14 @@ async function startAutoClip() {
     return;
   }
 
-  const saved = await saveConfig();
-  if (!saved || !config.value) {
+  const resolvedConfig = await resolveEditorConfig();
+  if (!resolvedConfig) {
     return;
   }
 
   isAutoRunning.value = true;
   try {
-    const result = await window.api.clipAutoRun();
+    const result = await window.api.clipAutoRun(resolvedConfig);
     if (result.success) {
       message.success("轮询剪辑已启动");
       showLogs.value = true;
@@ -732,14 +742,14 @@ async function startManualClip() {
     return;
   }
 
-  const saved = await saveConfig();
-  if (!saved) {
+  const resolvedConfig = await resolveEditorConfig();
+  if (!resolvedConfig) {
     return;
   }
 
   isManualRunning.value = true;
   try {
-    const result = await window.api.clipManualRun(input);
+    const result = await window.api.clipManualRun(input, resolvedConfig);
     if (result.success) {
       message.success("手动剪辑任务已启动");
       manualDramaNames.value = "";
@@ -954,7 +964,12 @@ onUnmounted(() => {
               quaternary
               class="hero-action-btn"
               :loading="importingRuntime"
-              :disabled="installingEnvironment || isAutoRunning || isManualRunning"
+              :disabled="
+                installingEnvironment ||
+                resolvingConfig ||
+                isAutoRunning ||
+                isManualRunning
+              "
               @click="importRuntime"
             >
               重新导入运行时
@@ -962,9 +977,10 @@ onUnmounted(() => {
             <NButton
               quaternary
               class="hero-action-btn"
-              :loading="saving"
-              @click="saveConfig"
-              >保存配置</NButton
+              :loading="resolvingConfig"
+              :disabled="importingRuntime || installingEnvironment"
+              @click="resetConfigToDefault"
+              >恢复默认配置</NButton
             >
             <NButton
               v-if="!isAutoRunning"
@@ -972,6 +988,7 @@ onUnmounted(() => {
               secondary
               strong
               class="hero-action-btn hero-action-btn-primary"
+              :disabled="resolvingConfig"
               @click="startAutoClip"
             >
               启动轮询剪辑
@@ -1016,7 +1033,7 @@ onUnmounted(() => {
             <NButton
               quaternary
               class="hero-action-btn"
-              :disabled="runState.running"
+              :disabled="runState.running || resolvingConfig"
               :loading="refreshingPending"
               @click="refreshPendingQueue"
             >
@@ -1385,12 +1402,13 @@ onUnmounted(() => {
 
             <div class="config-group half">
               <div class="group-header">
-                <div class="group-title">保存说明</div>
-                <div class="group-desc">修改后会写入本机素材剪辑配置</div>
+                <div class="group-title">配置说明</div>
+                <div class="group-desc">当前页面配置仅作为本次运行覆盖项</div>
               </div>
               <NAlert type="info" :show-icon="false">
-                快捷配置和完整配置 JSON 使用的是同一份数据。点击“开始剪辑”、启动轮询剪辑，
-                或在完整配置区点击“保存完整配置”后，新的分辨率和码率设置都会生效。
+                快捷配置和完整配置 JSON 使用的是同一份数据，不会再保存到本地。
+                点击“恢复默认配置”会把快捷配置和 JSON 中的所有手动修改一起恢复为代码默认值；
+                重新导入运行时后，页面也会重新加载这一份默认配置。
               </NAlert>
             </div>
           </div>
@@ -1432,6 +1450,7 @@ onUnmounted(() => {
                 type="primary"
                 secondary
                 :loading="isManualRunning"
+                :disabled="resolvingConfig"
                 @click="startManualClip"
               >
                 开始剪辑
@@ -1452,9 +1471,9 @@ onUnmounted(() => {
               placeholder="在这里直接编辑完整配置 JSON"
             />
             <div class="editor-actions">
-              <NButton :loading="saving" type="primary" @click="saveConfig"
-                >保存完整配置</NButton
-              >
+              <NAlert type="info" :show-icon="false">
+                当前 JSON 仅在“查询待剪辑”“启动轮询剪辑”“开始剪辑”时作为覆盖配置生效，不会写入本地。
+              </NAlert>
             </div>
           </div>
         </NCollapseItem>

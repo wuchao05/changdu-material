@@ -131,18 +131,18 @@ const api = {
   syncRemoteConfig: () => ipcRenderer.invoke("config:syncFromRemote"),
   pushRemoteConfig: () => ipcRenderer.invoke("config:pushToRemote"),
 
-  getClipConfig: () => ipcRenderer.invoke("clip:getConfig"),
+  getClipConfig: (config?: unknown) => ipcRenderer.invoke("clip:getConfig", config),
   getClipEnvironmentStatus: (): Promise<MaterialClipEnvironmentStatus> =>
     ipcRenderer.invoke("clip:getEnvironmentStatus"),
   installClipEnvironment: (): Promise<MaterialClipInstallResult> =>
     ipcRenderer.invoke("clip:installEnvironment"),
   importClipRuntime: (): Promise<MaterialClipRuntimeImportResult> =>
     ipcRenderer.invoke("clip:importRuntime"),
-  saveClipConfig: (config: unknown) =>
-    ipcRenderer.invoke("clip:saveConfig", config),
-  clipAutoRun: () => ipcRenderer.invoke("clip:autoRun"),
-  clipManualRun: (dramaNames: string) =>
-    ipcRenderer.invoke("clip:manualRun", dramaNames),
+  clipRefreshPending: (config: unknown) =>
+    ipcRenderer.invoke("clip:refreshPending", config),
+  clipAutoRun: (config: unknown) => ipcRenderer.invoke("clip:autoRun", config),
+  clipManualRun: (dramaNames: string, config: unknown) =>
+    ipcRenderer.invoke("clip:manualRun", dramaNames, config),
   clipGetRunState: (): Promise<MaterialClipRunState> =>
     ipcRenderer.invoke("clip:getRunState"),
   clipStopAutoRun: () => ipcRenderer.invoke("clip:stopAutoRun"),

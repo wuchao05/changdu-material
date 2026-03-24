@@ -89,7 +89,6 @@ export interface MaterialClipDateDeduplicationConfig {
 }
 
 export interface MaterialClipConfig {
-  active_user: string | null;
   target_fps: number;
   smart_fps: boolean;
   fast_mode: boolean;
@@ -297,7 +296,6 @@ function deepMerge<T>(base: T, override: unknown): T {
 }
 
 export class MaterialClipService {
-  private configPath: string;
   private runtimeRunConfigPath: string;
   private runtimeStatePath: string;
   private managedRuntimeRootDir: string;
@@ -319,7 +317,6 @@ export class MaterialClipService {
 
   constructor(configService: ConfigService, apiService: ApiService) {
     const userDataPath = app.getPath("userData");
-    this.configPath = path.join(userDataPath, "material-clip-config.json");
     this.runtimeRunConfigPath = path.join(
       userDataPath,
       "material-clip-run-config.json",
@@ -488,31 +485,12 @@ export class MaterialClipService {
     }
   }
 
-  async getConfig(): Promise<MaterialClipConfig> {
-    const saved = await this.readSavedConfig();
-    let config = this.createDefaultConfig();
-
-    if (saved) {
-      try {
-        config = this.prepareConfigInput(saved);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.log(`检测到无效的素材剪辑配置，已回退默认值：${message}`);
-      }
-    }
-
+  async getConfig(configOverride?: unknown): Promise<MaterialClipConfig> {
+    const config =
+      configOverride === undefined
+        ? this.createDefaultConfig()
+        : this.prepareConfigInput(configOverride);
     return this.applyApiConfig(config);
-  }
-
-  async saveConfig(config: unknown): Promise<MaterialClipConfig> {
-    const normalized = this.prepareConfigInput(config);
-    await fsp.writeFile(
-      this.configPath,
-      JSON.stringify(normalized, null, 2),
-      "utf-8",
-    );
-    this.log("素材剪辑配置已保存");
-    return this.applyApiConfig(normalized);
   }
 
   getLogs(): MaterialClipLogEntry[] {
@@ -531,8 +509,14 @@ export class MaterialClipService {
     return { success: true };
   }
 
-  async runAutoClip(): Promise<MaterialClipRunResult> {
-    const config = await this.getConfig();
+  async refreshPendingQueue(configOverride?: unknown): Promise<MaterialClipRunState> {
+    const config = await this.getConfig(configOverride);
+    await this.refreshPendingDramas(config);
+    return this.getRunStateSnapshot();
+  }
+
+  async runAutoClip(configOverride?: unknown): Promise<MaterialClipRunResult> {
+    const config = await this.getConfig(configOverride);
     if (!config.feishu.table_id.trim()) {
       return { success: false, error: "请先配置飞书 table_id" };
     }
@@ -549,7 +533,10 @@ export class MaterialClipService {
     });
   }
 
-  async runManualClip(dramaNames: string): Promise<MaterialClipRunResult> {
+  async runManualClip(
+    dramaNames: string,
+    configOverride?: unknown,
+  ): Promise<MaterialClipRunResult> {
     const normalizedDramaNames = dramaNames
       .split(/[,\n]/)
       .map((item) => item.trim())
@@ -559,7 +546,7 @@ export class MaterialClipService {
       return { success: false, error: "请输入至少一个剧名" };
     }
 
-    const config = await this.getConfig();
+    const config = await this.getConfig(configOverride);
     return this.startProcess({
       mode: "manual",
       config,
@@ -766,15 +753,6 @@ export class MaterialClipService {
     };
   }
 
-  private async readSavedConfig(): Promise<MaterialClipConfig | null> {
-    try {
-      const raw = await fsp.readFile(this.configPath, "utf-8");
-      return JSON.parse(raw) as MaterialClipConfig;
-    } catch {
-      return null;
-    }
-  }
-
   private async applyApiConfig(
     config: MaterialClipConfig,
   ): Promise<MaterialClipConfig> {
@@ -798,7 +776,8 @@ export class MaterialClipService {
       throw new Error("配置必须是 JSON 对象");
     }
 
-    const raw = config as Record<string, unknown>;
+    const raw = { ...(config as Record<string, unknown>) };
+    delete raw.active_user;
     const objectFields = [
       "video",
       "audio",
@@ -858,7 +837,6 @@ export class MaterialClipService {
 
   private createDefaultConfig(): MaterialClipConfig {
     return {
-      active_user: "xh-daily",
       target_fps: 60,
       smart_fps: true,
       fast_mode: true,
@@ -958,15 +936,15 @@ export class MaterialClipService {
       video: {
         hw_codec: "auto",
         sw_codec: "libx264",
-        bitrate: "6500k",
-        max_rate: "6500k",
-        buffer_size: "8000k",
+        bitrate: "1104k",
+        max_rate: "1104k",
+        buffer_size: "2208k",
         soft_crf: "24",
         preset: "veryfast",
         profile: "high",
-        level: "4.2",
-        hw_level: "4.2",
-        sw_level: "4.1",
+        level: "3.1",
+        hw_level: "3.1",
+        sw_level: "3.1",
         tag: "avc1",
         pixel_format: "yuv420p",
         faststart: false,

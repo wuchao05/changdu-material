@@ -231,8 +231,8 @@ function registerIpcHandlers(): void {
     return await configService.pushToRemote();
   });
 
-  ipcMain.handle("clip:getConfig", async () => {
-    return await materialClipService.getConfig();
+  ipcMain.handle("clip:getConfig", async (_event, config) => {
+    return await materialClipService.getConfig(config);
   });
 
   ipcMain.handle("clip:getEnvironmentStatus", async () => {
@@ -256,23 +256,26 @@ function registerIpcHandlers(): void {
     return await materialClipService.importRuntime();
   });
 
-  ipcMain.handle("clip:saveConfig", async (_event, config) => {
-    return await materialClipService.saveConfig(config);
+  ipcMain.handle("clip:refreshPending", async (_event, config) => {
+    return await materialClipService.refreshPendingQueue(config);
   });
 
-  ipcMain.handle("clip:autoRun", async () => {
+  ipcMain.handle("clip:autoRun", async (_event, config) => {
     if (mainWindow) {
       materialClipService.setMainWindow(mainWindow);
     }
-    return await materialClipService.runAutoClip();
+    return await materialClipService.runAutoClip(config);
   });
 
-  ipcMain.handle("clip:manualRun", async (_event, dramaNames: string) => {
-    if (mainWindow) {
-      materialClipService.setMainWindow(mainWindow);
-    }
-    return await materialClipService.runManualClip(dramaNames);
-  });
+  ipcMain.handle(
+    "clip:manualRun",
+    async (_event, dramaNames: string, config) => {
+      if (mainWindow) {
+        materialClipService.setMainWindow(mainWindow);
+      }
+      return await materialClipService.runManualClip(dramaNames, config);
+    },
+  );
 
   ipcMain.handle("clip:getRunState", async () => {
     if (mainWindow) {

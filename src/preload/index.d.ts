@@ -232,7 +232,6 @@ interface MaterialClipDateDeduplicationConfig {
 }
 
 interface MaterialClipConfig {
-  active_user: string | null;
   target_fps: number;
   smart_fps: boolean;
   fast_mode: boolean;
@@ -397,13 +396,16 @@ interface Api {
     error?: string;
   }>;
   pushRemoteConfig: () => Promise<{ success: boolean; error?: string }>;
-  getClipConfig: () => Promise<MaterialClipConfig>;
+  getClipConfig: (config?: unknown) => Promise<MaterialClipConfig>;
   getClipEnvironmentStatus: () => Promise<MaterialClipEnvironmentStatus>;
   installClipEnvironment: () => Promise<MaterialClipInstallResult>;
   importClipRuntime: () => Promise<MaterialClipRuntimeImportResult>;
-  saveClipConfig: (config: MaterialClipConfig) => Promise<MaterialClipConfig>;
-  clipAutoRun: () => Promise<MaterialClipRunResult>;
-  clipManualRun: (dramaNames: string) => Promise<MaterialClipRunResult>;
+  clipRefreshPending: (config: unknown) => Promise<MaterialClipRunState>;
+  clipAutoRun: (config: unknown) => Promise<MaterialClipRunResult>;
+  clipManualRun: (
+    dramaNames: string,
+    config: unknown,
+  ) => Promise<MaterialClipRunResult>;
   clipGetRunState: () => Promise<MaterialClipRunState>;
   clipStopAutoRun: () => Promise<{ success: boolean; error?: string }>;
   clipGetLogs: () => Promise<MaterialClipLogEntry[]>;
