@@ -4,6 +4,7 @@ import fsp from "fs/promises";
 import path from "path";
 import { spawn, type ChildProcessByStdio } from "child_process";
 import type { Readable } from "stream";
+import { load } from "js-yaml";
 import type { ApiService } from "./api.service";
 import type { ConfigService } from "./config.service";
 import {
@@ -494,8 +495,8 @@ export class MaterialClipService {
   async getConfig(configOverride?: unknown): Promise<MaterialClipConfig> {
     const config =
       configOverride === undefined
-        ? this.createDefaultConfig()
-        : this.prepareConfigInput(configOverride);
+        ? await this.createDefaultConfig()
+        : await this.prepareConfigInput(configOverride);
     return this.applyApiConfig(config);
   }
 
@@ -778,7 +779,7 @@ export class MaterialClipService {
     };
   }
 
-  private prepareConfigInput(config: unknown): MaterialClipConfig {
+  private async prepareConfigInput(config: unknown): Promise<MaterialClipConfig> {
     if (!isPlainObject(config)) {
       throw new Error("配置必须是 JSON 对象");
     }
@@ -839,10 +840,101 @@ export class MaterialClipService {
       throw new Error("floating_watermark_speed_range 必须是数字数组");
     }
 
-    return deepMerge(this.createDefaultConfig(), raw);
+    const baseConfig = await this.createDefaultConfig();
+    return this.normalizeMaterialClipConfig(deepMerge(baseConfig, raw));
   }
 
-  private createDefaultConfig(): MaterialClipConfig {
+  private async createDefaultConfig(): Promise<MaterialClipConfig> {
+    const fallbackConfig = this.createFallbackDefaultConfig();
+    const yamlConfig = await this.loadDefaultConfigFromYaml();
+    if (!yamlConfig) {
+      return fallbackConfig;
+    }
+
+    const mergedConfig = deepMerge(fallbackConfig, yamlConfig);
+    mergedConfig.enable_feishu_features = true;
+    return this.normalizeMaterialClipConfig(mergedConfig);
+  }
+
+  private async loadDefaultConfigFromYaml(): Promise<unknown | null> {
+    const configPath = await this.resolveDefaultConfigPath();
+    if (!configPath) {
+      return null;
+    }
+
+    try {
+      const content = await fsp.readFile(configPath, "utf-8");
+      const parsed = load(content, { json: true });
+      return isPlainObject(parsed) ? parsed : null;
+    } catch (error) {
+      console.error("[MaterialClip] 读取 default.yaml 失败:", error);
+      return null;
+    }
+  }
+
+  private async resolveDefaultConfigPath(): Promise<string | null> {
+    const runtime = await this.resolveProcessorRuntime();
+    if (!runtime.runtimeRoot) {
+      return null;
+    }
+
+    const configPath = path.join(runtime.runtimeRoot, "configs", "default.yaml");
+    return fs.existsSync(configPath) ? configPath : null;
+  }
+
+  private normalizeMaterialClipConfig(
+    config: MaterialClipConfig,
+  ): MaterialClipConfig {
+    const normalized = JSON.parse(JSON.stringify(config)) as MaterialClipConfig;
+
+    normalized.default_source_dir =
+      typeof normalized.default_source_dir === "string"
+        ? normalized.default_source_dir
+        : "";
+    normalized.backup_source_dir =
+      typeof normalized.backup_source_dir === "string"
+        ? normalized.backup_source_dir
+        : "";
+    normalized.output_dir =
+      typeof normalized.output_dir === "string" ? normalized.output_dir : "";
+    normalized.canvas =
+      typeof normalized.canvas === "string" ? normalized.canvas : null;
+    normalized.tail_file =
+      typeof normalized.tail_file === "string" ? normalized.tail_file : null;
+
+    if (
+      !Array.isArray(normalized.reference_resolution) ||
+      normalized.reference_resolution.length !== 2 ||
+      !normalized.reference_resolution.every((item) => typeof item === "number")
+    ) {
+      normalized.reference_resolution = null;
+    }
+
+    normalized.feishu.app_id =
+      typeof normalized.feishu.app_id === "string"
+        ? normalized.feishu.app_id
+        : "";
+    normalized.feishu.app_secret =
+      typeof normalized.feishu.app_secret === "string"
+        ? normalized.feishu.app_secret
+        : "";
+    normalized.feishu.app_token =
+      typeof normalized.feishu.app_token === "string"
+        ? normalized.feishu.app_token
+        : "";
+    normalized.feishu.table_id =
+      typeof normalized.feishu.table_id === "string"
+        ? normalized.feishu.table_id
+        : "";
+    normalized.feishu.base_url =
+      typeof normalized.feishu.base_url === "string"
+        ? normalized.feishu.base_url
+        : "https://open.feishu.cn/open-apis/bitable/v1";
+
+    return normalized;
+  }
+
+  private createFallbackDefaultConfig(): MaterialClipConfig {
     return {
       target_fps: 30,
       smart_fps: true,
