@@ -1268,7 +1268,7 @@ onUnmounted(() => {
       <NCard class="quick-card" title="快捷配置">
         <div v-if="config" class="config-groups">
           <div class="config-group-row">
-            <div class="config-group">
+            <div class="config-group half">
               <div class="group-header">
                 <div class="group-title">基础路径、编码与输出</div>
                 <div class="group-desc">设置本地源目录与导出分辨率、音视频码率</div>
@@ -1323,10 +1323,7 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </div>
-
-          <div class="config-group-row">
-            <div class="config-group">
+            <div class="config-group half">
               <div class="group-header">
                 <div class="group-title">功能开关与文本</div>
                 <div class="group-desc">附加功能及视频内嵌文本设置</div>
@@ -1697,11 +1694,14 @@ onUnmounted(() => {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 20px;
+  display: flex;
+  flex-direction: column;
 }
 
 .config-group-row {
   display: flex;
   gap: 24px;
+  align-items: stretch;
 }
 
 .config-group.half {
