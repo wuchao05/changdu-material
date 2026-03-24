@@ -736,7 +736,6 @@ onUnmounted(() => {
                   <th>序号</th>
                   <th>飞书日期</th>
                   <th>剧名</th>
-                  <th>账号</th>
                   <th>状态</th>
                 </tr>
               </thead>
@@ -748,7 +747,6 @@ onUnmounted(() => {
                   <td>{{ task.order }}</td>
                   <td>{{ task.date }}</td>
                   <td>{{ task.drama }}</td>
-                  <td>{{ task.account }}</td>
                   <td>
                     <NTag
                       v-if="task.status === 'running'"
