@@ -143,7 +143,16 @@ interface JuliangCompletedTask {
   fileCount: number;
   status: "completed" | "failed" | "skipped";
   error?: string;
+  completedAt: string;
   duration: string;
+}
+
+interface JuliangPendingTask {
+  order: number;
+  drama: string;
+  date: string;
+  account: string;
+  status: "pending" | "running";
 }
 
 interface MaterialClipVideoConfig {
@@ -583,6 +592,7 @@ interface Api {
   juliangSchedulerGetStatus: () => Promise<{
     status: "idle" | "running" | "stopped";
     stats: JuliangSchedulerStats;
+    pendingTasks: JuliangPendingTask[];
     fetchIntervalMinutes: number;
     lastFetchAt: string | null;
     nextFetchAt: string | null;

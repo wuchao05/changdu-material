@@ -1037,11 +1037,15 @@ export class MaterialClipService {
       }
     }
 
-    this.runState.pendingDramas = pendingDramas.filter(
-      (item) =>
-        !excludedRecordIds.has(item.recordId) &&
-        !excludedDramaNames.has(item.dramaName),
+    this.runState.pendingDramas = this.sortPendingDramas(
+      pendingDramas.filter(
+        (item) =>
+          !excludedRecordIds.has(item.recordId) &&
+          !excludedDramaNames.has(item.dramaName),
+      ),
+      resolvedConfig,
     );
+    this.reindexPendingDramas();
     this.touchRunState();
     this.emitRunState();
   }
@@ -1178,6 +1182,73 @@ export class MaterialClipService {
         order: index + 1,
       }),
     );
+  }
+
+  private sortPendingDramas(
+    dramas: MaterialClipPendingDrama[],
+    config: MaterialClipConfig,
+  ): MaterialClipPendingDrama[] {
+    const priorityRating = config.feishu.priority_rating_value?.trim();
+    const uploadTimeDesc = config.feishu.upload_time_sort_desc !== false;
+
+    return [...dramas].sort((a, b) => {
+      const aPriority = priorityRating && a.rating === priorityRating ? 1 : 0;
+      const bPriority = priorityRating && b.rating === priorityRating ? 1 : 0;
+      if (aPriority !== bPriority) {
+        return bPriority - aPriority;
+      }
+
+      if (a.uploadTime !== null && b.uploadTime !== null && a.uploadTime !== b.uploadTime) {
+        return uploadTimeDesc
+          ? b.uploadTime - a.uploadTime
+          : a.uploadTime - b.uploadTime;
+      }
+      if (a.uploadTime !== null && b.uploadTime === null) {
+        return -1;
+      }
+      if (a.uploadTime === null && b.uploadTime !== null) {
+        return 1;
+      }
+
+      const aDate = this.parsePendingDramaDateToTimestamp(a);
+      const bDate = this.parsePendingDramaDateToTimestamp(b);
+      if (aDate !== null && bDate !== null && aDate !== bDate) {
+        return aDate - bDate;
+      }
+      if (aDate !== null && bDate === null) {
+        return -1;
+      }
+      if (aDate === null && bDate !== null) {
+        return 1;
+      }
+
+      return a.dramaName.localeCompare(b.dramaName, "zh-Hans-CN");
+    });
+  }
+
+  private parsePendingDramaDateToTimestamp(
+    drama: MaterialClipPendingDrama,
+  ): number | null {
+    if (drama.fullDate) {
+      const parsed = Date.parse(`${drama.fullDate}T00:00:00`);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    const normalized = drama.date.trim();
+    const monthDayMatch = normalized.match(/^(\d{1,2})\.(\d{1,2})$/);
+    if (monthDayMatch) {
+      const [, monthText, dayText] = monthDayMatch;
+      const now = new Date();
+      const parsed = new Date(
+        now.getFullYear(),
+        Number(monthText) - 1,
+        Number(dayText),
+      ).getTime();
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    const parsed = Date.parse(normalized);
+    return Number.isNaN(parsed) ? null : parsed;
   }
 
   private parseDouyinMaterialCount(value: unknown): number | null {

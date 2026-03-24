@@ -29,7 +29,16 @@ export interface CompletedTask {
   fileCount: number;
   status: "completed" | "failed" | "skipped";
   error?: string;
+  completedAt: string;
   duration: string;
+}
+
+export interface PendingTaskSnapshot {
+  order: number;
+  drama: string;
+  date: string;
+  account: string;
+  status: "pending" | "running";
 }
 
 // 内部任务
@@ -202,6 +211,7 @@ export class JuliangSchedulerService {
     return {
       status: this.status,
       stats: this.getQueueStats(),
+      pendingTasks: this.getPendingTasks(),
       fetchIntervalMinutes: this.config.fetchIntervalMinutes,
       lastFetchAt: this.lastFetchAt,
       nextFetchAt: this.nextFetchAt,
@@ -268,6 +278,7 @@ export class JuliangSchedulerService {
       fileCount: task.mp4Files?.length || 0,
       status,
       error: task.error,
+      completedAt: new Date().toISOString(),
       duration,
     });
     if (this.completedTasks.length > this.maxCompletedTasks) {
@@ -280,6 +291,21 @@ export class JuliangSchedulerService {
    */
   getCompletedTasks(): CompletedTask[] {
     return [...this.completedTasks];
+  }
+
+  getPendingTasks(): PendingTaskSnapshot[] {
+    return this.getPrioritizedTasks(this.queue)
+      .filter(
+        (task): task is InternalTask & { status: "pending" | "running" } =>
+          task.status === "pending" || task.status === "running",
+      )
+      .map((task, index) => ({
+        order: index + 1,
+        drama: task.drama,
+        date: task.date,
+        account: task.account,
+        status: task.status,
+      }));
   }
 
   /**
@@ -555,10 +581,10 @@ export class JuliangSchedulerService {
             }
           }
 
-          // 按日期升序排序（最早的日期优先上传）
-          tasks.sort((a, b) => a.date.localeCompare(b.date));
+          // 按优先级排序：正在处理/更早日期的任务优先
+          tasks.sort((a, b) => this.compareTaskPriority(a, b));
           this.log(
-            `达人 ${daren.label} 共 ${tasks.length} 个任务（已按日期升序排序）`,
+            `达人 ${daren.label} 共 ${tasks.length} 个任务（已按优先级排序）`,
           );
 
           // 添加到队列
@@ -734,6 +760,7 @@ export class JuliangSchedulerService {
     }
 
     this.queue.push(task);
+    this.queue = this.getPrioritizedTasks(this.queue);
     this.taskMap.set(task.recordId, task);
     this.log(`任务已入队: ${task.drama} (${task.date})`);
 
@@ -882,12 +909,77 @@ export class JuliangSchedulerService {
    * 获取下一个待处理任务
    */
   private getNextTask(): InternalTask | null {
-    for (const task of this.queue) {
+    for (const task of this.getPrioritizedTasks(this.queue)) {
       if (task.status === "pending") {
         return task;
       }
     }
     return null;
+  }
+
+  private getPrioritizedTasks(tasks: InternalTask[]): InternalTask[] {
+    return [...tasks].sort((a, b) => this.compareTaskPriority(a, b));
+  }
+
+  private compareTaskPriority(a: InternalTask, b: InternalTask): number {
+    if (a.status === "running" && b.status !== "running") {
+      return -1;
+    }
+    if (b.status === "running" && a.status !== "running") {
+      return 1;
+    }
+
+    const aDate = this.parseTaskDateToTimestamp(a.date);
+    const bDate = this.parseTaskDateToTimestamp(b.date);
+    if (aDate !== null && bDate !== null && aDate !== bDate) {
+      return aDate - bDate;
+    }
+    if (aDate !== null && bDate === null) {
+      return -1;
+    }
+    if (aDate === null && bDate !== null) {
+      return 1;
+    }
+
+    const updatedDiff = a.updatedAt.getTime() - b.updatedAt.getTime();
+    if (updatedDiff !== 0) {
+      return updatedDiff;
+    }
+
+    const createdDiff = a.createdAt.getTime() - b.createdAt.getTime();
+    if (createdDiff !== 0) {
+      return createdDiff;
+    }
+
+    return a.drama.localeCompare(b.drama, "zh-Hans-CN");
+  }
+
+  private parseTaskDateToTimestamp(dateText: string): number | null {
+    const normalized = dateText.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      const parsed = Date.parse(`${normalized}T00:00:00`);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    const monthDayMatch = normalized.match(/^(\d{1,2})[.-](\d{1,2})$/);
+    if (monthDayMatch) {
+      const [, monthText, dayText] = monthDayMatch;
+      const now = new Date();
+      const year = now.getFullYear();
+      const parsed = new Date(
+        year,
+        Number(monthText) - 1,
+        Number(dayText),
+      ).getTime();
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+
+    const parsed = Date.parse(normalized);
+    return Number.isNaN(parsed) ? null : parsed;
   }
 
   private async scheduleTaskRetry(

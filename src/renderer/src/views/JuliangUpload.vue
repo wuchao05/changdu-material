@@ -37,6 +37,15 @@ const schedulerStats = ref({
   failed: 0,
   skipped: 0,
 });
+const pendingTasks = ref<
+  Array<{
+    order: number;
+    drama: string;
+    date: string;
+    account: string;
+    status: "pending" | "running";
+  }>
+>([]);
 const schedulerPolling = ref({
   fetchIntervalMinutes: 20,
   lastFetchAt: null as string | null,
@@ -93,6 +102,7 @@ const completedTasks = ref<
     fileCount: number;
     status: "completed" | "failed" | "skipped";
     error?: string;
+    completedAt: string;
     duration: string;
   }>
 >([]);
@@ -256,6 +266,7 @@ async function refreshSchedulerStatus() {
     const result = await window.api.juliangSchedulerGetStatus();
     schedulerStatus.value = result.status;
     schedulerStats.value = result.stats;
+    pendingTasks.value = result.pendingTasks || [];
     schedulerPolling.value = {
       fetchIntervalMinutes: result.fetchIntervalMinutes,
       lastFetchAt: result.lastFetchAt,
@@ -389,6 +400,20 @@ function formatUploadDuration(totalSeconds: number): string {
 const uploadDurationText = computed(() =>
   formatUploadDuration(uploadElapsedSeconds.value),
 );
+
+function formatCompletedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
 
 function formatPollingTime(value: string | null): string | null {
   if (!value) {
@@ -685,7 +710,49 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <NCollapse v-if="completedTasks.length > 0" class="status-collapse">
+      <NCollapse
+        v-if="pendingTasks.length > 0 || completedTasks.length > 0"
+        class="status-collapse"
+      >
+        <NCollapseItem
+          v-if="pendingTasks.length > 0"
+          :title="`待上传列表 (${pendingTasks.length})`"
+          name="pending"
+        >
+          <div class="completed-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>飞书日期</th>
+                  <th>剧名</th>
+                  <th>账号</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="task in pendingTasks"
+                  :key="`${task.status}-${task.order}-${task.drama}`"
+                >
+                  <td>{{ task.order }}</td>
+                  <td>{{ task.date }}</td>
+                  <td>{{ task.drama }}</td>
+                  <td>{{ task.account }}</td>
+                  <td>
+                    <NTag
+                      v-if="task.status === 'running'"
+                      type="info"
+                      size="small"
+                      >上传中</NTag
+                    >
+                    <NTag v-else type="warning" size="small">待上传</NTag>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </NCollapseItem>
         <NCollapseItem
           :title="`已上传列表 (${completedTasks.length})`"
           name="completed"
@@ -698,7 +765,8 @@ onUnmounted(() => {
                   <th>飞书日期</th>
                   <th>素材数</th>
                   <th>状态</th>
-                  <th>耗时</th>
+                  <th>完成时间</th>
+                  <th>上传时长</th>
                 </tr>
               </thead>
               <tbody>
@@ -721,6 +789,7 @@ onUnmounted(() => {
                     >
                     <NTag v-else type="warning" size="small">跳过</NTag>
                   </td>
+                  <td>{{ formatCompletedAt(task.completedAt) }}</td>
                   <td>{{ task.duration }}</td>
                 </tr>
               </tbody>
