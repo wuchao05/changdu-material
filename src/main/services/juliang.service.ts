@@ -5,7 +5,7 @@
 
 import { chromium, BrowserContext, Page } from "playwright";
 import { app, BrowserWindow } from "electron";
-import { join } from "path";
+import { basename, join } from "path";
 import * as fs from "fs";
 import { execSync } from "child_process";
 import { JuliangProgressManager } from "./juliang-progress.service";
@@ -60,8 +60,17 @@ export interface JuliangUploadResult {
 interface JuliangBatchResult {
   success: boolean;
   successCount: number;
+  observedSuccessCount?: number;
   skipped?: boolean;
   error?: string;
+  remainingFiles?: string[];
+}
+
+interface JuliangUploadRowSnapshot {
+  fileName: string;
+  rowText: string;
+  isSuccess: boolean;
+  hasError: boolean;
 }
 
 // 巨量配置
@@ -70,6 +79,7 @@ export interface JuliangConfig {
   batchSize: number;
   batchUploadTimeoutMinutes: number;
   maxBatchRetries: number;
+  timeoutPartialRetryRounds: number;
   batchDelayMin: number;
   batchDelayMax: number;
   headless: boolean;
@@ -91,6 +101,7 @@ const DEFAULT_CONFIG: JuliangConfig = {
   batchSize: 10, // 巨量后台每次最多上传 10 个视频
   batchUploadTimeoutMinutes: 5,
   maxBatchRetries: 5,
+  timeoutPartialRetryRounds: 3,
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
@@ -321,6 +332,12 @@ export class JuliangService {
       nextConfig.maxBatchRetries = Math.max(
         0,
         Math.min(10, Math.floor(nextConfig.maxBatchRetries)),
+      );
+    }
+    if (typeof nextConfig.timeoutPartialRetryRounds === "number") {
+      nextConfig.timeoutPartialRetryRounds = Math.max(
+        0,
+        Math.min(10, Math.floor(nextConfig.timeoutPartialRetryRounds)),
       );
     }
     if (typeof nextConfig.batchDelayMin === "number") {
@@ -678,6 +695,126 @@ export class JuliangService {
   }
 
   /**
+   * 读取当前上传列表的文件名和状态
+   */
+  private async getUploadRowSnapshots(): Promise<{
+    progressCount: number;
+    rows: JuliangUploadRowSnapshot[];
+  }> {
+    if (!this.page || this.page.isClosed()) {
+      return { progressCount: 0, rows: [] };
+    }
+
+    const progressBars = this.page.locator(
+      ".material-center-v2-oc-upload-table-name-progress",
+    );
+    const progressCount = await progressBars.count();
+    const rows: JuliangUploadRowSnapshot[] = [];
+
+    for (let i = 0; i < progressCount; i++) {
+      const progressBar = progressBars.nth(i);
+      const parent = progressBar.locator("..");
+      const fileNameElement = parent
+        .locator(
+          ".material-center-v2-oc-upload-table-name-text .material-center-v2-oc-typography-value-int",
+        )
+        .first();
+      const successElement = parent.locator(
+        ".material-center-v2-oc-upload-table-name-progress-success",
+      );
+      const errorElement = parent.locator(
+        '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]',
+      );
+      const rowText = (await parent.innerText()).trim().replace(/\s+/g, " ");
+      const fileName =
+        (await fileNameElement.count()) > 0
+          ? (await fileNameElement.innerText()).trim()
+          : "";
+      const hasErrorHint =
+        (await errorElement.count()) > 0 ||
+        (this.uploadErrorKeywords.test(rowText) &&
+          !this.ignoredUploadErrorTexts.some((ignoredText) =>
+            rowText.includes(ignoredText),
+          ));
+
+      rows.push({
+        fileName,
+        rowText,
+        isSuccess: (await successElement.count()) > 0,
+        hasError: hasErrorHint,
+      });
+    }
+
+    return { progressCount, rows };
+  }
+
+  /**
+   * 根据文件名把当前批次拆分成已成功和未完成文件
+   */
+  private splitFilesByUploadedNames(
+    files: string[],
+    successNames: string[],
+  ): {
+    completedFiles: string[];
+    remainingFiles: string[];
+  } {
+    const remainingSuccessCounts = new Map<string, number>();
+    for (const successName of successNames) {
+      remainingSuccessCounts.set(
+        successName,
+        (remainingSuccessCounts.get(successName) || 0) + 1,
+      );
+    }
+
+    const completedFiles: string[] = [];
+    const remainingFiles: string[] = [];
+
+    for (const file of files) {
+      const fileName = basename(file);
+      const remainingCount = remainingSuccessCounts.get(fileName) || 0;
+      if (remainingCount > 0) {
+        completedFiles.push(file);
+        remainingSuccessCounts.set(fileName, remainingCount - 1);
+      } else {
+        remainingFiles.push(file);
+      }
+    }
+
+    return { completedFiles, remainingFiles };
+  }
+
+  /**
+   * 格式化文件名列表日志
+   */
+  private formatFileNamesForLog(fileNames: string[]): string {
+    if (fileNames.length === 0) {
+      return "无";
+    }
+
+    const uniqueNames = Array.from(new Set(fileNames.filter(Boolean)));
+    if (uniqueNames.length <= 8) {
+      return uniqueNames.join("、");
+    }
+
+    return `${uniqueNames.slice(0, 8).join("、")} 等 ${uniqueNames.length} 个`;
+  }
+
+  /**
+   * 点击确定按钮
+   */
+  private async clickConfirmButton(): Promise<void> {
+    if (!this.page) return;
+
+    const confirmButton = this.page
+      .locator(this.config.selectors.confirmButton)
+      .first();
+    await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+    await this.randomDelay(500, 1000);
+    await confirmButton.click();
+    this.log("确定按钮点击成功");
+  }
+
+  /**
    * 上传单批文件（支持重试）
    * 策略：必须所有素材都上传成功才算成功，不足额就重试
    */
@@ -692,83 +829,136 @@ export class JuliangService {
 
     const maxRetries = this.config.maxBatchRetries;
     const maxAttempts = maxRetries + 1;
+    const maxPartialRounds = this.config.timeoutPartialRetryRounds;
+    let currentFiles = [...files];
+    let committedSuccessCount = 0;
+    let partialRound = 0;
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const retry = attempt - 1;
-      // 检查是否已取消或页面已关闭
-      if (this.isCancelled || !this.page || this.page.isClosed()) {
-        this.log("上传已取消");
-        return { success: false, successCount: 0 };
-      }
+    while (currentFiles.length > 0) {
+      let shouldContinuePartialRound = false;
 
-      try {
-        if (retry > 0) {
-          // 再次检查页面状态
-          if (!this.page || this.page.isClosed()) {
-            this.log("页面已关闭，上传取消");
-            return { success: false, successCount: 0 };
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const retry = attempt - 1;
+        // 检查是否已取消或页面已关闭
+        if (this.isCancelled || !this.page || this.page.isClosed()) {
+          this.log("上传已取消");
+          return { success: false, successCount: committedSuccessCount };
+        }
+
+        try {
+          if (retry > 0 || partialRound > 0) {
+            // 再次检查页面状态
+            if (!this.page || this.page.isClosed()) {
+              this.log("页面已关闭，上传取消");
+              return { success: false, successCount: committedSuccessCount };
+            }
+
+            const retryMessage =
+              retry > 0
+                ? `第 ${batchIndex}/${totalBatches} 批开始第 ${retry} 次重试（本次为第 ${attempt}/${maxAttempts} 次尝试，最多重试 ${maxRetries} 次）`
+                : `第 ${batchIndex}/${totalBatches} 批开始超时轮回第 ${partialRound}/${maxPartialRounds} 次，仅重传剩余 ${currentFiles.length} 个素材`;
+            this.log(retryMessage);
+
+            // 重试前刷新页面，确保页面状态干净
+            this.log("刷新页面以清理状态...");
+            await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
+            this.log("页面刷新完成，等待 5 秒后重试");
+            await this.page.waitForTimeout(5000);
           }
 
-          this.log(
-            `第 ${batchIndex}/${totalBatches} 批开始第 ${retry} 次重试（本次为第 ${attempt}/${maxAttempts} 次尝试，最多重试 ${maxRetries} 次）`,
+          const result = await this.uploadBatchInternal(
+            currentFiles,
+            batchIndex,
+            totalBatches,
+            retry,
           );
 
-          // 重试前刷新页面，确保页面状态干净
-          this.log("刷新页面以清理状态...");
-          await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
-          this.log("页面刷新完成，等待 5 秒后重试");
-          await this.page.waitForTimeout(5000);
-        }
+          if (result.success) {
+            return {
+              success: true,
+              successCount: committedSuccessCount + result.successCount,
+            };
+          }
 
-        const result = await this.uploadBatchInternal(
-          files,
-          batchIndex,
-          totalBatches,
-          retry,
-        );
+          if (result.remainingFiles) {
+            committedSuccessCount += result.successCount;
+            partialRound++;
 
-        // 完全成功
-        if (result.success) {
-          return result;
-        }
+            if (result.remainingFiles.length === 0) {
+              this.log(
+                `第 ${batchIndex}/${totalBatches} 批超时后已提交全部已成功素材，作为同一批完成`,
+              );
+              return { success: true, successCount: committedSuccessCount };
+            }
 
-        if (result.skipped) {
+            if (partialRound > maxPartialRounds) {
+              this.log(
+                `第 ${batchIndex}/${totalBatches} 批超时轮回已达到上限 ${maxPartialRounds} 次，放弃剩余 ${result.remainingFiles.length} 个未完成素材，继续下一批`,
+              );
+              return { success: true, successCount: committedSuccessCount };
+            }
+
+            currentFiles = result.remainingFiles;
+            this.log(
+              `第 ${batchIndex}/${totalBatches} 批已提交已完成素材，剩余 ${currentFiles.length} 个未完成素材将作为同一批继续上传: ${this.formatFileNamesForLog(
+                currentFiles.map((file) => basename(file)),
+              )}`,
+            );
+            shouldContinuePartialRound = true;
+            break;
+          }
+
+          if (result.skipped) {
+            this.log(
+              `第 ${batchIndex}/${totalBatches} 批命中不可重试错误，跳过当前任务: ${result.error || "未知错误"}`,
+            );
+            return {
+              ...result,
+              successCount: committedSuccessCount + result.successCount,
+            };
+          }
+
+          if (attempt < maxAttempts) {
+            const observedSuccessCount =
+              committedSuccessCount +
+              (result.observedSuccessCount ?? result.successCount);
+            const shortfall = files.length - observedSuccessCount;
+            this.log(
+              `第 ${batchIndex}/${totalBatches} 批上传不足额（${observedSuccessCount}/${files.length}，差 ${shortfall} 个），准备进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
+            );
+          } else {
+            const observedSuccessCount =
+              committedSuccessCount +
+              (result.observedSuccessCount ?? result.successCount);
+            const exhaustedMessage =
+              maxRetries > 0
+                ? `第 ${batchIndex}/${totalBatches} 批重试 ${maxRetries} 次后仍失败（${observedSuccessCount}/${files.length}）`
+                : `第 ${batchIndex}/${totalBatches} 批首次尝试失败，且当前未配置重试（${observedSuccessCount}/${files.length}）`;
+            this.log(exhaustedMessage);
+          }
+        } catch (error) {
           this.log(
-            `第 ${batchIndex}/${totalBatches} 批命中不可重试错误，跳过当前任务: ${result.error || "未知错误"}`,
+            `上传第 ${batchIndex}/${totalBatches} 批失败（第 ${attempt}/${maxAttempts} 次尝试）: ${error instanceof Error ? error.message : String(error)}`,
           );
-          return result;
-        }
 
-        // 不足额，需要重试
-        if (attempt < maxAttempts) {
-          const shortfall = files.length - result.successCount;
-          this.log(
-            `第 ${batchIndex}/${totalBatches} 批上传不足额（${result.successCount}/${files.length}，差 ${shortfall} 个），准备进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
-          );
-        } else {
-          // 最后一次重试仍失败
-          const exhaustedMessage =
-            maxRetries > 0
-              ? `第 ${batchIndex}/${totalBatches} 批重试 ${maxRetries} 次后仍失败（${result.successCount}/${files.length}）`
-              : `第 ${batchIndex}/${totalBatches} 批首次尝试失败，且当前未配置重试（${result.successCount}/${files.length}）`;
-          this.log(exhaustedMessage);
-        }
-      } catch (error) {
-        this.log(
-          `上传第 ${batchIndex}/${totalBatches} 批失败（第 ${attempt}/${maxAttempts} 次尝试）: ${error instanceof Error ? error.message : String(error)}`,
-        );
-
-        if (attempt < maxAttempts) {
-          this.log(
-            `准备刷新页面，进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
-          );
-        } else {
-          throw error;
+          if (attempt < maxAttempts) {
+            this.log(
+              `准备刷新页面，进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
+            );
+          } else {
+            throw error;
+          }
         }
       }
+
+      if (shouldContinuePartialRound) {
+        continue;
+      }
+
+      return { success: false, successCount: committedSuccessCount };
     }
 
-    return { success: false, successCount: 0 };
+    return { success: true, successCount: committedSuccessCount };
   }
 
   /**
@@ -860,11 +1050,8 @@ export class JuliangService {
             return { success: false, successCount: 0 };
           }
 
-          // 查找所有进度条元素
-          const progressBars = this.page.locator(
-            ".material-center-v2-oc-upload-table-name-progress",
-          );
-          const progressCount = await progressBars.count();
+          const snapshot = await this.getUploadRowSnapshots();
+          const progressCount = snapshot.progressCount;
           if (progressCount > maxObservedProgressCount) {
             maxObservedProgressCount = progressCount;
             this.log(
@@ -935,36 +1122,8 @@ export class JuliangService {
 
           this.log(`找到 ${progressCount} 个进度条（期望 ${files.length} 个）`);
 
-          // 检查每个进度条是否有成功标识
-          let successCount = 0;
-          let errorCount = 0;
-          for (let i = 0; i < progressCount; i++) {
-            const progressBar = progressBars.nth(i);
-            const parent = progressBar.locator("..");
-            const successElement = parent.locator(
-              ".material-center-v2-oc-upload-table-name-progress-success",
-            );
-            if ((await successElement.count()) > 0) {
-              successCount++;
-              continue;
-            }
-
-            const errorElement = parent.locator(
-              '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]',
-            );
-            const rowText = (await parent.innerText())
-              .trim()
-              .replace(/\s+/g, " ");
-            const hasErrorHint =
-              (await errorElement.count()) > 0 ||
-              (this.uploadErrorKeywords.test(rowText) &&
-                !this.ignoredUploadErrorTexts.some((ignoredText) =>
-                  rowText.includes(ignoredText),
-                ));
-            if (hasErrorHint) {
-              errorCount++;
-            }
-          }
+          const successCount = snapshot.rows.filter((row) => row.isSuccess).length;
+          const errorCount = snapshot.rows.filter((row) => row.hasError).length;
 
           this.log(
             `上传进度: 成功 ${successCount} 个，错误 ${errorCount} 个，可见进度条 ${progressCount} 个`,
@@ -991,7 +1150,11 @@ export class JuliangService {
               await this.clickCancelButton();
 
               // 返回失败，让外层重试整批
-              return { success: false, successCount: 0 };
+              return {
+                success: false,
+                successCount: 0,
+                observedSuccessCount: successCount,
+              };
             }
 
             if (successCount < minimumRequiredProgressCount) {
@@ -1001,13 +1164,7 @@ export class JuliangService {
               await this.randomDelay(1000, 2000);
 
               this.log("点击确定按钮");
-              const confirmButton = this.page
-                .locator(this.config.selectors.confirmButton)
-                .first();
-              await confirmButton.waitFor({ state: "visible", timeout: 10000 });
-              await this.randomDelay(500, 1000);
-              await confirmButton.click();
-              this.log("确定按钮点击成功");
+              await this.clickConfirmButton();
 
               return {
                 success: false,
@@ -1035,14 +1192,7 @@ export class JuliangService {
 
             // 点击确定按钮
             this.log("点击确定按钮");
-            const confirmButton = this.page
-              .locator(this.config.selectors.confirmButton)
-              .first();
-            await confirmButton.waitFor({ state: "visible", timeout: 10000 });
-            await this.randomDelay(500, 1000);
-            await confirmButton.click();
-
-            this.log("确定按钮点击成功");
+            await this.clickConfirmButton();
 
             // 批次间延迟
             if (batchIndex < totalBatches) {
@@ -1070,15 +1220,55 @@ export class JuliangService {
         }
       }
 
-      // 超时
-      throw new Error(
-        `等待文件上传超时（${this.config.batchUploadTimeoutMinutes}分钟）`,
+      const timeoutSnapshot = await this.getUploadRowSnapshots();
+      const successNames = timeoutSnapshot.rows
+        .filter((row) => row.isSuccess && row.fileName)
+        .map((row) => row.fileName);
+      const { remainingFiles } = this.splitFilesByUploadedNames(
+        files,
+        successNames,
       );
+      const unfinishedNames = remainingFiles.map((file) => basename(file));
+
+      this.log(
+        `上传第 ${batchIndex}/${totalBatches} 批失败: 等待文件上传超时（${this.config.batchUploadTimeoutMinutes}分钟）`,
+      );
+      this.log(
+        `第 ${batchIndex}/${totalBatches} 批超时时已成功 ${successNames.length}/${files.length} 个，未完成素材: ${this.formatFileNamesForLog(
+          unfinishedNames,
+        )}`,
+      );
+
+      let confirmSubmitted = false;
+      try {
+        this.log("点击确定按钮，先提交当前已成功素材");
+        await this.clickConfirmButton();
+        confirmSubmitted = true;
+      } catch (confirmError) {
+        this.log(
+          `超时后点击确定按钮失败: ${confirmError instanceof Error ? confirmError.message : String(confirmError)}`,
+        );
+      }
+
+      if (!confirmSubmitted) {
+        return {
+          success: false,
+          successCount: 0,
+          observedSuccessCount: successNames.length,
+        };
+      }
+
+      return {
+        success: false,
+        successCount: successNames.length,
+        observedSuccessCount: successNames.length,
+        remainingFiles,
+      };
     } catch (error) {
       this.log(
         `上传第 ${batchIndex}/${totalBatches} 批失败: ${error instanceof Error ? error.message : String(error)}`,
       );
-      return { success: false, successCount: 0 };
+      return { success: false, successCount: 0, observedSuccessCount: 0 };
     }
   }
 
@@ -1203,9 +1393,11 @@ export class JuliangService {
         });
 
         const result = await this.uploadBatch(batch, i + 1, totalBatches);
+        if (result.successCount > 0) {
+          totalSuccess += result.successCount;
+        }
 
         if (result.success) {
-          totalSuccess += result.successCount;
           // 每批成功后更新进度
           if (task.recordId) {
             this.progressManager.updateProgress(

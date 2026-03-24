@@ -61,6 +61,7 @@ const config = ref({
   batchSize: 20,
   batchUploadTimeoutMinutes: 5,
   maxBatchRetries: 5,
+  timeoutPartialRetryRounds: 3,
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
@@ -159,6 +160,10 @@ async function saveConfig() {
       maxBatchRetries: Math.max(
         0,
         Math.min(10, Math.floor(config.value.maxBatchRetries || 0)),
+      ),
+      timeoutPartialRetryRounds: Math.max(
+        0,
+        Math.min(10, Math.floor(config.value.timeoutPartialRetryRounds || 0)),
       ),
       batchDelayMin: config.value.batchDelayMin,
       batchDelayMax: config.value.batchDelayMax,
@@ -815,6 +820,20 @@ onUnmounted(() => {
                 @update:value="saveConfig"
               />
               <span class="config-desc">单批失败后最多额外重试的次数</span>
+            </div>
+            <div class="config-row">
+              <span class="config-label">超时轮回次数</span>
+              <NInputNumber
+                v-model:value="config.timeoutPartialRetryRounds"
+                :min="0"
+                :max="10"
+                :step="1"
+                style="width: 120px"
+                @update:value="saveConfig"
+              />
+              <span class="config-desc"
+                >单批超时后仅重传未完成素材的轮回次数</span
+              >
             </div>
             <div class="config-row">
               <span class="config-label">容许缺失个数</span>

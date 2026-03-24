@@ -162,6 +162,7 @@ const uploadConfig = ref({
   batchSize: 10,
   batchUploadTimeoutMinutes: 5,
   maxBatchRetries: 5,
+  timeoutPartialRetryRounds: 3,
   headless: false,
   allowedMissingCount: 0,
   deleteAfterUpload: false,
@@ -708,6 +709,10 @@ async function applyUploadConfig(
   nextConfig.maxBatchRetries = Math.max(
     0,
     Math.min(10, Math.floor(Number(nextConfig.maxBatchRetries || 0))),
+  );
+  nextConfig.timeoutPartialRetryRounds = Math.max(
+    0,
+    Math.min(10, Math.floor(Number(nextConfig.timeoutPartialRetryRounds || 0))),
   );
   nextConfig.allowedMissingCount = Math.max(
     0,
@@ -2496,6 +2501,26 @@ onUnmounted(() => {
               "
             />
             <span class="config-desc">单批失败后最多额外重试的次数</span>
+          </div>
+          <div class="config-row">
+            <span class="config-label">超时轮回次数</span>
+            <NInputNumber
+              :value="uploadConfig.timeoutPartialRetryRounds"
+              :min="0"
+              :max="10"
+              @update:value="
+                (value) =>
+                  applyUploadConfig({
+                    timeoutPartialRetryRounds: Math.max(
+                      0,
+                      Math.min(10, Number(value || 0)),
+                    ),
+                  })
+              "
+            />
+            <span class="config-desc"
+              >单批超时后仅重传未完成素材的轮回次数</span
+            >
           </div>
           <div class="config-row">
             <span class="config-label">允许缺失数</span>
