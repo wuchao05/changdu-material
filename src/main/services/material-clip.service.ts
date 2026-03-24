@@ -7,6 +7,11 @@ import type { Readable } from "stream";
 import type { ApiService } from "./api.service";
 import type { ConfigService } from "./config.service";
 import {
+  FIXED_FEISHU_APP_ID,
+  FIXED_FEISHU_APP_SECRET,
+  FIXED_FEISHU_APP_TOKEN,
+} from "../constants/fixed-config";
+import {
   importRuntimeCandidate,
   resolveRuntime,
   type MaterialClipRuntimeSource,
@@ -523,6 +528,7 @@ export class MaterialClipService {
 
     const autoConfig: MaterialClipConfig = {
       ...config,
+      enable_feishu_features: true,
       output_dir: "",
     };
 
@@ -837,7 +843,7 @@ export class MaterialClipService {
 
   private createDefaultConfig(): MaterialClipConfig {
     return {
-      target_fps: 60,
+      target_fps: 30,
       smart_fps: true,
       fast_mode: true,
       filter_threads: 2,
@@ -848,9 +854,9 @@ export class MaterialClipService {
       material_code: "xl",
       date_str: null,
       exclude_last_episodes: 8,
-      title_font_size: 36,
-      brand_font_size: 28,
-      disclaimer_font_size: 28,
+      title_font_size: 24,
+      brand_font_size: 16,
+      disclaimer_font_size: 16,
       disclaimer_text: "剧情纯属虚构 请勿模仿",
       enable_brand_text: true,
       enable_disclaimer_text: false,
@@ -911,14 +917,14 @@ export class MaterialClipService {
       use_hardware: true,
       keep_temp: false,
       jobs: 1,
-      canvas: "720x1280",
-      reference_resolution: [720, 1280],
+      canvas: null,
+      reference_resolution: null,
       default_source_dir: "D:\\短剧剪辑\\源素材视频",
-      backup_source_dir: "",
+      backup_source_dir: "E:\\短剧剪辑\\源素材视频",
       temp_dir: null,
-      output_dir: "",
+      output_dir: "D:\\短剧剪辑\\输出素材",
       tail_cache_dir: null,
-      tail_file: "assets/tail.mp4",
+      tail_file: "assets\\tail.mp4",
       refresh_tail_cache: false,
       font_file: null,
       brand_text: "热门短剧",
@@ -930,9 +936,9 @@ export class MaterialClipService {
       include: null,
       exclude: null,
       full: false,
-      no_interactive: true,
+      no_interactive: false,
       enable_deduplication: false,
-      auto_delete_source_after_completion: false,
+      auto_delete_source_after_completion: true,
       video: {
         hw_codec: "auto",
         sw_codec: "libx264",
@@ -956,9 +962,9 @@ export class MaterialClipService {
       },
       enable_feishu_features: true,
       feishu: {
-        app_id: "",
-        app_secret: "",
-        app_token: "",
+        app_id: FIXED_FEISHU_APP_ID,
+        app_secret: FIXED_FEISHU_APP_SECRET,
+        app_token: FIXED_FEISHU_APP_TOKEN,
         table_id: "",
         base_url: "https://open.feishu.cn/open-apis/bitable/v1",
         field_names: ["剧名", "账户", "日期", "搭建时间", "主体"],
