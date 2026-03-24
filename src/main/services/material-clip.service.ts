@@ -317,6 +317,7 @@ export class MaterialClipService {
   private readonly configService: ConfigService;
   private readonly apiService: ApiService;
   private runState: MaterialClipRunState = this.createEmptyRunState();
+  private activeRunConfig: MaterialClipConfig | null = null;
   private pendingRefreshTimer: NodeJS.Timeout | null = null;
   private pendingRefreshInFlight = false;
 
@@ -1007,7 +1008,7 @@ export class MaterialClipService {
   private async refreshPendingDramas(
     config?: MaterialClipConfig,
   ): Promise<void> {
-    const resolvedConfig = config ?? (await this.getConfig());
+    const resolvedConfig = config ?? this.activeRunConfig ?? (await this.getConfig());
     const pendingDramas = await this.fetchPendingDramas(resolvedConfig);
     const excludedRecordIds = new Set<string>();
     const excludedDramaNames = new Set<string>();
@@ -2095,6 +2096,7 @@ export class MaterialClipService {
     this.emitRunState();
 
     const runtimeConfig = await this.applyApiConfig(params.config);
+    this.activeRunConfig = runtimeConfig;
     await this.writeRuntimeConfig(runtimeConfig);
 
     const pythonCommand = this.resolvePythonCommand(processorRoot);
@@ -2189,6 +2191,7 @@ export class MaterialClipService {
     this.pendingRefreshInFlight = false;
 
     const wasStopping = this.runState.status === "stopping";
+    const activeConfig = this.activeRunConfig;
     this.runState.running = false;
     this.runState.pid = null;
     this.runState.currentDramaStartedAt = null;
@@ -2211,9 +2214,10 @@ export class MaterialClipService {
     }
 
     if (this.runState.mode === "idle") {
-      await this.refreshPendingDramas();
+      await this.refreshPendingDramas(activeConfig ?? undefined);
     }
 
+    this.activeRunConfig = null;
     this.touchRunState();
     this.emitRunState();
   }
