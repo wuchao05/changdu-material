@@ -293,6 +293,11 @@ export class JuliangSchedulerService {
     return [...this.completedTasks];
   }
 
+  clearCompletedTasks(): { success: boolean } {
+    this.completedTasks = [];
+    return { success: true };
+  }
+
   getPendingTasks(): PendingTaskSnapshot[] {
     return this.getPrioritizedTasks(this.queue)
       .filter(

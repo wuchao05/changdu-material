@@ -296,6 +296,10 @@ function registerIpcHandlers(): void {
     return materialClipService.clearLogs();
   });
 
+  ipcMain.handle("clip:clearProcessedDramas", async () => {
+    return materialClipService.clearProcessedDramas();
+  });
+
   // ==================== 文件系统 ====================
   ipcMain.handle("file:scanVideos", async (_event, basePath) => {
     return await fileService.scanVideos(basePath);
@@ -650,6 +654,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("juliang:scheduler:getCompletedTasks", async () => {
     return juliangScheduler.getCompletedTasks();
+  });
+
+  ipcMain.handle("juliang:scheduler:clearCompletedTasks", async () => {
+    return juliangScheduler.clearCompletedTasks();
   });
 
   // ==================== 应用控制 ====================

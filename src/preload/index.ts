@@ -148,6 +148,7 @@ const api = {
   clipStopAutoRun: () => ipcRenderer.invoke("clip:stopAutoRun"),
   clipGetLogs: () => ipcRenderer.invoke("clip:getLogs"),
   clipClearLogs: () => ipcRenderer.invoke("clip:clearLogs"),
+  clipClearProcessedDramas: () => ipcRenderer.invoke("clip:clearProcessedDramas"),
   onClipLog: (callback: (log: MaterialClipLog) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, log: MaterialClipLog) =>
       callback(log);
@@ -353,6 +354,8 @@ const api = {
     ipcRenderer.invoke("juliang:scheduler:cancelAll"),
   juliangSchedulerGetCompletedTasks: () =>
     ipcRenderer.invoke("juliang:scheduler:getCompletedTasks"),
+  juliangSchedulerClearCompletedTasks: () =>
+    ipcRenderer.invoke("juliang:scheduler:clearCompletedTasks"),
   onJuliangSchedulerLog: (
     callback: (log: { time: string; message: string }) => void,
   ) => {

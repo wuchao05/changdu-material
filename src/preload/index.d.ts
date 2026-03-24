@@ -408,6 +408,7 @@ interface Api {
   clipStopAutoRun: () => Promise<{ success: boolean; error?: string }>;
   clipGetLogs: () => Promise<MaterialClipLogEntry[]>;
   clipClearLogs: () => Promise<{ success: boolean }>;
+  clipClearProcessedDramas: () => Promise<{ success: boolean }>;
   onClipLog: (callback: (log: MaterialClipLogEntry) => void) => () => void;
   onClipState: (callback: (state: MaterialClipRunState) => void) => () => void;
 
@@ -614,6 +615,7 @@ interface Api {
   ) => Promise<JuliangSchedulerFetchResult>;
   juliangSchedulerCancelAll: () => Promise<JuliangSchedulerResult>;
   juliangSchedulerGetCompletedTasks: () => Promise<JuliangCompletedTask[]>;
+  juliangSchedulerClearCompletedTasks: () => Promise<{ success: boolean }>;
   onJuliangSchedulerLog: (
     callback: (log: { time: string; message: string }) => void,
   ) => () => void;

@@ -524,6 +524,13 @@ export class MaterialClipService {
     return { success: true };
   }
 
+  clearProcessedDramas(): { success: boolean } {
+    this.runState.processedDramas = [];
+    this.touchRunState();
+    this.emitRunState();
+    return { success: true };
+  }
+
   async runAutoClip(): Promise<MaterialClipRunResult> {
     const config = await this.getConfig();
     if (!config.feishu.table_id.trim()) {

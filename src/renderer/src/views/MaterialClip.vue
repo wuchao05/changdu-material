@@ -736,6 +736,19 @@ async function clearLogs() {
   }
 }
 
+async function clearProcessedDramas() {
+  try {
+    await window.api.clipClearProcessedDramas();
+    runState.value = {
+      ...runState.value,
+      processedDramas: [],
+    };
+    message.success("已处理剧目已清空");
+  } catch (error) {
+    message.error(`清空已处理剧目失败: ${error}`);
+  }
+}
+
 async function toggleLogs() {
   showLogs.value = !showLogs.value;
   if (showLogs.value) {
@@ -1077,6 +1090,11 @@ onUnmounted(() => {
               :title="`已处理剧目 (${runState.processedDramas.length})`"
               name="processed"
             >
+              <template #header-extra>
+                <NButton quaternary size="tiny" @click.stop="clearProcessedDramas">
+                  清空
+                </NButton>
+              </template>
               <div class="table-container">
                 <table class="beautiful-table">
                   <thead>

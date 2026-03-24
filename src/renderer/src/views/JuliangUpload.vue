@@ -341,6 +341,16 @@ async function refreshCompletedTasks() {
   }
 }
 
+async function clearCompletedTasks() {
+  try {
+    await window.api.juliangSchedulerClearCompletedTasks();
+    completedTasks.value = [];
+    message.success("已上传列表已清空");
+  } catch (error) {
+    message.error(`清空已上传列表失败: ${error}`);
+  }
+}
+
 // 启动上传计时（强制重置）
 function startUploadTimer() {
   stopUploadTimer();
@@ -757,6 +767,11 @@ onUnmounted(() => {
           :title="`已上传列表 (${completedTasks.length})`"
           name="completed"
         >
+          <template #header-extra>
+            <NButton quaternary size="tiny" @click.stop="clearCompletedTasks">
+              清空
+            </NButton>
+          </template>
           <div class="completed-table">
             <table>
               <thead>
