@@ -13,6 +13,7 @@ import {
   NGrid,
   NGridItem,
   NInput,
+  NSelect,
   NSpace,
   NSwitch,
   useMessage,
@@ -227,6 +228,12 @@ interface MaterialClipRunState {
 const importingRuntime = ref(false);
 
 const message = useMessage();
+
+const resolutionOptions = [
+  { label: "跟随源视频", value: "auto" },
+  { label: "720x1280（720p 竖屏）", value: "720x1280" },
+  { label: "1080x1920（1080p 竖屏）", value: "1080x1920" },
+];
 
 const envChecking = ref(true);
 const installingEnvironment = ref(false);
@@ -510,6 +517,35 @@ function updateConfig(updater: (draft: MaterialClipConfig) => void) {
   }
   updater(config.value);
   syncEditorFromConfig();
+}
+
+const selectedResolution = computed(() => {
+  if (!config.value?.canvas || !config.value.reference_resolution) {
+    return "auto";
+  }
+  const [width, height] = config.value.reference_resolution;
+  const resolution = `${width}x${height}`;
+  return config.value.canvas === resolution ? resolution : "auto";
+});
+
+function updateResolution(value: string | null) {
+  updateConfig((draft) => {
+    if (!value || value === "auto") {
+      draft.canvas = null;
+      draft.reference_resolution = null;
+      return;
+    }
+
+    const [widthText, heightText] = value.split("x");
+    const width = Number(widthText);
+    const height = Number(heightText);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) {
+      return;
+    }
+
+    draft.canvas = value;
+    draft.reference_resolution = [width, height];
+  });
 }
 
 async function loadConfig() {
@@ -1190,6 +1226,87 @@ onUnmounted(() => {
 
             <div class="config-group half">
               <div class="group-header">
+                <div class="group-title">编码与输出</div>
+                <div class="group-desc">控制导出分辨率与音视频码率</div>
+              </div>
+              <div class="compact-grid">
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">输出分辨率</div>
+                  <div class="compact-control">
+                    <NSelect
+                      :value="selectedResolution"
+                      :options="resolutionOptions"
+                      @update:value="updateResolution"
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="compact-label">视频码率</div>
+                  <div class="compact-control">
+                    <NInput
+                      :value="config.video.bitrate"
+                      placeholder="例如 4000k"
+                      @update:value="
+                        (value) =>
+                          updateConfig((draft) => {
+                            draft.video.bitrate = value.trim();
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="compact-label">最大码率</div>
+                  <div class="compact-control">
+                    <NInput
+                      :value="config.video.max_rate"
+                      placeholder="例如 4000k"
+                      @update:value="
+                        (value) =>
+                          updateConfig((draft) => {
+                            draft.video.max_rate = value.trim();
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="compact-label">缓冲区</div>
+                  <div class="compact-control">
+                    <NInput
+                      :value="config.video.buffer_size"
+                      placeholder="例如 6000k"
+                      @update:value="
+                        (value) =>
+                          updateConfig((draft) => {
+                            draft.video.buffer_size = value.trim();
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="compact-label">音频比特率</div>
+                  <div class="compact-control">
+                    <NInput
+                      :value="config.audio.bitrate"
+                      placeholder="例如 128k"
+                      @update:value="
+                        (value) =>
+                          updateConfig((draft) => {
+                            draft.audio.bitrate = value.trim();
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="config-group-row">
+            <div class="config-group half">
+              <div class="group-header">
                 <div class="group-title">功能开关与文本</div>
                 <div class="group-desc">附加功能及视频内嵌文本设置</div>
               </div>
@@ -1264,6 +1381,17 @@ onUnmounted(() => {
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div class="config-group half">
+              <div class="group-header">
+                <div class="group-title">保存说明</div>
+                <div class="group-desc">修改后会写入本机素材剪辑配置</div>
+              </div>
+              <NAlert type="info" :show-icon="false">
+                快捷配置和完整配置 JSON 使用的是同一份数据。点击“开始剪辑”、启动轮询剪辑，
+                或在完整配置区点击“保存完整配置”后，新的分辨率和码率设置都会生效。
+              </NAlert>
             </div>
           </div>
         </div>
