@@ -197,6 +197,84 @@ function buildHistoryKey(dramaName: string, date?: number | null): string {
   return `${dramaName}__${date || 0}`;
 }
 
+function getActionButtonStyle(params: {
+  disabled: boolean;
+  isBuilding: boolean;
+  buildable: boolean;
+}) {
+  const { disabled, isBuilding, buildable } = params;
+
+  if (isBuilding) {
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: "88px",
+      height: "30px",
+      padding: "0 12px",
+      borderRadius: "10px",
+      border: "1px solid #bbf7d0",
+      background: "#f0fdf4",
+      color: "#15803d",
+      fontSize: "13px",
+      fontWeight: "600",
+      lineHeight: "1",
+      whiteSpace: "nowrap",
+      appearance: "none",
+      WebkitAppearance: "none",
+      outline: "none",
+      boxShadow: "none",
+      cursor: "default",
+    };
+  }
+
+  if (disabled || !buildable) {
+    return {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      minWidth: "88px",
+      height: "30px",
+      padding: "0 12px",
+      borderRadius: "10px",
+      border: "1px solid #e5e7eb",
+      background: "#f9fafb",
+      color: "#9ca3af",
+      fontSize: "13px",
+      fontWeight: "600",
+      lineHeight: "1",
+      whiteSpace: "nowrap",
+      appearance: "none",
+      WebkitAppearance: "none",
+      outline: "none",
+      boxShadow: "none",
+      cursor: "not-allowed",
+    };
+  }
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: "88px",
+    height: "30px",
+    padding: "0 12px",
+    borderRadius: "10px",
+    border: "1px solid #bfdbfe",
+    background: "#eff6ff",
+    color: "#2563eb",
+    fontSize: "13px",
+    fontWeight: "600",
+    lineHeight: "1",
+    whiteSpace: "nowrap",
+    appearance: "none",
+    WebkitAppearance: "none",
+    outline: "none",
+    boxShadow: "none",
+    cursor: "pointer",
+  };
+}
+
 function buildHistorySignature(taskHistory: SchedulerTaskHistory[]): string {
   return taskHistory
     .map((item) => `${item.dramaName}__${item.status}__${item.completedAt}`)
@@ -602,14 +680,11 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
       return h(
         "button",
         {
-          class: [
-            "action-button",
-            {
-              "action-button--disabled": disabled,
-              "action-button--building": isBuilding,
-              "action-button--idle": !disabled && !isBuilding,
-            },
-          ],
+          style: getActionButtonStyle({
+            disabled,
+            isBuilding,
+            buildable,
+          }),
           disabled,
           type: "button",
           onClick: () => {
@@ -982,53 +1057,6 @@ onUnmounted(() => {
 .table-count {
   font-size: 12px;
   color: #6b7280;
-}
-
-.action-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 92px;
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid #dbeafe;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
-  transition:
-    background-color 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease,
-    box-shadow 0.2s ease,
-    transform 0.2s ease;
-}
-
-.action-button--idle:hover {
-  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
-  border-color: #93c5fd;
-  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.12);
-  transform: translateY(-1px);
-}
-
-.action-button--disabled {
-  background: linear-gradient(180deg, #fafafa 0%, #f3f4f6 100%);
-  border-color: #e5e7eb;
-  color: #9ca3af;
-  box-shadow: none;
-  cursor: not-allowed;
-}
-
-.action-button--building {
-  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
-  border-color: #86efac;
-  color: #15803d;
-  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.08);
 }
 
 .empty-block {
