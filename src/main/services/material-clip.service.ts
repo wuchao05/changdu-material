@@ -435,9 +435,9 @@ export class MaterialClipService {
     return {
       ...this.runState,
       pendingDramas: this.runState.pendingDramas.map((item) => ({ ...item })),
-      processedDramas: this.runState.processedDramas.map((item) => ({
-        ...item,
-      })),
+      processedDramas: this.sortAndReindexProcessedDramas(
+        this.runState.processedDramas,
+      ),
     };
   }
 
@@ -1268,6 +1268,34 @@ export class MaterialClipService {
     );
   }
 
+  private sortAndReindexProcessedDramas(
+    dramas: MaterialClipProcessedDrama[],
+  ): MaterialClipProcessedDrama[] {
+    return [...dramas]
+      .sort((a, b) => {
+        const aTimestamp = new Date(a.completedAt).getTime();
+        const bTimestamp = new Date(b.completedAt).getTime();
+        const aValid = Number.isFinite(aTimestamp);
+        const bValid = Number.isFinite(bTimestamp);
+
+        if (aValid && bValid && aTimestamp !== bTimestamp) {
+          return bTimestamp - aTimestamp;
+        }
+        if (aValid && !bValid) {
+          return -1;
+        }
+        if (!aValid && bValid) {
+          return 1;
+        }
+
+        return a.order - b.order;
+      })
+      .map((item, index) => ({
+        ...item,
+        order: index + 1,
+      }));
+  }
+
   private sortPendingDramas(
     dramas: MaterialClipPendingDrama[],
     config: MaterialClipConfig,
@@ -1427,11 +1455,8 @@ export class MaterialClipService {
       this.runState.processedDramas.push(nextItem);
     }
 
-    this.runState.processedDramas = this.runState.processedDramas.map(
-      (item, index) => ({
-        ...item,
-        order: index + 1,
-      }),
+    this.runState.processedDramas = this.sortAndReindexProcessedDramas(
+      this.runState.processedDramas,
     );
   }
 
