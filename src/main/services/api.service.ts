@@ -441,7 +441,25 @@ export class ApiService {
       body: JSON.stringify(dramaId ? { dramaId } : {})
     })
 
-    return await this.parseRemoteJsonResponse(response, '触发搭建失败')
+    if (response.ok) {
+      return await this.parseRemoteJsonResponse(response, '触发搭建失败')
+    }
+
+    const text = await response.text()
+    if (response.status === 504) {
+      console.warn(
+        '[ApiService] 触发搭建接口返回 504，尝试通过状态接口确认任务是否已提交',
+        text
+      )
+      const statusResult = await this.getRemoteDailyBuildSchedulerStatus()
+      return {
+        code: 0,
+        message: '接口响应超时，但已按状态接口继续跟踪搭建任务',
+        data: statusResult.data,
+      }
+    }
+
+    throw new Error(text || '触发搭建失败')
   }
 
   private async getFeishuToken(): Promise<string> {

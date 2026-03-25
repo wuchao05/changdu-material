@@ -70,8 +70,10 @@ const startingScheduler = ref(false);
 const stoppingScheduler = ref(false);
 const manualBuildingId = ref<string | null>(null);
 const selectedInterval = ref<number | null>(null);
+const lastHistorySignature = ref("");
+const lastCurrentTaskKey = ref("");
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const intervalOptions = [
   { label: "10 分钟", value: 10 },
@@ -110,6 +112,9 @@ const historyRows = computed<HistoryRow[]>(() =>
     account:
       historyAccountMap.value[buildHistoryKey(item.dramaName, item.date)] || "-",
   })),
+);
+const currentTaskDramaName = computed(
+  () => schedulerStatus.value?.currentTask?.dramaName?.trim() || "",
 );
 
 function parseTextField(value: unknown): string {
@@ -190,6 +195,44 @@ function canBuildDramaNow(record: PendingDramaRecord): boolean {
 
 function buildHistoryKey(dramaName: string, date?: number | null): string {
   return `${dramaName}__${date || 0}`;
+}
+
+function buildHistorySignature(taskHistory: SchedulerTaskHistory[]): string {
+  return taskHistory
+    .map((item) => `${item.dramaName}__${item.status}__${item.completedAt}`)
+    .join("|");
+}
+
+function buildCurrentTaskKey(status: SchedulerStatus | null): string {
+  if (!status?.currentTask) {
+    return "";
+  }
+  return `${status.currentTask.dramaName || ""}__${status.currentTask.startTime}`;
+}
+
+function prunePendingDramasByHistory(taskHistory: SchedulerTaskHistory[]) {
+  if (!taskHistory.length || !pendingDramas.value.length) {
+    return;
+  }
+
+  const completedKeys = new Set(
+    taskHistory.map((item) => buildHistoryKey(item.dramaName, item.date)),
+  );
+
+  pendingDramas.value = pendingDramas.value.filter((record) => {
+    const dramaName = parseTextField(record.fields["剧名"]);
+    const date = parseDateTimestamp(record);
+    return !completedKeys.has(buildHistoryKey(dramaName, date));
+  });
+}
+
+function isDramaBuilding(record: PendingDramaRecord): boolean {
+  const dramaName = parseTextField(record.fields["剧名"]);
+  return (
+    manualBuildingId.value === record.record_id ||
+    (Boolean(currentTaskDramaName.value) &&
+      currentTaskDramaName.value === dramaName)
+  );
 }
 
 async function ensureBaseConfigLoaded() {
@@ -314,24 +357,58 @@ async function enrichHistoryAccounts(taskHistory: SchedulerTaskHistory[]) {
   historyAccountMap.value = nextMap;
 }
 
-async function loadSchedulerStatus(showLoading = true) {
+async function loadSchedulerStatus(options?: {
+  showLoading?: boolean;
+  silent?: boolean;
+  syncPendingOnChange?: boolean;
+}) {
+  const showLoading = options?.showLoading ?? true;
+  const silent = options?.silent ?? false;
+  const syncPendingOnChange = options?.syncPendingOnChange ?? false;
+
   if (showLoading) {
     loadingStatus.value = true;
   }
 
   try {
     const result = await window.api.juliangBuildGetSchedulerStatus();
-    schedulerStatus.value = result.data;
+    const nextStatus = result.data;
+    const nextHistorySignature = buildHistorySignature(nextStatus.taskHistory || []);
+    const nextCurrentTaskKey = buildCurrentTaskKey(nextStatus);
+    const historyChanged = nextHistorySignature !== lastHistorySignature.value;
+    const taskSettled = Boolean(lastCurrentTaskKey.value) && !nextCurrentTaskKey;
+    const taskSwitched =
+      Boolean(lastCurrentTaskKey.value) &&
+      Boolean(nextCurrentTaskKey) &&
+      lastCurrentTaskKey.value !== nextCurrentTaskKey;
+
+    schedulerStatus.value = nextStatus;
 
     if (schedulerStatus.value?.intervalMinutes) {
       selectedInterval.value = schedulerStatus.value.intervalMinutes;
     }
 
-    await enrichHistoryAccounts(result.data.taskHistory || []);
-    syncRefreshTimer();
+    if (historyChanged) {
+      await enrichHistoryAccounts(nextStatus.taskHistory || []);
+      prunePendingDramasByHistory(nextStatus.taskHistory || []);
+    }
+
+    if (syncPendingOnChange && (taskSettled || taskSwitched || historyChanged)) {
+      await loadPendingDramas(false);
+      prunePendingDramasByHistory(nextStatus.taskHistory || []);
+    }
+
+    if (!nextCurrentTaskKey && (historyChanged || taskSettled || taskSwitched)) {
+      manualBuildingId.value = null;
+    }
+
+    lastHistorySignature.value = nextHistorySignature;
+    lastCurrentTaskKey.value = nextCurrentTaskKey;
   } catch (error) {
     console.error("加载智能搭建状态失败:", error);
-    message.error(error instanceof Error ? error.message : "加载智能搭建状态失败");
+    if (!silent) {
+      message.error(error instanceof Error ? error.message : "加载智能搭建状态失败");
+    }
   } finally {
     if (showLoading) {
       loadingStatus.value = false;
@@ -347,7 +424,7 @@ async function refreshAll(showLoading = true) {
   try {
     await Promise.all([
       loadPendingDramas(showLoading),
-      loadSchedulerStatus(showLoading),
+      loadSchedulerStatus({ showLoading }),
     ]);
   } finally {
     if (showLoading) {
@@ -356,25 +433,29 @@ async function refreshAll(showLoading = true) {
   }
 }
 
-function stopRefreshTimer() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
+function stopStatusPollTimer() {
+  if (statusPollTimer) {
+    clearInterval(statusPollTimer);
+    statusPollTimer = null;
   }
 }
 
-function startRefreshTimer() {
-  stopRefreshTimer();
-  refreshTimer = setInterval(() => {
-    void refreshAll(false);
-  }, 60_000);
+function startStatusPollTimer() {
+  stopStatusPollTimer();
+  statusPollTimer = setInterval(() => {
+    void loadSchedulerStatus({
+      showLoading: false,
+      silent: true,
+      syncPendingOnChange: true,
+    });
+  }, 5_000);
 }
 
-function syncRefreshTimer() {
-  if (schedulerStatus.value?.enabled) {
-    startRefreshTimer();
+function syncStatusPollTimer() {
+  if (currentTableId.value) {
+    startStatusPollTimer();
   } else {
-    stopRefreshTimer();
+    stopStatusPollTimer();
   }
 }
 
@@ -390,7 +471,7 @@ async function handleStartScheduler() {
       selectedInterval.value,
     );
     schedulerStatus.value = result.data;
-    syncRefreshTimer();
+    syncStatusPollTimer();
     message.success(result.message || "智能搭建已启动");
     await refreshAll(false);
   } catch (error) {
@@ -406,7 +487,7 @@ async function handleStopScheduler() {
   try {
     const result = await window.api.juliangBuildStopScheduler();
     schedulerStatus.value = result.data;
-    syncRefreshTimer();
+    syncStatusPollTimer();
     message.success(result.message || "智能搭建已停止");
     await refreshAll(false);
   } catch (error) {
@@ -437,14 +518,16 @@ async function handleTriggerDrama(record: PendingDramaRecord) {
   try {
     const result = await window.api.juliangBuildTriggerScheduler(record.record_id);
     schedulerStatus.value = result.data;
-    syncRefreshTimer();
+    syncStatusPollTimer();
     message.success(result.message || "已触发搭建任务");
-    await refreshAll(false);
+    await loadSchedulerStatus({
+      showLoading: false,
+      syncPendingOnChange: true,
+    });
   } catch (error) {
+    manualBuildingId.value = null;
     console.error("触发单个剧集搭建失败:", error);
     message.error(error instanceof Error ? error.message : "触发单个剧集搭建失败");
-  } finally {
-    manualBuildingId.value = null;
   }
 }
 
@@ -502,11 +585,12 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
     width: 150,
     render: (row) => {
       const buildable = canBuildDramaNow(row);
+      const isBuilding = isDramaBuilding(row);
       const disabled =
         !schedulerRunning.value ||
-        hasRunningTask.value ||
+        (hasRunningTask.value && !isBuilding) ||
         !buildable ||
-        manualBuildingId.value === row.record_id;
+        isBuilding;
 
       return h(
         NButton,
@@ -515,12 +599,13 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
           type: "primary",
           size: "small",
           disabled,
-          loading: manualBuildingId.value === row.record_id,
           onClick: () => handleTriggerDrama(row),
         },
         {
           default: () =>
-            !schedulerRunning.value
+            isBuilding
+              ? "搭建中..."
+              : !schedulerRunning.value
               ? "先启动智能搭建"
               : buildable
                 ? "开始搭建"
@@ -599,7 +684,14 @@ watch(
 watch(
   () => schedulerStatus.value?.enabled,
   () => {
-    syncRefreshTimer();
+    syncStatusPollTimer();
+  },
+);
+
+watch(
+  () => currentTableId.value,
+  () => {
+    syncStatusPollTimer();
   },
 );
 
@@ -608,10 +700,11 @@ onMounted(async () => {
   await darenStore.loadFromServer(true);
   await ensureCurrentDarenSelected();
   await refreshAll();
+  syncStatusPollTimer();
 });
 
 onUnmounted(() => {
-  stopRefreshTimer();
+  stopStatusPollTimer();
 });
 </script>
 
