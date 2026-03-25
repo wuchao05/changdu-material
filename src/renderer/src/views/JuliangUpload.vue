@@ -138,6 +138,20 @@ async function initializeBrowser() {
   }
 }
 
+async function refreshLoginStatus() {
+  if (!isReady.value) {
+    needLogin.value = false;
+    return;
+  }
+
+  try {
+    const loginResult = await window.api.juliangCheckLogin();
+    needLogin.value = loginResult.needLogin;
+  } catch (error) {
+    console.error("刷新巨量登录状态失败:", error);
+  }
+}
+
 // 加载配置
 async function loadConfig() {
   try {
@@ -571,6 +585,11 @@ const browserStatusText = computed(() => {
   return "已就绪";
 });
 
+const loginStatusText = computed(() => {
+  if (!isReady.value) return "未检测";
+  return needLogin.value ? "未登录" : "已登录";
+});
+
 onMounted(async () => {
   // 加载配置
   await loadConfig();
@@ -579,6 +598,7 @@ onMounted(async () => {
   // 检查是否已初始化
   const ready = await window.api.juliangIsReady();
   isReady.value = ready;
+  await refreshLoginStatus();
 
   // 刷新调度器状态
   await refreshSchedulerStatus();
@@ -625,6 +645,7 @@ onMounted(async () => {
 
   // 定时刷新调度器状态和已完成任务
   setInterval(() => {
+    refreshLoginStatus();
     refreshSchedulerStatus();
     refreshCompletedTasks();
   }, 5000);
@@ -745,6 +766,11 @@ onUnmounted(() => {
         <div class="status-inline-item">
           <span class="status-inline-label">浏览器</span>
           <span class="status-inline-value">{{ browserStatusText }}</span>
+        </div>
+        <div class="status-inline-divider"></div>
+        <div class="status-inline-item">
+          <span class="status-inline-label">登录状态</span>
+          <span class="status-inline-value">{{ loginStatusText }}</span>
         </div>
       </div>
 
