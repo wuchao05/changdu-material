@@ -18,6 +18,9 @@ import {
   type MaterialClipRuntimeSource,
 } from "./material-clip-runtime";
 
+const DEFAULT_CLIP_CANVAS = "720x1280";
+const DEFAULT_CLIP_REFERENCE_RESOLUTION: [number, number] = [720, 1280];
+
 export interface MaterialClipVideoConfig {
   hw_codec: string;
   sw_codec: string;
@@ -898,7 +901,9 @@ export class MaterialClipService {
     normalized.output_dir =
       typeof normalized.output_dir === "string" ? normalized.output_dir : "";
     normalized.canvas =
-      typeof normalized.canvas === "string" ? normalized.canvas : null;
+      typeof normalized.canvas === "string" && normalized.canvas.trim()
+        ? normalized.canvas.trim()
+        : null;
     normalized.tail_file =
       typeof normalized.tail_file === "string" ? normalized.tail_file : null;
 
@@ -908,6 +913,24 @@ export class MaterialClipService {
       !normalized.reference_resolution.every((item) => typeof item === "number")
     ) {
       normalized.reference_resolution = null;
+    }
+
+    if (!normalized.canvas && !normalized.reference_resolution) {
+      normalized.canvas = DEFAULT_CLIP_CANVAS;
+      normalized.reference_resolution = [...DEFAULT_CLIP_REFERENCE_RESOLUTION];
+    } else if (!normalized.canvas && normalized.reference_resolution) {
+      normalized.canvas = `${normalized.reference_resolution[0]}x${normalized.reference_resolution[1]}`;
+    } else if (normalized.canvas && !normalized.reference_resolution) {
+      const matchedResolution = normalized.canvas.match(/^(\d+)x(\d+)$/);
+      if (matchedResolution) {
+        normalized.reference_resolution = [
+          Number(matchedResolution[1]),
+          Number(matchedResolution[2]),
+        ];
+      } else {
+        normalized.canvas = DEFAULT_CLIP_CANVAS;
+        normalized.reference_resolution = [...DEFAULT_CLIP_REFERENCE_RESOLUTION];
+      }
     }
 
     normalized.feishu.app_id =
@@ -1010,8 +1033,8 @@ export class MaterialClipService {
       use_hardware: true,
       keep_temp: false,
       jobs: 1,
-      canvas: null,
-      reference_resolution: null,
+      canvas: DEFAULT_CLIP_CANVAS,
+      reference_resolution: [...DEFAULT_CLIP_REFERENCE_RESOLUTION],
       default_source_dir: "D:\\短剧剪辑\\源素材视频",
       backup_source_dir: "E:\\短剧剪辑\\源素材视频",
       temp_dir: null,
