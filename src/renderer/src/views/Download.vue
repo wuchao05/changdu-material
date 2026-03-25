@@ -1832,7 +1832,14 @@ const columns: DataTableColumns<DownloadTask> = [
 }
 
 .hero-help-btn {
+  background: transparent;
+  border: none;
   color: #64748b;
+}
+
+.hero-help-btn:hover {
+  background: transparent;
+  color: #475569;
 }
 
 .action-card {

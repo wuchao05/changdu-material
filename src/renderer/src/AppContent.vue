@@ -562,8 +562,9 @@ onMounted(async () => {
 
 .main-content :deep(.n-button.n-button--quaternary-type:not(.n-button--disabled):hover),
 .main-content :deep(.n-button.n-button--text-type:not(.n-button--disabled):hover) {
-  background: rgba(148, 163, 184, 0.12);
+  background: transparent;
   border-color: transparent;
+  color: #475569;
 }
 
 .main-content :deep(.n-input-number .n-button),
