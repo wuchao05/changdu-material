@@ -114,13 +114,19 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
 
 .queue-rule-tooltip {
   width: var(--queue-rule-width);
+  max-width: min(var(--queue-rule-width), calc(100vw - 24px));
+  max-height: min(70vh, 560px);
   padding: 16px;
+  box-sizing: border-box;
   border-radius: 20px;
   border: 1px solid #dbeafe;
   background:
     radial-gradient(circle at top left, rgba(219, 234, 254, 0.75), transparent 42%),
     linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   box-shadow: 0 22px 44px rgba(15, 23, 42, 0.16);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .queue-rule-title {
@@ -142,6 +148,19 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
   flex-direction: column;
   gap: 12px;
   margin-top: 14px;
+}
+
+.queue-rule-tooltip::-webkit-scrollbar {
+  width: 8px;
+}
+
+.queue-rule-tooltip::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.6);
+}
+
+.queue-rule-tooltip::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .queue-rule-item {
