@@ -18,7 +18,7 @@ import {
   RefreshOutline,
   EyeOffOutline,
   RocketOutline,
-  BuildOutline,
+  CubeOutline,
   ConstructOutline,
   CutOutline,
   NutritionOutline,
@@ -97,7 +97,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "巨量搭建",
       key: "juliang-build",
-      icon: () => h(NIcon, null, { default: () => h(BuildOutline) }),
+      icon: () => h(NIcon, null, { default: () => h(CubeOutline) }),
     });
   }
 
