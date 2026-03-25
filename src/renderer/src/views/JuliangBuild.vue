@@ -591,26 +591,33 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
         (hasRunningTask.value && !isBuilding) ||
         !buildable ||
         isBuilding;
+      const actionText = isBuilding
+        ? "搭建中..."
+        : !schedulerRunning.value
+          ? "先启动智能搭建"
+          : buildable
+            ? "开始搭建"
+            : "未到时间";
 
       return h(
-        NButton,
+        "button",
         {
-          text: true,
-          type: "primary",
-          size: "small",
+          class: [
+            "action-button",
+            {
+              "action-button--disabled": disabled,
+              "action-button--building": isBuilding,
+            },
+          ],
           disabled,
-          onClick: () => handleTriggerDrama(row),
+          type: "button",
+          onClick: () => {
+            if (!disabled) {
+              void handleTriggerDrama(row);
+            }
+          },
         },
-        {
-          default: () =>
-            isBuilding
-              ? "搭建中..."
-              : !schedulerRunning.value
-              ? "先启动智能搭建"
-              : buildable
-                ? "开始搭建"
-                : "未到时间",
-        },
+        actionText,
       );
     },
   },
@@ -974,6 +981,29 @@ onUnmounted(() => {
 .table-count {
   font-size: 12px;
   color: #6b7280;
+}
+
+.action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.action-button--disabled {
+  color: #a5b4fc;
+  cursor: default;
+}
+
+.action-button--building {
+  color: #16a34a;
 }
 
 .empty-block {
