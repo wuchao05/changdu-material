@@ -577,11 +577,6 @@ async function handleStopScheduler() {
 }
 
 async function handleTriggerDrama(record: PendingDramaRecord) {
-  if (!schedulerRunning.value) {
-    message.warning("请先启动智能搭建，再手动触发单个剧集");
-    return;
-  }
-
   if (!canBuildDramaNow(record)) {
     const earliestBuildTime = getEarliestBuildTime(record);
     message.warning(
@@ -666,17 +661,14 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
       const buildable = canBuildDramaNow(row);
       const isBuilding = isDramaBuilding(row);
       const disabled =
-        !schedulerRunning.value ||
         (hasRunningTask.value && !isBuilding) ||
         !buildable ||
         isBuilding;
       const actionText = isBuilding
         ? "搭建中..."
-        : !schedulerRunning.value
-          ? "先启动智能搭建"
-          : buildable
-            ? "开始搭建"
-            : "未到时间";
+        : buildable
+          ? "开始搭建"
+          : "未到时间";
 
       return h(
         "button",
