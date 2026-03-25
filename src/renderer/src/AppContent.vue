@@ -382,6 +382,7 @@ onMounted(async () => {
 .title-bar-actions :deep(.n-button) {
   color: white;
   padding: 0 8px;
+  border-radius: 10px;
 }
 
 .title-bar-actions :deep(.n-button:hover) {
@@ -405,6 +406,7 @@ onMounted(async () => {
 .title-bar-buttons :deep(.n-button) {
   color: white;
   padding: 0 8px;
+  border-radius: 10px;
 }
 
 .title-bar-buttons :deep(.n-button:hover) {
@@ -463,7 +465,7 @@ onMounted(async () => {
 }
 
 .main-content :deep(.n-button) {
-  border-radius: 999px;
+  border-radius: 10px;
   box-shadow: none;
   border-color: #d8e1ec;
   background: #ffffff;
