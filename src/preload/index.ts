@@ -325,14 +325,14 @@ const api = {
   juliangClearLogs: () => ipcRenderer.invoke("juliang:clearLogs"),
   juliangBuildGetPendingDramas: (tableId?: string) =>
     ipcRenderer.invoke("juliang-build:getPendingDramas", tableId),
-  juliangBuildGetSchedulerStatus: () =>
-    ipcRenderer.invoke("juliang-build:getSchedulerStatus"),
-  juliangBuildStartScheduler: (intervalMinutes: number) =>
-    ipcRenderer.invoke("juliang-build:startScheduler", intervalMinutes),
-  juliangBuildStopScheduler: () =>
-    ipcRenderer.invoke("juliang-build:stopScheduler"),
-  juliangBuildTriggerScheduler: (dramaId?: string) =>
-    ipcRenderer.invoke("juliang-build:triggerScheduler", dramaId),
+  juliangBuildGetSchedulerStatus: (tableId?: string) =>
+    ipcRenderer.invoke("juliang-build:getSchedulerStatus", tableId),
+  juliangBuildStartScheduler: (intervalMinutes: number, tableId?: string) =>
+    ipcRenderer.invoke("juliang-build:startScheduler", intervalMinutes, tableId),
+  juliangBuildStopScheduler: (tableId?: string) =>
+    ipcRenderer.invoke("juliang-build:stopScheduler", tableId),
+  juliangBuildTriggerScheduler: (dramaId?: string, tableId?: string) =>
+    ipcRenderer.invoke("juliang-build:triggerScheduler", dramaId, tableId),
 
   // ==================== 上传搭建 ====================
   dailyBuildStartTask: (task: unknown) =>

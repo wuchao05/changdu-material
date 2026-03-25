@@ -596,22 +596,22 @@ interface Api {
     message?: string;
     data?: { items?: JuliangBuildPendingDramaRecord[] };
   }>;
-  juliangBuildGetSchedulerStatus: () => Promise<{
+  juliangBuildGetSchedulerStatus: (tableId?: string) => Promise<{
     code: number;
     message?: string;
     data: JuliangBuildSchedulerStatus;
   }>;
-  juliangBuildStartScheduler: (intervalMinutes: number) => Promise<{
+  juliangBuildStartScheduler: (intervalMinutes: number, tableId?: string) => Promise<{
     code: number;
     message?: string;
     data: JuliangBuildSchedulerStatus;
   }>;
-  juliangBuildStopScheduler: () => Promise<{
+  juliangBuildStopScheduler: (tableId?: string) => Promise<{
     code: number;
     message?: string;
     data: JuliangBuildSchedulerStatus;
   }>;
-  juliangBuildTriggerScheduler: (dramaId?: string) => Promise<{
+  juliangBuildTriggerScheduler: (dramaId?: string, tableId?: string) => Promise<{
     code: number;
     message?: string;
     timedOut?: boolean;

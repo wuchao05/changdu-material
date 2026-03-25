@@ -449,7 +449,7 @@ async function loadSchedulerStatus(options?: {
   }
 
   try {
-    const result = await window.api.juliangBuildGetSchedulerStatus();
+    const result = await window.api.juliangBuildGetSchedulerStatus(currentTableId.value);
     const nextStatus = result.data;
     const nextHistorySignature = buildHistorySignature(nextStatus.taskHistory || []);
     const nextCurrentTaskKey = buildCurrentTaskKey(nextStatus);
@@ -547,6 +547,7 @@ async function handleStartScheduler() {
   try {
     const result = await window.api.juliangBuildStartScheduler(
       selectedInterval.value,
+      currentTableId.value,
     );
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
@@ -563,7 +564,7 @@ async function handleStartScheduler() {
 async function handleStopScheduler() {
   stoppingScheduler.value = true;
   try {
-    const result = await window.api.juliangBuildStopScheduler();
+    const result = await window.api.juliangBuildStopScheduler(currentTableId.value);
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
     message.success(result.message || "智能搭建已停止");
@@ -591,7 +592,10 @@ async function handleTriggerDrama(record: PendingDramaRecord) {
   manualBuildingId.value = record.record_id;
   message.success(`正在搭建 ${dramaName}`, { duration: 3000 });
   try {
-    const result = await window.api.juliangBuildTriggerScheduler(record.record_id);
+    const result = await window.api.juliangBuildTriggerScheduler(
+      record.record_id,
+      currentTableId.value,
+    );
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
     await loadSchedulerStatus({

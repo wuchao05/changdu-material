@@ -388,16 +388,20 @@ export class ApiService {
     return await this.parseRemoteJsonResponse(response, '查询待搭建剧集失败')
   }
 
-  async getRemoteDailyBuildSchedulerStatus(): Promise<{
+  async getRemoteDailyBuildSchedulerStatus(tableId?: string): Promise<{
     code: number
     message?: string
     data: RemoteDailyBuildSchedulerStatus
   }> {
-    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/status`)
+    const finalTableId = tableId?.trim()
+    const query = finalTableId
+      ? `?table_id=${encodeURIComponent(finalTableId)}`
+      : ''
+    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/status${query}`)
     return await this.parseRemoteJsonResponse(response, '查询智能搭建状态失败')
   }
 
-  async startRemoteDailyBuildScheduler(intervalMinutes: number): Promise<{
+  async startRemoteDailyBuildScheduler(intervalMinutes: number, tableId?: string): Promise<{
     code: number
     message?: string
     data: RemoteDailyBuildSchedulerStatus
@@ -407,13 +411,16 @@ export class ApiService {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ intervalMinutes })
+      body: JSON.stringify({
+        intervalMinutes,
+        table_id: tableId?.trim() || undefined
+      })
     })
 
     return await this.parseRemoteJsonResponse(response, '启动智能搭建失败')
   }
 
-  async stopRemoteDailyBuildScheduler(): Promise<{
+  async stopRemoteDailyBuildScheduler(tableId?: string): Promise<{
     code: number
     message?: string
     data: RemoteDailyBuildSchedulerStatus
@@ -422,13 +429,16 @@ export class ApiService {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
-      }
+      },
+      body: JSON.stringify({
+        table_id: tableId?.trim() || undefined
+      })
     })
 
     return await this.parseRemoteJsonResponse(response, '停止智能搭建失败')
   }
 
-  async triggerRemoteDailyBuildScheduler(dramaId?: string): Promise<{
+  async triggerRemoteDailyBuildScheduler(dramaId?: string, tableId?: string): Promise<{
     code: number
     message?: string
     timedOut?: boolean
@@ -439,7 +449,10 @@ export class ApiService {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(dramaId ? { dramaId } : {})
+      body: JSON.stringify({
+        ...(dramaId ? { dramaId } : {}),
+        table_id: tableId?.trim() || undefined
+      })
     })
 
     if (response.ok) {
@@ -452,7 +465,7 @@ export class ApiService {
         '[ApiService] 触发搭建接口返回 504，尝试通过状态接口确认任务是否已提交',
         text
       )
-      const statusResult = await this.getRemoteDailyBuildSchedulerStatus()
+      const statusResult = await this.getRemoteDailyBuildSchedulerStatus(tableId)
       return {
         code: 0,
         message: '接口响应超时，但已按状态接口继续跟踪搭建任务',

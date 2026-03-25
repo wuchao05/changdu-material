@@ -477,20 +477,20 @@ function registerIpcHandlers(): void {
     return await apiService.getRemotePendingBuildDramas(tableId);
   });
 
-  ipcMain.handle("juliang-build:getSchedulerStatus", async () => {
-    return await apiService.getRemoteDailyBuildSchedulerStatus();
+  ipcMain.handle("juliang-build:getSchedulerStatus", async (_event, tableId?: string) => {
+    return await apiService.getRemoteDailyBuildSchedulerStatus(tableId);
   });
 
-  ipcMain.handle("juliang-build:startScheduler", async (_event, intervalMinutes: number) => {
-    return await apiService.startRemoteDailyBuildScheduler(intervalMinutes);
+  ipcMain.handle("juliang-build:startScheduler", async (_event, intervalMinutes: number, tableId?: string) => {
+    return await apiService.startRemoteDailyBuildScheduler(intervalMinutes, tableId);
   });
 
-  ipcMain.handle("juliang-build:stopScheduler", async () => {
-    return await apiService.stopRemoteDailyBuildScheduler();
+  ipcMain.handle("juliang-build:stopScheduler", async (_event, tableId?: string) => {
+    return await apiService.stopRemoteDailyBuildScheduler(tableId);
   });
 
-  ipcMain.handle("juliang-build:triggerScheduler", async (_event, dramaId?: string) => {
-    return await apiService.triggerRemoteDailyBuildScheduler(dramaId);
+  ipcMain.handle("juliang-build:triggerScheduler", async (_event, dramaId?: string, tableId?: string) => {
+    return await apiService.triggerRemoteDailyBuildScheduler(dramaId, tableId);
   });
 
   // ==================== TOS 上传 ====================
