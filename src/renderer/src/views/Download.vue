@@ -1570,14 +1570,12 @@ const columns: DataTableColumns<DownloadTask> = [
       <div class="hero-row">
         <div class="hero-title">剧目下载</div>
         <NSpace class="hero-actions" wrap>
-          <NButton text class="hero-help-btn" @click="showHelpModal = true">
-            <template #icon>
-              <NIcon size="18" color="#64748b">
-                <HelpCircleOutline />
-              </NIcon>
-            </template>
-            使用说明
-          </NButton>
+          <button type="button" class="hero-help-btn" @click="showHelpModal = true">
+            <NIcon size="18" color="#64748b">
+              <HelpCircleOutline />
+            </NIcon>
+            <span>使用说明</span>
+          </button>
         </NSpace>
       </div>
     </NCard>
@@ -1587,7 +1585,7 @@ const columns: DataTableColumns<DownloadTask> = [
       <NSpace align="center" justify="space-between">
         <NSpace align="center">
           <NButton
-            class="action-btn-borderless"
+            :bordered="false"
             type="primary"
             :loading="loading"
             :disabled="hasDownloadingTasks"
@@ -1596,7 +1594,7 @@ const columns: DataTableColumns<DownloadTask> = [
             查询待下载
           </NButton>
           <NButton
-            class="action-btn-borderless"
+            :bordered="false"
             type="success"
             :disabled="
               downloadTasks.length === 0 ||
@@ -1834,14 +1832,15 @@ const columns: DataTableColumns<DownloadTask> = [
 }
 
 .hero-help-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
   background: transparent;
   border: none;
   color: #64748b;
-  --n-color: transparent;
-  --n-color-hover: transparent;
-  --n-color-pressed: transparent;
-  --n-color-focus: transparent;
-  --n-ripple-color: transparent;
+  font: inherit;
+  cursor: pointer;
 }
 
 .hero-help-btn:hover {
@@ -1849,11 +1848,13 @@ const columns: DataTableColumns<DownloadTask> = [
   color: #475569;
 }
 
-.action-btn-borderless {
-  --n-border: none;
-  --n-border-hover: none;
-  --n-border-pressed: none;
-  --n-border-focus: none;
+.hero-help-btn:focus {
+  outline: none;
+}
+
+.hero-help-btn:focus-visible {
+  outline: 2px solid #cbd5e1;
+  outline-offset: 4px;
 }
 
 .action-card {

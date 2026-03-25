@@ -841,7 +841,7 @@ onUnmounted(() => {
 
         <NSpace>
           <NButton
-            class="control-action-btn"
+            :bordered="false"
             type="primary"
             :disabled="!selectedInterval || schedulerRunning"
             :loading="startingScheduler"
@@ -850,7 +850,7 @@ onUnmounted(() => {
             智能搭建
           </NButton>
           <NButton
-            class="control-action-btn"
+            :bordered="false"
             type="error"
             :disabled="!schedulerRunning"
             :loading="stoppingScheduler"
@@ -976,13 +976,6 @@ onUnmounted(() => {
 
 .hero-action-btn {
   border-radius: 999px;
-}
-
-.control-action-btn {
-  --n-border: none;
-  --n-border-hover: none;
-  --n-border-pressed: none;
-  --n-border-focus: none;
 }
 
 .page-header {
