@@ -1167,11 +1167,14 @@ export class MaterialClipService {
     const pendingDramas = await this.fetchPendingDramas(resolvedConfig);
     const excludedRecordIds = new Set<string>();
     const excludedDramaNames = new Set<string>();
+    const shouldExcludeCurrentDrama =
+      this.runState.running && Boolean(this.runningProcess);
 
-    if (this.runState.currentRecordId) {
+    // 只有剪辑进程仍在运行时，才排除当前剧目；停止后回退为待剪辑的剧需要重新出现在列表中。
+    if (shouldExcludeCurrentDrama && this.runState.currentRecordId) {
       excludedRecordIds.add(this.runState.currentRecordId);
     }
-    if (this.runState.currentDramaName) {
+    if (shouldExcludeCurrentDrama && this.runState.currentDramaName) {
       excludedDramaNames.add(this.runState.currentDramaName);
     }
 
