@@ -667,24 +667,6 @@ onUnmounted(() => {
             取消上传
           </NButton>
           <NButton
-            quaternary
-            class="hero-action-btn"
-            :disabled="schedulerStatus === 'running' || hasActiveUploadTask"
-            :loading="isExportingLoginState"
-            @click="exportLoginState"
-          >
-            导出登录态
-          </NButton>
-          <NButton
-            quaternary
-            class="hero-action-btn"
-            :disabled="schedulerStatus === 'running' || hasActiveUploadTask"
-            :loading="isImportingLoginState"
-            @click="importLoginState"
-          >
-            导入登录态
-          </NButton>
-          <NButton
             v-if="schedulerStatus !== 'running'"
             type="primary"
             secondary
@@ -732,6 +714,26 @@ onUnmounted(() => {
       <template #header>运行状态</template>
       <div class="status-header">
         <div class="status-message">{{ statusSummary }}</div>
+        <NSpace class="status-actions" wrap>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            :disabled="schedulerStatus === 'running' || hasActiveUploadTask"
+            :loading="isExportingLoginState"
+            @click="exportLoginState"
+          >
+            导出登录态
+          </NButton>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            :disabled="schedulerStatus === 'running' || hasActiveUploadTask"
+            :loading="isImportingLoginState"
+            @click="importLoginState"
+          >
+            导入登录态
+          </NButton>
+        </NSpace>
       </div>
 
       <div class="status-inline-bar">
@@ -1090,6 +1092,11 @@ onUnmounted(() => {
 }
 
 .status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   margin-bottom: 14px;
 }
 
@@ -1097,6 +1104,10 @@ onUnmounted(() => {
   font-size: 16px;
   font-weight: 600;
   color: #2563eb;
+}
+
+.status-actions {
+  justify-content: flex-end;
 }
 
 .section-title {
@@ -1476,6 +1487,11 @@ onUnmounted(() => {
   .status-inline-bar {
     display: flex;
     width: 100%;
+  }
+
+  .status-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .status-inline-divider {
