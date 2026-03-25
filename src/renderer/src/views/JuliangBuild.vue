@@ -3,7 +3,6 @@ defineOptions({ name: "JuliangBuild" });
 
 import { computed, h, onMounted, onUnmounted, ref, watch } from "vue";
 import {
-  NAlert,
   NButton,
   NCard,
   NDataTable,
@@ -619,12 +618,7 @@ onUnmounted(() => {
 <template>
   <div class="juliang-build-page">
     <div class="page-header">
-      <div>
-        <h2 class="page-title">巨量搭建</h2>
-        <p class="page-subtitle">
-          根据当前达人配置的飞书状态表，查看待搭建剧集并管理智能搭建任务
-        </p>
-      </div>
+      <h2 class="page-title">巨量搭建</h2>
       <NSpace>
         <NSelect
           v-if="authStore.isAdmin"
@@ -638,20 +632,6 @@ onUnmounted(() => {
         <NButton :loading="refreshing" @click="refreshAll()">刷新</NButton>
       </NSpace>
     </div>
-
-    <NAlert v-if="currentDaren" type="info" :bordered="false" class="page-alert">
-      当前达人：{{ currentDaren.label }}（{{ currentDaren.id }}）
-      <span v-if="currentTableId">，飞书状态表：{{ currentTableId }}</span>
-    </NAlert>
-
-    <NAlert
-      v-if="!currentTableId"
-      type="warning"
-      :bordered="false"
-      class="page-alert"
-    >
-      当前达人未配置飞书剧集状态表 ID，暂时无法加载待搭建剧集列表。
-    </NAlert>
 
     <NCard class="control-card" :bordered="false">
       <template #header>
@@ -802,16 +782,6 @@ onUnmounted(() => {
   font-size: 28px;
   font-weight: 700;
   color: #1f2937;
-}
-
-.page-subtitle {
-  margin: 8px 0 0;
-  color: #6b7280;
-  font-size: 14px;
-}
-
-.page-alert {
-  border-radius: 14px;
 }
 
 .daren-select {
