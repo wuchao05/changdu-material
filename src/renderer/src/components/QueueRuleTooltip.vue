@@ -133,7 +133,6 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
 }
 
 .queue-rule-panel {
-  max-height: min(80vh, 720px);
   padding: 20px;
   box-sizing: border-box;
   border-radius: 24px;
@@ -142,9 +141,6 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
     radial-gradient(circle at top left, rgba(219, 234, 254, 0.75), transparent 42%),
     linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
   box-shadow: 0 22px 44px rgba(15, 23, 42, 0.16);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 
 .queue-rule-header {
@@ -196,19 +192,6 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
   flex-direction: column;
   gap: 12px;
   margin-top: 14px;
-}
-
-.queue-rule-panel::-webkit-scrollbar {
-  width: 8px;
-}
-
-.queue-rule-panel::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.6);
-}
-
-.queue-rule-panel::-webkit-scrollbar-track {
-  background: transparent;
 }
 
 .queue-rule-item {
