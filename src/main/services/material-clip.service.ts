@@ -1826,12 +1826,57 @@ export class MaterialClipService {
   private async terminateProcess(
     child: ChildProcessByStdio<null, Readable, Readable>,
   ): Promise<void> {
-    if (child.killed) {
+    if (child.killed || child.exitCode !== null || child.signalCode !== null) {
+      return;
+    }
+
+    const waitForExit = async (timeoutMs: number): Promise<boolean> =>
+      await new Promise((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          resolve(true);
+          return;
+        }
+
+        let settled = false;
+        const cleanup = () => {
+          child.off("exit", handleExit);
+          child.off("close", handleClose);
+        };
+        const finish = (value: boolean) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          cleanup();
+          resolve(value);
+        };
+        const handleExit = () => finish(true);
+        const handleClose = () => finish(true);
+
+        const timer = setTimeout(() => {
+          clearTimeout(timer);
+          finish(false);
+        }, timeoutMs);
+
+        child.once("exit", handleExit);
+        child.once("close", handleClose);
+      });
+
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // 忽略，继续走 Windows/兜底终止逻辑
+    }
+
+    if (await waitForExit(1500)) {
       return;
     }
 
     if (process.platform === "win32" && child.pid) {
-      await new Promise<void>((resolve, reject) => {
+      const taskkillResult = await new Promise<{
+        success: boolean;
+        error?: string;
+      }>((resolve) => {
         const killer = spawn(
           "taskkill",
           ["/pid", String(child.pid), "/t", "/f"],
@@ -1840,24 +1885,56 @@ export class MaterialClipService {
           },
         );
 
+        let stdout = "";
         let stderr = "";
+        killer.stdout.on("data", (chunk) => {
+          stdout += chunk.toString();
+        });
         killer.stderr.on("data", (chunk) => {
           stderr += chunk.toString();
         });
 
-        killer.once("error", reject);
+        killer.once("error", (error) => {
+          resolve({ success: false, error: error.message });
+        });
         killer.once("close", (code) => {
           if (code === 0) {
-            resolve();
+            resolve({ success: true });
             return;
           }
-          reject(new Error(stderr.trim() || `taskkill 退出码 ${code ?? -1}`));
+          resolve({
+            success: false,
+            error: `${stderr || stdout}`.trim() || `taskkill 退出码 ${code ?? -1}`,
+          });
         });
       });
+
+      if (await waitForExit(6000)) {
+        if (!taskkillResult.success) {
+          this.log(
+            `终止素材剪辑进程时 taskkill 返回异常，但进程已退出：${taskkillResult.error || "未知错误"}`,
+          );
+        }
+        return;
+      }
+
+      this.log(
+        `终止素材剪辑进程失败：${taskkillResult.error || "taskkill 未能结束进程"}`,
+      );
+      throw new Error("停止轮询剪辑失败，请稍后重试；如仍失败，请手动关闭相关 Python/FFmpeg 进程");
+    }
+
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // 忽略，继续等待退出
+    }
+
+    if (await waitForExit(3000)) {
       return;
     }
 
-    child.kill("SIGTERM");
+    throw new Error("停止轮询剪辑失败，进程未能在预期时间内退出");
   }
 
   private log(message: string) {
