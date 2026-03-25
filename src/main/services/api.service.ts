@@ -454,7 +454,7 @@ export class ApiService {
       const statusResult = await this.getRemoteDailyBuildSchedulerStatus()
       return {
         code: 0,
-        message: '已触发搭建任务',
+        message: '接口响应超时，但已按状态接口继续跟踪搭建任务',
         data: statusResult.data,
       }
     }

@@ -592,12 +592,13 @@ async function handleTriggerDrama(record: PendingDramaRecord) {
     return;
   }
 
+  const dramaName = parseTextField(record.fields["剧名"]) || "当前剧集";
   manualBuildingId.value = record.record_id;
   try {
     const result = await window.api.juliangBuildTriggerScheduler(record.record_id);
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
-    message.success(result.message || "已触发搭建任务");
+    message.info(`正在搭建 ${dramaName}`, { duration: 3000 });
     await loadSchedulerStatus({
       showLoading: false,
       syncPendingOnChange: true,
