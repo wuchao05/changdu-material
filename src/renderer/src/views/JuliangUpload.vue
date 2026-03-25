@@ -139,6 +139,13 @@ async function initializeBrowser() {
 }
 
 async function refreshLoginStatus() {
+  try {
+    isReady.value = await window.api.juliangIsReady();
+  } catch (error) {
+    console.error("刷新巨量浏览器状态失败:", error);
+    isReady.value = false;
+  }
+
   if (!isReady.value) {
     needLogin.value = false;
     return;
@@ -324,6 +331,7 @@ async function cancelAll() {
     if (result.success) {
       message.success("已取消所有上传任务");
       await refreshSchedulerStatus();
+      await refreshLoginStatus();
     } else {
       message.error(result.error || "取消失败");
     }
