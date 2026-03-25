@@ -18,9 +18,9 @@ import {
   RefreshOutline,
   EyeOffOutline,
   RocketOutline,
+  BuildOutline,
   ConstructOutline,
   CutOutline,
-  FlashOutline,
   NutritionOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
@@ -97,7 +97,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "巨量搭建",
       key: "juliang-build",
-      icon: () => h(NIcon, null, { default: () => h(FlashOutline) }),
+      icon: () => h(NIcon, null, { default: () => h(BuildOutline) }),
     });
   }
 
