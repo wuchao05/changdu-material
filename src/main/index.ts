@@ -88,6 +88,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     show: false,
+    frame: false,
     autoHideMenuBar: true,
     title: "常读素材管理工具",
     webPreferences: {
