@@ -6,17 +6,15 @@ import {
   NButton,
   NSpace,
   NAlert,
-  NIcon,
   NTag,
   NInput,
   NInputNumber,
   NSwitch,
   NCollapse,
   NCollapseItem,
-  NTooltip,
   useMessage,
 } from "naive-ui";
-import { HelpCircleOutline } from "@vicons/ionicons5";
+import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
 import { useAuthStore } from "../stores/auth";
 import { useDarenStore } from "../stores/daren";
 
@@ -605,22 +603,22 @@ const uploadRuleItems = [
   {
     index: 1,
     title: "当前进行中的任务优先",
-    desc: "如果已有剧目正在上传，它会持续排在最前，直到这一部剧处理完成或被取消。",
+    desc: "如果某部剧已经上传到一半，系统会先把它继续传完，不会中途切去传别的剧。",
   },
   {
     index: 2,
     title: "飞书日期越早越优先",
-    desc: "待上传任务默认按飞书日期从早到晚排，日期更早的剧会先上传。",
+    desc: "没有进行中的任务时，再按飞书日期排队。日期更早的剧，会更早开始上传。",
   },
   {
     index: 3,
     title: "有效日期优先于无效日期",
-    desc: "如果有任务日期无法识别，会排在能识别日期的任务后面。",
+    desc: "如果有任务的日期识别不出来，它会排到正常日期任务的后面，避免影响主队列顺序。",
   },
   {
     index: 4,
     title: "同日期按入队先后",
-    desc: "同一天的任务会优先处理更早进入队列的；如果仍然相同，再按剧名字典序稳定排序。",
+    desc: "同一天的任务，谁先进入队列谁先传；如果入队时间也一样，就再按剧名顺序排一下，保证列表不会来回跳顺序。",
   },
 ];
 
@@ -869,34 +867,11 @@ onUnmounted(() => {
           <template #header>
             <div class="queue-header">
               <span>待上传列表 ({{ pendingTasks.length }})</span>
-              <NTooltip placement="bottom-start" trigger="hover">
-                <template #trigger>
-                  <span class="queue-rule-trigger" @click.stop>
-                    <NIcon size="16">
-                      <HelpCircleOutline />
-                    </NIcon>
-                  </span>
-                </template>
-                <div class="queue-rule-tooltip">
-                  <div class="queue-rule-title">巨量上传优先级规则</div>
-                  <div class="queue-rule-desc">
-                    调度器会按下面顺序选择下一部待上传剧集，前一条一旦分出先后，就不会继续比较下一条。
-                  </div>
-                  <div class="queue-rule-list">
-                    <div
-                      v-for="item in uploadRuleItems"
-                      :key="item.index"
-                      class="queue-rule-item"
-                    >
-                      <span class="queue-rule-index">{{ item.index }}</span>
-                      <div class="queue-rule-content">
-                        <div class="queue-rule-name">{{ item.title }}</div>
-                        <div class="queue-rule-text">{{ item.desc }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </NTooltip>
+              <QueueRuleTooltip
+                title="巨量上传优先级规则"
+                description="系统会按下面这 4 步决定下一部先上传哪一部剧，前面一条能分出先后，就不会继续往下比。"
+                :items="uploadRuleItems"
+              />
             </div>
           </template>
           <div class="completed-table">
@@ -1249,90 +1224,6 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.queue-rule-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  color: #64748b;
-  background: #f8fafc;
-  transition:
-    color 0.2s ease,
-    background-color 0.2s ease;
-}
-
-.queue-rule-trigger:hover {
-  color: #2563eb;
-  background: #eff6ff;
-}
-
-.queue-rule-tooltip {
-  width: min(420px, 80vw);
-  padding: 4px 2px;
-}
-
-.queue-rule-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.queue-rule-desc {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #64748b;
-}
-
-.queue-rule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.queue-rule-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.queue-rule-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  background: #dbeafe;
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.queue-rule-content {
-  min-width: 0;
-}
-
-.queue-rule-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.queue-rule-text {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #475569;
 }
 
 .current-drama-section {

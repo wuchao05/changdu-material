@@ -7,15 +7,13 @@ import {
   NCard,
   NDataTable,
   NEmpty,
-  NIcon,
   NSelect,
   NSpace,
   NTag,
-  NTooltip,
   useMessage,
 } from "naive-ui";
-import { HelpCircleOutline } from "@vicons/ionicons5";
 import type { DataTableColumns } from "naive-ui";
+import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
 import { useAuthStore } from "../stores/auth";
 import { useDarenStore, type DarenInfo } from "../stores/daren";
 import { useApiConfigStore } from "../stores/apiConfig";
@@ -123,23 +121,33 @@ const currentTaskDramaName = computed(
 const buildRuleItems = [
   {
     index: 1,
-    title: "先判断是否到可搭建时间",
-    desc: "上架时间在 10:00 及之后的剧，提前 10 小时可搭建；10:00 之前上架的剧，提前 1 小时可搭建。未到时间会先跳过。",
+    title: "先看现在能不能开始搭建",
+    desc: "系统会先判断这部剧有没有到可搭建时间。10:00 及之后上架的剧，会在上架前 10 小时进入队列；10:00 之前上架的剧，会在上架前 1 小时进入队列。还没到点的先跳过。",
   },
   {
     index: 2,
     title: "日期越新越优先",
-    desc: "进入可搭建队列后，先按飞书日期排序，日期越靠后越优先。",
+    desc: "能开始搭建后，再看飞书里的日期。日期越新，越会排在前面。",
   },
   {
     index: 3,
     title: "同日期按评级排序",
-    desc: "如果是同一天的剧，按评级高低处理：红标 > 绿标 > 黄标。",
+    parts: [
+      { text: "如果是同一天的剧，就先看评级：" },
+      { text: "红标", tone: "red" },
+      { text: " 会排在 " },
+      { text: "绿标", tone: "green" },
+      { text: " 前面，" },
+      { text: "绿标", tone: "green" },
+      { text: " 又会排在 " },
+      { text: "黄标", tone: "yellow" },
+      { text: " 前面。" },
+    ],
   },
   {
     index: 4,
-    title: "再按上架时间细分",
-    desc: "同日期同评级时，最新日期的剧按上架时间早优先；更早日期的剧按上架时间晚优先。",
+    title: "最后再看上架时间",
+    desc: "如果日期和评级都一样，就再比上架时间。最新日期的剧，谁上架得更早谁先搭；更早日期的剧，则优先处理上架时间更晚的，方便把旧日期剩下的任务往前收一收。",
   },
 ];
 
@@ -919,34 +927,11 @@ onUnmounted(() => {
         <div class="card-title-row">
           <div class="queue-header">
             <span>待搭建剧集列表</span>
-            <NTooltip placement="bottom-start" trigger="hover">
-              <template #trigger>
-                <span class="queue-rule-trigger">
-                  <NIcon size="16">
-                    <HelpCircleOutline />
-                  </NIcon>
-                </span>
-              </template>
-              <div class="queue-rule-tooltip">
-                <div class="queue-rule-title">巨量搭建优先级规则</div>
-                <div class="queue-rule-desc">
-                  参考每日主体智能搭建规则，系统会按下面顺序自动选择下一部可搭建剧集。
-                </div>
-                <div class="queue-rule-list">
-                  <div
-                    v-for="item in buildRuleItems"
-                    :key="item.index"
-                    class="queue-rule-item"
-                  >
-                    <span class="queue-rule-index">{{ item.index }}</span>
-                    <div class="queue-rule-content">
-                      <div class="queue-rule-name">{{ item.title }}</div>
-                      <div class="queue-rule-text">{{ item.desc }}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </NTooltip>
+            <QueueRuleTooltip
+              title="巨量搭建优先级规则"
+              description="系统会按下面这 4 步，从待搭建剧集里自动挑出下一部最该先做的剧。"
+              :items="buildRuleItems"
+            />
           </div>
           <span class="table-count">共 {{ pendingDramas.length }} 部</span>
         </div>
@@ -1064,90 +1049,6 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.queue-rule-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 999px;
-  color: #64748b;
-  background: #f8fafc;
-  transition:
-    color 0.2s ease,
-    background-color 0.2s ease;
-}
-
-.queue-rule-trigger:hover {
-  color: #2563eb;
-  background: #eff6ff;
-}
-
-.queue-rule-tooltip {
-  width: min(430px, 80vw);
-  padding: 4px 2px;
-}
-
-.queue-rule-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #111827;
-}
-
-.queue-rule-desc {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #64748b;
-}
-
-.queue-rule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.queue-rule-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: #f8fafc;
-}
-
-.queue-rule-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  flex-shrink: 0;
-  background: #dbeafe;
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.queue-rule-content {
-  min-width: 0;
-}
-
-.queue-rule-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #0f172a;
-}
-
-.queue-rule-text {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: #475569;
 }
 
 .status-chip {
