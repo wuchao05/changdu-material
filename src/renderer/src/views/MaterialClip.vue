@@ -12,12 +12,15 @@ import {
   NFormItem,
   NGrid,
   NGridItem,
+  NIcon,
   NInput,
   NSelect,
   NSpace,
   NSwitch,
+  NTooltip,
   useMessage,
 } from "naive-ui";
+import { HelpCircleOutline } from "@vicons/ionicons5";
 import { useDarenStore } from "../stores/daren";
 
 interface MaterialClipVideoConfig {
@@ -375,6 +378,14 @@ const currentDramaRatingLabel = computed(() => {
   const rating = runState.value.currentDramaRating?.trim();
   return rating || null;
 });
+
+const clipPriorityRatingLabel = computed(
+  () => config.value?.feishu.priority_rating_value?.trim() || "红标",
+);
+
+const clipUploadTimeOrderLabel = computed(() =>
+  config.value?.feishu.upload_time_sort_desc !== false ? "越晚越靠前" : "越早越靠前",
+);
 
 const currentDramaTimerText = computed(() => {
   if (
@@ -1179,9 +1190,74 @@ onUnmounted(() => {
           >
             <NCollapseItem
               v-if="runState.pendingDramas && runState.pendingDramas.length > 0"
-              :title="`待处理剧目 (${runState.pendingDramas.length})`"
               name="pending"
             >
+              <template #header>
+                <div class="queue-header">
+                  <span>待处理剧目 ({{ runState.pendingDramas.length }})</span>
+                  <NTooltip placement="bottom-start" trigger="hover">
+                    <template #trigger>
+                      <span class="queue-rule-trigger" @click.stop>
+                        <NIcon size="16">
+                          <HelpCircleOutline />
+                        </NIcon>
+                      </span>
+                    </template>
+                    <div class="queue-rule-tooltip">
+                      <div class="queue-rule-title">待剪辑优先级规则</div>
+                      <div class="queue-rule-desc">
+                        系统会按下面顺序逐层比较，前一条一旦分出先后，就不会继续比较下一条。
+                      </div>
+                      <div class="queue-rule-list">
+                        <div class="queue-rule-item">
+                          <span class="queue-rule-index">1</span>
+                          <div class="queue-rule-content">
+                            <div class="queue-rule-name">优先评级</div>
+                            <div class="queue-rule-text">
+                              评级等于
+                              <span class="queue-rule-highlight"
+                                >{{ clipPriorityRatingLabel }}</span
+                              >
+                              的剧目优先。
+                            </div>
+                          </div>
+                        </div>
+                        <div class="queue-rule-item">
+                          <span class="queue-rule-index">2</span>
+                          <div class="queue-rule-content">
+                            <div class="queue-rule-name">上架时间</div>
+                            <div class="queue-rule-text">
+                              同评级下，按上架时间排序，
+                              <span class="queue-rule-highlight"
+                                >{{ clipUploadTimeOrderLabel }}</span
+                              >；
+                              没有上架时间的剧会排在有上架时间的剧后面。
+                            </div>
+                          </div>
+                        </div>
+                        <div class="queue-rule-item">
+                          <span class="queue-rule-index">3</span>
+                          <div class="queue-rule-content">
+                            <div class="queue-rule-name">飞书日期</div>
+                            <div class="queue-rule-text">
+                              如果上架时间也相同或缺失，则按飞书日期从早到晚排。
+                            </div>
+                          </div>
+                        </div>
+                        <div class="queue-rule-item">
+                          <span class="queue-rule-index">4</span>
+                          <div class="queue-rule-content">
+                            <div class="queue-rule-name">剧名字典序</div>
+                            <div class="queue-rule-text">
+                              如果前面条件都相同，最后按剧名字典序排序。
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </NTooltip>
+                </div>
+              </template>
               <div class="table-container">
                 <table class="beautiful-table">
                   <thead>
@@ -1633,6 +1709,101 @@ onUnmounted(() => {
   color: #344054;
   font-size: 14px;
   font-weight: 500;
+}
+
+.queue-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-rule-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: #64748b;
+  background: #f8fafc;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.queue-rule-trigger:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.queue-rule-tooltip {
+  width: min(420px, 80vw);
+  padding: 4px 2px;
+}
+
+.queue-rule-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.queue-rule-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
+}
+
+.queue-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.queue-rule-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.queue-rule-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: #dbeafe;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.queue-rule-content {
+  min-width: 0;
+}
+
+.queue-rule-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.queue-rule-text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.queue-rule-highlight {
+  color: #1d4ed8;
+  font-weight: 700;
 }
 
 .manual-row {
