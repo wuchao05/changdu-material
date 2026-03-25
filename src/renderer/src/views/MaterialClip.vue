@@ -381,41 +381,44 @@ const clipPriorityRatingLabel = computed(
   () => config.value?.feishu.priority_rating_value?.trim() || "红标",
 );
 
-const clipUploadTimeOrderLabel = computed(() =>
-  config.value?.feishu.upload_time_sort_desc !== false ? "越晚越靠前" : "越早越靠前",
-);
-
 const clipRuleItems = computed(() => [
   {
     index: 1,
-    title: "先看优先评级",
+    title: "先剪优先评级的剧",
     parts: [
-      { text: "系统会先挑评级是 " },
+      { text: "系统会先把评级是 " },
       {
         text: clipPriorityRatingLabel.value,
         tone: getRatingTone(clipPriorityRatingLabel.value),
       },
-      { text: " 的剧，其他评级会先往后排。" },
+      { text: " 的剧挑出来先剪。" },
     ],
   },
   {
     index: 2,
-    title: "再看上架时间",
-    parts: [
-      { text: "同评级时，再比较上架时间。当前配置是 " },
-      { text: clipUploadTimeOrderLabel.value, tone: "blue" },
-      { text: "；没有上架时间的剧，会排在有上架时间的后面。" },
-    ],
+    title: "多个优先评级时，先看上架时间",
+    desc: "如果优先评级的剧不止一部，就先剪上架时间更晚的；如果上架时间一样，再按飞书日期从早到晚排。",
   },
   {
     index: 3,
-    title: "还分不出就看飞书日期",
-    desc: "如果上架时间也一样，系统就继续比较飞书里的日期，日期更早的剧会先剪。",
+    title: "优先评级剪完后，再看非优先评级",
+    desc: "非优先评级的剧会先按飞书日期从早到晚排，日期更早的会更先处理。",
   },
   {
     index: 4,
-    title: "最后才看剧名",
-    desc: "前面条件都一样时，才会按剧名顺序排一下，只是为了让列表顺序稳定，不会一会儿一个样。",
+    title: "同一天先绿标，再黄标",
+    parts: [
+      { text: "如果飞书日期一样，就先看评级：" },
+      { text: "绿标", tone: "green" },
+      { text: " 会排在 " },
+      { text: "黄标", tone: "yellow" },
+      { text: " 前面。" },
+    ],
+  },
+  {
+    index: 5,
+    title: "同评级再看上架时间和剧名",
+    desc: "同一天、同评级时，先剪上架时间更晚的；如果上架时间也一样，再按剧名字典序排序。",
   },
 ]);
 

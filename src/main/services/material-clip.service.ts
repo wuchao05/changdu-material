@@ -1367,7 +1367,6 @@ export class MaterialClipService {
     config: MaterialClipConfig,
   ): MaterialClipPendingDrama[] {
     const priorityRating = config.feishu.priority_rating_value?.trim();
-    const uploadTimeDesc = config.feishu.upload_time_sort_desc !== false;
 
     return [...dramas].sort((a, b) => {
       const aPriority = priorityRating && a.rating === priorityRating ? 1 : 0;
@@ -1376,16 +1375,30 @@ export class MaterialClipService {
         return bPriority - aPriority;
       }
 
-      if (a.uploadTime !== null && b.uploadTime !== null && a.uploadTime !== b.uploadTime) {
-        return uploadTimeDesc
-          ? b.uploadTime - a.uploadTime
-          : a.uploadTime - b.uploadTime;
-      }
-      if (a.uploadTime !== null && b.uploadTime === null) {
-        return -1;
-      }
-      if (a.uploadTime === null && b.uploadTime !== null) {
-        return 1;
+      if (aPriority === 1 && bPriority === 1) {
+        if (a.uploadTime !== null && b.uploadTime !== null && a.uploadTime !== b.uploadTime) {
+          return b.uploadTime - a.uploadTime;
+        }
+        if (a.uploadTime !== null && b.uploadTime === null) {
+          return -1;
+        }
+        if (a.uploadTime === null && b.uploadTime !== null) {
+          return 1;
+        }
+
+        const aDate = this.parsePendingDramaDateToTimestamp(a);
+        const bDate = this.parsePendingDramaDateToTimestamp(b);
+        if (aDate !== null && bDate !== null && aDate !== bDate) {
+          return aDate - bDate;
+        }
+        if (aDate !== null && bDate === null) {
+          return -1;
+        }
+        if (aDate === null && bDate !== null) {
+          return 1;
+        }
+
+        return a.dramaName.localeCompare(b.dramaName, "zh-Hans-CN");
       }
 
       const aDate = this.parsePendingDramaDateToTimestamp(a);
@@ -1400,8 +1413,54 @@ export class MaterialClipService {
         return 1;
       }
 
+      const aSecondaryPriority = this.getPendingDramaSecondaryRatingPriority(
+        a.rating,
+        priorityRating,
+      );
+      const bSecondaryPriority = this.getPendingDramaSecondaryRatingPriority(
+        b.rating,
+        priorityRating,
+      );
+      if (aSecondaryPriority !== bSecondaryPriority) {
+        return aSecondaryPriority - bSecondaryPriority;
+      }
+
+      if (a.uploadTime !== null && b.uploadTime !== null && a.uploadTime !== b.uploadTime) {
+        return b.uploadTime - a.uploadTime;
+      }
+      if (a.uploadTime !== null && b.uploadTime === null) {
+        return -1;
+      }
+      if (a.uploadTime === null && b.uploadTime !== null) {
+        return 1;
+      }
+
       return a.dramaName.localeCompare(b.dramaName, "zh-Hans-CN");
     });
+  }
+
+  private getPendingDramaSecondaryRatingPriority(
+    rating: string | null,
+    priorityRating: string | null,
+  ): number {
+    const normalizedRating = rating?.trim();
+    if (!normalizedRating) {
+      return 99;
+    }
+
+    if (priorityRating && normalizedRating === priorityRating) {
+      return 0;
+    }
+
+    if (normalizedRating === "绿标") {
+      return 1;
+    }
+
+    if (normalizedRating === "黄标") {
+      return 2;
+    }
+
+    return 99;
   }
 
   private parsePendingDramaDateToTimestamp(
@@ -2505,7 +2564,10 @@ export class MaterialClipService {
 
     const pendingDramas =
       params.mode === "auto"
-        ? await this.fetchPendingDramas(params.config)
+        ? this.sortPendingDramas(
+            await this.fetchPendingDramas(params.config),
+            params.config,
+          )
         : [];
 
     this.runState = {
