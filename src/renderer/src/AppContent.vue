@@ -250,7 +250,7 @@ onMounted(async () => {
             <LibraryOutline />
           </NIcon>
         </span>
-        <span class="brand-text">常读素材管理工具</span>
+        <span class="brand-text">番茄挂载工具</span>
         <span v-if="authStore.currentUser" class="user-info">
           {{ authStore.currentUser.label || authStore.currentUser.id }}
         </span>
