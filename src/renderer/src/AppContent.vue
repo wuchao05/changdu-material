@@ -390,12 +390,12 @@ onMounted(async () => {
   color: #334155;
   padding: 0 8px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
+  background: transparent;
   border-color: transparent;
 }
 
 .title-bar-actions :deep(.n-button:hover) {
-  background: #e2e8f0;
+  background: rgba(148, 163, 184, 0.14);
   color: #0f172a;
 }
 
@@ -433,12 +433,12 @@ onMounted(async () => {
   color: #334155;
   padding: 0 8px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.72);
+  background: transparent;
   border-color: transparent;
 }
 
 .title-bar-buttons :deep(.n-button:hover) {
-  background: #e2e8f0;
+  background: rgba(148, 163, 184, 0.14);
   color: #0f172a;
 }
 
@@ -496,6 +496,7 @@ onMounted(async () => {
 .main-content :deep(.n-button) {
   border-radius: 10px;
   box-shadow: none;
+  border: none;
   border-color: transparent;
   background: #f1f5f9;
   color: #334155;
@@ -513,6 +514,7 @@ onMounted(async () => {
 
 .main-content :deep(.n-button.n-button--primary-type) {
   background: #eff6ff;
+  border: none;
   border-color: transparent;
   color: #2563eb;
 }
@@ -525,6 +527,7 @@ onMounted(async () => {
 
 .main-content :deep(.n-button.n-button--error-type) {
   background: #fef2f2;
+  border: none;
   border-color: transparent;
   color: #dc2626;
 }
@@ -537,14 +540,45 @@ onMounted(async () => {
 
 .main-content :deep(.n-button.n-button--warning-type) {
   background: #fff7ed;
+  border: none;
   border-color: transparent;
   color: #ea580c;
 }
 
 .main-content :deep(.n-button.n-button--success-type) {
   background: #ecfdf5;
+  border: none;
   border-color: transparent;
   color: #16a34a;
+}
+
+.main-content :deep(.n-button.n-button--quaternary-type),
+.main-content :deep(.n-button.n-button--text-type) {
+  background: transparent;
+  border: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.main-content :deep(.n-button.n-button--quaternary-type:not(.n-button--disabled):hover),
+.main-content :deep(.n-button.n-button--text-type:not(.n-button--disabled):hover) {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: transparent;
+}
+
+.main-content :deep(.n-input-number .n-button),
+.main-content :deep(.n-input-number-button) {
+  background: transparent;
+  border: none;
+  border-color: transparent;
+  box-shadow: none;
+  color: #94a3b8;
+}
+
+.main-content :deep(.n-input-number .n-button:not(.n-button--disabled):hover),
+.main-content :deep(.n-input-number-button:not(.n-button--disabled):hover) {
+  background: transparent;
+  color: #64748b;
 }
 
 .main-content :deep(.n-input .n-input-wrapper),
