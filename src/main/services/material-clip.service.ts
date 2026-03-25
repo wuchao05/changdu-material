@@ -369,19 +369,33 @@ export class MaterialClipService {
     this.emitRunState();
 
     const processToStop = this.runningProcess;
+    const currentDramaCandidate = this.findPendingDramaCandidate(
+      this.runState.currentDramaName || "",
+      this.runState.currentDramaDate,
+    );
     const currentRecordId =
       this.runState.currentRecordId ??
-      this.findPendingDramaCandidate(
-        this.runState.currentDramaName || "",
-        this.runState.currentDramaDate,
-      )?.recordId ??
+      currentDramaCandidate?.recordId ??
       null;
+    const currentDramaName =
+      this.runState.currentDramaName ?? currentDramaCandidate?.dramaName ?? null;
+    const currentDramaDate =
+      this.runState.currentDramaDate ?? currentDramaCandidate?.date ?? null;
 
     try {
+      const config = await this.getConfig();
       await this.terminateProcess(processToStop);
       if (currentRecordId) {
         await this.revertRecordToPending(currentRecordId);
       }
+      const removedExportDir =
+        currentDramaName
+          ? await this.removeDramaExportDir(
+              config,
+              currentDramaName,
+              currentDramaDate,
+            )
+          : null;
       await this.refreshPendingDramas();
       this.runState.running = false;
       this.runState.mode = "idle";
@@ -395,7 +409,9 @@ export class MaterialClipService {
       this.runState.totalMaterials = 0;
       this.runState.completedMaterials = 0;
       this.runState.remainingMaterials = 0;
-      this.runState.message = "轮询剪辑已停止，当前剧目已回退为待剪辑";
+      this.runState.message = removedExportDir
+        ? "轮询剪辑已停止，当前剧目已回退为待剪辑并清理导出目录"
+        : "轮询剪辑已停止，当前剧目已回退为待剪辑";
       this.touchRunState();
       this.emitRunState();
       return { success: true };
@@ -1613,6 +1629,184 @@ export class MaterialClipService {
       date: raw,
       fullDate: null,
     };
+  }
+
+  private selectPathModule(pathValue: string): typeof path.win32 | typeof path.posix {
+    const normalized = (pathValue || "").trim();
+    if (/^[A-Za-z]:[\\/]/.test(normalized) || normalized.includes("\\")) {
+      return path.win32;
+    }
+    return path.posix;
+  }
+
+  private normalizeDirPath(pathValue: string): string {
+    const normalized = (pathValue || "").trim();
+    if (!normalized) {
+      return "";
+    }
+
+    if (/^[A-Za-z]:[\\/]*$/.test(normalized)) {
+      return `${normalized[0]}:\\`;
+    }
+
+    if (normalized === "/" || normalized === "\\") {
+      return normalized;
+    }
+
+    return normalized.replace(/[\\/]+$/, "");
+  }
+
+  private getActualSourceDir(config: MaterialClipConfig): string {
+    const defaultSourceDir = this.normalizeDirPath(config.default_source_dir);
+    const backupSourceDir = this.normalizeDirPath(config.backup_source_dir);
+
+    if (defaultSourceDir && fs.existsSync(defaultSourceDir)) {
+      return defaultSourceDir;
+    }
+
+    if (backupSourceDir && fs.existsSync(backupSourceDir)) {
+      return backupSourceDir;
+    }
+
+    return defaultSourceDir || backupSourceDir;
+  }
+
+  private getExportBaseDir(sourceDir: string): string {
+    const normalizedSourceDir = this.normalizeDirPath(sourceDir);
+    if (!normalizedSourceDir) {
+      return "";
+    }
+
+    const pathModule = this.selectPathModule(normalizedSourceDir);
+    const parentDir = pathModule.dirname(normalizedSourceDir);
+    if (!parentDir || parentDir === ".") {
+      return normalizedSourceDir;
+    }
+
+    return parentDir;
+  }
+
+  private resolveOutputDir(config: MaterialClipConfig): string {
+    const candidate = this.normalizeDirPath(config.output_dir);
+    if (!candidate) {
+      return "";
+    }
+
+    const actualSourceDir = this.getActualSourceDir(config);
+    const exportBaseDir = this.getExportBaseDir(actualSourceDir);
+    const pathModule = this.selectPathModule(actualSourceDir || candidate);
+
+    if (actualSourceDir) {
+      const candidateNorm = pathModule.normalize(candidate).toLowerCase();
+      const sourceNorm = pathModule.normalize(actualSourceDir).toLowerCase();
+      if (candidateNorm === sourceNorm) {
+        return exportBaseDir;
+      }
+    }
+
+    if (exportBaseDir && !pathModule.isAbsolute(candidate)) {
+      const targetName = pathModule.basename(candidate) || "导出素材";
+      return pathModule.join(exportBaseDir, targetName);
+    }
+
+    return candidate;
+  }
+
+  private async findLatestDramaExportDir(
+    exportsRoot: string,
+    dramaName: string,
+    dramaDate?: string | null,
+  ): Promise<string | null> {
+    const normalizedExportsRoot = this.normalizeDirPath(exportsRoot);
+    if (!normalizedExportsRoot) {
+      return null;
+    }
+
+    const pathModule = this.selectPathModule(normalizedExportsRoot);
+    const normalizedDramaDate = this.normalizeDisplayText(dramaDate);
+    const searchRoot = normalizedDramaDate
+      ? pathModule.join(normalizedExportsRoot, `${normalizedDramaDate}导出`)
+      : normalizedExportsRoot;
+
+    try {
+      const stat = await fsp.stat(searchRoot);
+      if (!stat.isDirectory()) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+
+    const entries = await fsp.readdir(searchRoot, { withFileTypes: true });
+    let bestDir: string | null = null;
+    let maxSuffix = -999;
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+
+      if (entry.name === dramaName) {
+        bestDir = pathModule.join(searchRoot, entry.name);
+        maxSuffix = Math.max(maxSuffix, -1);
+        continue;
+      }
+
+      const prefix = `${dramaName}-`;
+      if (!entry.name.startsWith(prefix)) {
+        continue;
+      }
+
+      const suffix = entry.name.slice(prefix.length);
+      if (!/^\d{3}$/.test(suffix)) {
+        continue;
+      }
+
+      const suffixValue = Number(suffix);
+      if (suffixValue > maxSuffix) {
+        maxSuffix = suffixValue;
+        bestDir = pathModule.join(searchRoot, entry.name);
+      }
+    }
+
+    return bestDir;
+  }
+
+  private async removeDramaExportDir(
+    config: MaterialClipConfig,
+    dramaName: string,
+    dramaDate?: string | null,
+  ): Promise<string | null> {
+    const actualSourceDir = this.getActualSourceDir(config);
+    const exportBaseDir = this.getExportBaseDir(actualSourceDir);
+    const resolvedOutputDir = this.resolveOutputDir(config);
+    const candidateRoots = Array.from(
+      new Set(
+        [resolvedOutputDir, exportBaseDir]
+          .map((item) => this.normalizeDirPath(item))
+          .filter((item) => Boolean(item)),
+      ),
+    );
+
+    for (const candidateRoot of candidateRoots) {
+      const latestExportDir = await this.findLatestDramaExportDir(
+        candidateRoot,
+        dramaName,
+        dramaDate,
+      );
+      if (!latestExportDir) {
+        continue;
+      }
+
+      await fsp.rm(latestExportDir, { recursive: true, force: true });
+      this.log(`已删除导出目录：${latestExportDir}`);
+      return latestExportDir;
+    }
+
+    this.log(
+      `未找到需要删除的导出目录：${dramaName} (${this.normalizeDisplayText(dramaDate) || "未知日期"})`,
+    );
+    return null;
   }
 
   private async revertRecordToPending(recordId: string): Promise<void> {
