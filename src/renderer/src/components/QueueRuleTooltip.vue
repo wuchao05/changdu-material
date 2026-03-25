@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { HelpCircleOutline } from "@vicons/ionicons5";
-import { NIcon, NTooltip } from "naive-ui";
+import { NIcon, NModal, NTooltip } from "naive-ui";
 
 type QueueRuleTone =
   | "default"
@@ -34,6 +35,8 @@ const props = withDefaults(
   },
 );
 
+const showModal = ref(false);
+
 function getTextToneClass(tone: QueueRuleTone = "default") {
   return `tone-${tone}`;
 }
@@ -42,46 +45,59 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
 <template>
   <NTooltip placement="bottom-start" trigger="hover">
     <template #trigger>
-      <span class="queue-rule-trigger" @click.stop>
+      <span class="queue-rule-trigger" @click.stop="showModal = true">
         <NIcon size="16">
           <HelpCircleOutline />
         </NIcon>
       </span>
     </template>
 
-    <div class="queue-rule-tooltip" :style="{ '--queue-rule-width': props.width }">
-      <div class="queue-rule-title">{{ title }}</div>
-      <div class="queue-rule-desc">{{ description }}</div>
+    点击展示优先级规则弹窗
+  </NTooltip>
 
-      <div class="queue-rule-list">
-        <div
-          v-for="item in items"
-          :key="item.index"
-          class="queue-rule-item"
-        >
-          <span class="queue-rule-index">{{ item.index }}</span>
-          <div class="queue-rule-content">
-            <div class="queue-rule-name">{{ item.title }}</div>
-            <div class="queue-rule-text">
-              <template v-if="item.parts?.length">
-                <span
-                  v-for="(part, partIndex) in item.parts"
-                  :key="`${item.index}-${partIndex}`"
-                  class="queue-rule-inline"
-                  :class="getTextToneClass(part.tone)"
-                >
-                  {{ part.text }}
-                </span>
-              </template>
-              <template v-else>
-                {{ item.desc }}
-              </template>
+  <NModal v-model:show="showModal" :mask-closable="true">
+    <div class="queue-rule-modal-shell" :style="{ '--queue-rule-width': props.width }">
+      <div class="queue-rule-panel">
+        <div class="queue-rule-header">
+          <div>
+            <div class="queue-rule-title">{{ title }}</div>
+            <div class="queue-rule-desc">{{ description }}</div>
+          </div>
+          <button class="queue-rule-close" type="button" @click="showModal = false">
+            关闭
+          </button>
+        </div>
+
+        <div class="queue-rule-list">
+          <div
+            v-for="item in items"
+            :key="item.index"
+            class="queue-rule-item"
+          >
+            <span class="queue-rule-index">{{ item.index }}</span>
+            <div class="queue-rule-content">
+              <div class="queue-rule-name">{{ item.title }}</div>
+              <div class="queue-rule-text">
+                <template v-if="item.parts?.length">
+                  <span
+                    v-for="(part, partIndex) in item.parts"
+                    :key="`${item.index}-${partIndex}`"
+                    class="queue-rule-inline"
+                    :class="getTextToneClass(part.tone)"
+                  >
+                    {{ part.text }}
+                  </span>
+                </template>
+                <template v-else>
+                  {{ item.desc }}
+                </template>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  </NTooltip>
+  </NModal>
 </template>
 
 <style scoped>
@@ -112,13 +128,15 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
   transform: translateY(-1px);
 }
 
-.queue-rule-tooltip {
-  width: var(--queue-rule-width);
-  max-width: min(var(--queue-rule-width), calc(100vw - 24px));
-  max-height: min(70vh, 560px);
-  padding: 16px;
+.queue-rule-modal-shell {
+  width: min(var(--queue-rule-width), calc(100vw - 32px));
+}
+
+.queue-rule-panel {
+  max-height: min(80vh, 720px);
+  padding: 20px;
   box-sizing: border-box;
-  border-radius: 20px;
+  border-radius: 24px;
   border: 1px solid #dbeafe;
   background:
     radial-gradient(circle at top left, rgba(219, 234, 254, 0.75), transparent 42%),
@@ -127,6 +145,36 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.queue-rule-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.queue-rule-close {
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.queue-rule-close:hover {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+  background: #eff6ff;
 }
 
 .queue-rule-title {
@@ -150,16 +198,16 @@ function getTextToneClass(tone: QueueRuleTone = "default") {
   margin-top: 14px;
 }
 
-.queue-rule-tooltip::-webkit-scrollbar {
+.queue-rule-panel::-webkit-scrollbar {
   width: 8px;
 }
 
-.queue-rule-tooltip::-webkit-scrollbar-thumb {
+.queue-rule-panel::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.6);
 }
 
-.queue-rule-tooltip::-webkit-scrollbar-track {
+.queue-rule-panel::-webkit-scrollbar-track {
   background: transparent;
 }
 
