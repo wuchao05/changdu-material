@@ -7,11 +7,14 @@ import {
   NCard,
   NDataTable,
   NEmpty,
+  NIcon,
   NSelect,
   NSpace,
   NTag,
+  NTooltip,
   useMessage,
 } from "naive-ui";
+import { HelpCircleOutline } from "@vicons/ionicons5";
 import type { DataTableColumns } from "naive-ui";
 import { useAuthStore } from "../stores/auth";
 import { useDarenStore, type DarenInfo } from "../stores/daren";
@@ -116,6 +119,29 @@ const historyRows = computed<HistoryRow[]>(() =>
 const currentTaskDramaName = computed(
   () => schedulerStatus.value?.currentTask?.dramaName?.trim() || "",
 );
+
+const buildRuleItems = [
+  {
+    index: 1,
+    title: "先判断是否到可搭建时间",
+    desc: "上架时间在 10:00 及之后的剧，提前 10 小时可搭建；10:00 之前上架的剧，提前 1 小时可搭建。未到时间会先跳过。",
+  },
+  {
+    index: 2,
+    title: "日期越新越优先",
+    desc: "进入可搭建队列后，先按飞书日期排序，日期越靠后越优先。",
+  },
+  {
+    index: 3,
+    title: "同日期按评级排序",
+    desc: "如果是同一天的剧，按评级高低处理：红标 > 绿标 > 黄标。",
+  },
+  {
+    index: 4,
+    title: "再按上架时间细分",
+    desc: "同日期同评级时，最新日期的剧按上架时间早优先；更早日期的剧按上架时间晚优先。",
+  },
+];
 
 function parseTextField(value: unknown): string {
   if (typeof value === "string") return value;
@@ -891,7 +917,37 @@ onUnmounted(() => {
     <NCard class="table-card" :bordered="false">
       <template #header>
         <div class="card-title-row">
-          <span>待搭建剧集列表</span>
+          <div class="queue-header">
+            <span>待搭建剧集列表</span>
+            <NTooltip placement="bottom-start" trigger="hover">
+              <template #trigger>
+                <span class="queue-rule-trigger">
+                  <NIcon size="16">
+                    <HelpCircleOutline />
+                  </NIcon>
+                </span>
+              </template>
+              <div class="queue-rule-tooltip">
+                <div class="queue-rule-title">巨量搭建优先级规则</div>
+                <div class="queue-rule-desc">
+                  参考每日主体智能搭建规则，系统会按下面顺序自动选择下一部可搭建剧集。
+                </div>
+                <div class="queue-rule-list">
+                  <div
+                    v-for="item in buildRuleItems"
+                    :key="item.index"
+                    class="queue-rule-item"
+                  >
+                    <span class="queue-rule-index">{{ item.index }}</span>
+                    <div class="queue-rule-content">
+                      <div class="queue-rule-name">{{ item.title }}</div>
+                      <div class="queue-rule-text">{{ item.desc }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </NTooltip>
+          </div>
           <span class="table-count">共 {{ pendingDramas.length }} 部</span>
         </div>
       </template>
@@ -1002,6 +1058,96 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 12px;
+}
+
+.queue-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-rule-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  color: #64748b;
+  background: #f8fafc;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.queue-rule-trigger:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.queue-rule-tooltip {
+  width: min(430px, 80vw);
+  padding: 4px 2px;
+}
+
+.queue-rule-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.queue-rule-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #64748b;
+}
+
+.queue-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.queue-rule-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.queue-rule-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: #dbeafe;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.queue-rule-content {
+  min-width: 0;
+}
+
+.queue-rule-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.queue-rule-text {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #475569;
 }
 
 .status-chip {
