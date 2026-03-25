@@ -1587,6 +1587,7 @@ const columns: DataTableColumns<DownloadTask> = [
       <NSpace align="center" justify="space-between">
         <NSpace align="center">
           <NButton
+            class="action-btn-borderless"
             type="primary"
             :loading="loading"
             :disabled="hasDownloadingTasks"
@@ -1595,6 +1596,7 @@ const columns: DataTableColumns<DownloadTask> = [
             查询待下载
           </NButton>
           <NButton
+            class="action-btn-borderless"
             type="success"
             :disabled="
               downloadTasks.length === 0 ||
@@ -1835,11 +1837,23 @@ const columns: DataTableColumns<DownloadTask> = [
   background: transparent;
   border: none;
   color: #64748b;
+  --n-color: transparent;
+  --n-color-hover: transparent;
+  --n-color-pressed: transparent;
+  --n-color-focus: transparent;
+  --n-ripple-color: transparent;
 }
 
 .hero-help-btn:hover {
   background: transparent;
   color: #475569;
+}
+
+.action-btn-borderless {
+  --n-border: none;
+  --n-border-hover: none;
+  --n-border-pressed: none;
+  --n-border-focus: none;
 }
 
 .action-card {
