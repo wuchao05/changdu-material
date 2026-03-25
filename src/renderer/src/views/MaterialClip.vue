@@ -462,6 +462,25 @@ function formatElapsedMinutes(value: number | null): string {
   return `${Math.floor(value / 60)}分钟`;
 }
 
+function formatUploadTime(value: number | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
 function formatMaterialCount(
   plannedMaterials: number | null,
   completedMaterials?: number,
@@ -1170,7 +1189,7 @@ onUnmounted(() => {
                       <th width="60">序号</th>
                       <th width="120">日期</th>
                       <th>剧名</th>
-                      <th width="90">素材数</th>
+                      <th width="160">上架时间</th>
                       <th width="80">评级</th>
                     </tr>
                   </thead>
@@ -1188,7 +1207,7 @@ onUnmounted(() => {
                         }}
                       </td>
                       <td class="font-medium">{{ drama.dramaName }}</td>
-                      <td>{{ formatMaterialCount(drama.plannedMaterials) }}</td>
+                      <td>{{ formatUploadTime(drama.uploadTime) }}</td>
                       <td>
                         <span
                           class="rating-badge"
