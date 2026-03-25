@@ -17,10 +17,75 @@ export interface UploadProgress {
   percent: string
 }
 
+export interface RemoteDailyBuildPendingDramaRecord {
+  record_id: string
+  _tableId?: string
+  fields: Record<string, unknown>
+}
+
+export interface RemoteDailyBuildSchedulerTaskHistory {
+  dramaName: string
+  status: 'success' | 'failed' | 'skipped'
+  rating?: string | null
+  date?: number | null
+  publishTime?: number | null
+  error?: string
+  completedAt: string
+}
+
+export interface RemoteDailyBuildSchedulerStatus {
+  enabled: boolean
+  intervalMinutes: number | null
+  nextRunTime: string | null
+  lastRunTime: string | null
+  stats: {
+    totalBuilt: number
+    successCount: number
+    failCount: number
+  }
+  currentTask: {
+    status: 'running' | 'building'
+    dramaName?: string
+    startTime: string
+  } | null
+  taskHistory: RemoteDailyBuildSchedulerTaskHistory[]
+}
+
+const REMOTE_API_BASE_URL = 'https://cxyy.top/api'
+
 export class ApiService {
   private feishuTokenCache: { token: string | null; expireTime: number } = {
     token: null,
     expireTime: 0
+  }
+
+  private async parseRemoteJsonResponse<T>(
+    response: Response,
+    defaultErrorMessage: string
+  ): Promise<T> {
+    const text = await response.text()
+    let data: unknown = null
+
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch {
+      if (!response.ok) {
+        throw new Error(text || defaultErrorMessage)
+      }
+      throw new Error(defaultErrorMessage)
+    }
+
+    if (!response.ok) {
+      const message =
+        typeof data === 'object' && data
+          ? (data as { message?: string; msg?: string; error?: string }).message ||
+            (data as { message?: string; msg?: string; error?: string }).msg ||
+            (data as { message?: string; msg?: string; error?: string }).error
+          : ''
+      throw new Error(message || defaultErrorMessage)
+    }
+
+    return data as T
   }
 
   // ==================== 飞书 API ====================
@@ -280,6 +345,103 @@ export class ApiService {
   clearFeishuTokenCache(): void {
     this.feishuTokenCache = { token: null, expireTime: 0 }
     console.log('[ApiService] 飞书 Token 缓存已清除')
+  }
+
+  async getRemotePendingBuildDramas(
+    tableId?: string
+  ): Promise<{
+    code: number
+    msg?: string
+    message?: string
+    data?: { items?: RemoteDailyBuildPendingDramaRecord[] }
+  }> {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/feishu/bitable/drama-status/pending-build`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        table_id: tableId?.trim() || undefined,
+        page_size: 100,
+        field_names: [
+          '剧名',
+          '账户',
+          '日期',
+          '上架时间',
+          '当前状态',
+          '评级',
+          '备注'
+        ],
+        filter: {
+          conjunction: 'and',
+          conditions: [
+            {
+              field_name: '当前状态',
+              operator: 'is',
+              value: ['待搭建']
+            }
+          ]
+        }
+      })
+    })
+
+    return await this.parseRemoteJsonResponse(response, '查询待搭建剧集失败')
+  }
+
+  async getRemoteDailyBuildSchedulerStatus(): Promise<{
+    code: number
+    message?: string
+    data: RemoteDailyBuildSchedulerStatus
+  }> {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/status`)
+    return await this.parseRemoteJsonResponse(response, '查询智能搭建状态失败')
+  }
+
+  async startRemoteDailyBuildScheduler(intervalMinutes: number): Promise<{
+    code: number
+    message?: string
+    data: RemoteDailyBuildSchedulerStatus
+  }> {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/start`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ intervalMinutes })
+    })
+
+    return await this.parseRemoteJsonResponse(response, '启动智能搭建失败')
+  }
+
+  async stopRemoteDailyBuildScheduler(): Promise<{
+    code: number
+    message?: string
+    data: RemoteDailyBuildSchedulerStatus
+  }> {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/stop`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    })
+
+    return await this.parseRemoteJsonResponse(response, '停止智能搭建失败')
+  }
+
+  async triggerRemoteDailyBuildScheduler(dramaId?: string): Promise<{
+    code: number
+    message?: string
+    data: RemoteDailyBuildSchedulerStatus
+  }> {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/trigger`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(dramaId ? { dramaId } : {})
+    })
+
+    return await this.parseRemoteJsonResponse(response, '触发搭建失败')
   }
 
   private async getFeishuToken(): Promise<string> {

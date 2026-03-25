@@ -10,6 +10,7 @@ export interface DarenInfo {
   enableUpload?: boolean; // 启用上传功能
   enableDownload?: boolean; // 启用下载功能
   enableJuliang?: boolean; // 启用巨量上传功能
+  enableJuliangBuild?: boolean; // 启用巨量搭建功能
   enableUploadBuild?: boolean; // 启用上传搭建功能
   enableMaterialClip?: boolean;
   changduConfigType?: "sanrou" | "meiri" | "custom"; // 常读配置类型：散柔/每日/定制
@@ -102,6 +103,13 @@ export const useDarenStore = defineStore("daren", () => {
       return true;
     }
     return currentDaren.value?.enableUploadBuild === true;
+  });
+
+  const canJuliangBuild = computed(() => {
+    if (authStore.isAdmin) {
+      return true;
+    }
+    return currentDaren.value?.enableJuliangBuild === true;
   });
 
   const canMaterialClip = computed(() => {
@@ -226,6 +234,7 @@ export const useDarenStore = defineStore("daren", () => {
     canUpload,
     canDownload,
     canJuliang,
+    canJuliangBuild,
     canUploadBuild,
     canMaterialClip,
     loadFromServer,

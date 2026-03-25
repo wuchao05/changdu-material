@@ -36,6 +36,7 @@ const darenForm = ref<DarenInfo>({
   enableUpload: true,
   enableDownload: true,
   enableJuliang: false, // 默认不启用巨量上传
+  enableJuliangBuild: false, // 默认不启用巨量搭建
   enableUploadBuild: false, // 默认不启用上传搭建
   enableMaterialClip: false,
   changduConfigType: "sanrou", // 默认使用散柔配置
@@ -53,6 +54,7 @@ function openDarenModal(daren?: DarenInfo) {
     editingDaren.value = daren;
     darenForm.value = {
       ...daren,
+      enableJuliangBuild: daren.enableJuliangBuild ?? false,
       enableMaterialClip: daren.enableMaterialClip ?? false,
       changduConfigType: daren.changduConfigType || "sanrou", // 确保有默认值
       customChangduConfig: daren.customChangduConfig || {
@@ -73,6 +75,7 @@ function openDarenModal(daren?: DarenInfo) {
       enableUpload: true,
       enableDownload: true,
       enableJuliang: false,
+      enableJuliangBuild: false,
       enableUploadBuild: false,
       enableMaterialClip: false,
       changduConfigType: "sanrou", // 默认使用散柔配置
@@ -203,6 +206,8 @@ const darenColumns: DataTableColumns<DarenInfo> = [
       if (row.enableUpload) tags.push({ type: "success", text: "上传" });
       if (row.enableDownload) tags.push({ type: "success", text: "下载" });
       if (row.enableJuliang) tags.push({ type: "success", text: "巨量" });
+      if (row.enableJuliangBuild)
+        tags.push({ type: "success", text: "巨量搭建" });
       if (row.enableUploadBuild) tags.push({ type: "success", text: "搭建" });
       if (row.enableMaterialClip) tags.push({ type: "success", text: "剪辑" });
 
@@ -395,6 +400,9 @@ const darenColumns: DataTableColumns<DarenInfo> = [
         </NFormItem>
         <NFormItem label="启用巨量上传">
           <NSwitch v-model:value="darenForm.enableJuliang" />
+        </NFormItem>
+        <NFormItem label="启用巨量搭建">
+          <NSwitch v-model:value="darenForm.enableJuliangBuild" />
         </NFormItem>
         <NFormItem label="启用上传搭建">
           <NSwitch v-model:value="darenForm.enableUploadBuild" />

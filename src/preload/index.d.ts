@@ -49,6 +49,7 @@ interface DarenInfo {
   enableUpload?: boolean;
   enableDownload?: boolean;
   enableJuliang?: boolean;
+  enableJuliangBuild?: boolean;
   enableUploadBuild?: boolean;
   enableMaterialClip?: boolean;
   changduConfigType?: "sanrou" | "meiri" | "custom";
@@ -153,6 +154,40 @@ interface JuliangPendingTask {
   date: string;
   account: string;
   status: "pending" | "running";
+}
+
+interface JuliangBuildPendingDramaRecord {
+  record_id: string;
+  _tableId?: string;
+  fields: Record<string, unknown>;
+}
+
+interface JuliangBuildSchedulerTaskHistory {
+  dramaName: string;
+  status: "success" | "failed" | "skipped";
+  rating?: string | null;
+  date?: number | null;
+  publishTime?: number | null;
+  error?: string;
+  completedAt: string;
+}
+
+interface JuliangBuildSchedulerStatus {
+  enabled: boolean;
+  intervalMinutes: number | null;
+  nextRunTime: string | null;
+  lastRunTime: string | null;
+  stats: {
+    totalBuilt: number;
+    successCount: number;
+    failCount: number;
+  };
+  currentTask: {
+    status: "running" | "building";
+    dramaName?: string;
+    startTime: string;
+  } | null;
+  taskHistory: JuliangBuildSchedulerTaskHistory[];
 }
 
 interface MaterialClipVideoConfig {
@@ -553,6 +588,34 @@ interface Api {
     }>
   >;
   juliangClearLogs: () => Promise<{ success: boolean }>;
+  juliangBuildGetPendingDramas: (
+    tableId?: string,
+  ) => Promise<{
+    code: number;
+    msg?: string;
+    message?: string;
+    data?: { items?: JuliangBuildPendingDramaRecord[] };
+  }>;
+  juliangBuildGetSchedulerStatus: () => Promise<{
+    code: number;
+    message?: string;
+    data: JuliangBuildSchedulerStatus;
+  }>;
+  juliangBuildStartScheduler: (intervalMinutes: number) => Promise<{
+    code: number;
+    message?: string;
+    data: JuliangBuildSchedulerStatus;
+  }>;
+  juliangBuildStopScheduler: () => Promise<{
+    code: number;
+    message?: string;
+    data: JuliangBuildSchedulerStatus;
+  }>;
+  juliangBuildTriggerScheduler: (dramaId?: string) => Promise<{
+    code: number;
+    message?: string;
+    data: JuliangBuildSchedulerStatus;
+  }>;
 
   // 上传搭建
   dailyBuildStartTask: (task: unknown) => Promise<{

@@ -114,6 +114,8 @@ async function handleLogin() {
         router.push("/download");
       } else if (daren.enableJuliang) {
         router.push("/juliang");
+      } else if (daren.enableJuliangBuild) {
+        router.push("/juliang-build");
       } else if (daren.enableUploadBuild) {
         router.push("/upload-build");
       } else if (daren.enableMaterialClip) {

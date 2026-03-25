@@ -18,6 +18,7 @@ export interface DarenInfo {
   enableUpload?: boolean; // 启用上传功能
   enableDownload?: boolean; // 启用下载功能
   enableJuliang?: boolean; // 启用巨量上传功能
+  enableJuliangBuild?: boolean; // 启用巨量搭建功能
   enableUploadBuild?: boolean; // 启用上传搭建功能
   enableMaterialClip?: boolean;
   changduConfigType?: "sanrou" | "meiri" | "custom"; // 常读配置类型：散柔/每日/定制
@@ -341,6 +342,7 @@ export class ConfigService {
       enableUpload: daren.enableUpload ?? true,
       enableDownload: daren.enableDownload ?? true,
       enableJuliang: daren.enableJuliang ?? false, // 默认不启用巨量上传
+      enableJuliangBuild: daren.enableJuliangBuild ?? false, // 默认不启用巨量搭建
       enableUploadBuild: daren.enableUploadBuild ?? false, // 默认不启用上传搭建
       enableMaterialClip: daren.enableMaterialClip ?? false,
       changduConfigType: daren.changduConfigType || "sanrou", // 默认使用散柔配置

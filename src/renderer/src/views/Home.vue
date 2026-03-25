@@ -22,6 +22,8 @@ onMounted(async () => {
     router.replace("/download");
   } else if (darenStore.canJuliang) {
     router.replace("/juliang");
+  } else if (darenStore.canJuliangBuild) {
+    router.replace("/juliang-build");
   } else if (darenStore.canUploadBuild) {
     router.replace("/upload-build");
   } else if (darenStore.canMaterialClip) {

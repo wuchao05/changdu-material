@@ -473,6 +473,26 @@ function registerIpcHandlers(): void {
     return await apiService.submitToMaterialLibrary(materials, configService);
   });
 
+  ipcMain.handle("juliang-build:getPendingDramas", async (_event, tableId?: string) => {
+    return await apiService.getRemotePendingBuildDramas(tableId);
+  });
+
+  ipcMain.handle("juliang-build:getSchedulerStatus", async () => {
+    return await apiService.getRemoteDailyBuildSchedulerStatus();
+  });
+
+  ipcMain.handle("juliang-build:startScheduler", async (_event, intervalMinutes: number) => {
+    return await apiService.startRemoteDailyBuildScheduler(intervalMinutes);
+  });
+
+  ipcMain.handle("juliang-build:stopScheduler", async () => {
+    return await apiService.stopRemoteDailyBuildScheduler();
+  });
+
+  ipcMain.handle("juliang-build:triggerScheduler", async (_event, dramaId?: string) => {
+    return await apiService.triggerRemoteDailyBuildScheduler(dramaId);
+  });
+
   // ==================== TOS 上传 ====================
   ipcMain.handle("tos:uploadFile", async (event, filePath) => {
     return await tosService.uploadFile(filePath, configService, (progress) => {

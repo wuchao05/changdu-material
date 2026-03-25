@@ -49,6 +49,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
+    path: "/juliang-build",
+    name: "JuliangBuild",
+    component: () => import("../views/JuliangBuild.vue"),
+    meta: { requiresAuth: true, requiresJuliangBuild: true },
+  },
+  {
     path: "/material-clip",
     name: "MaterialClip",
     component: () => import("../views/MaterialClip.vue"),
@@ -69,6 +75,7 @@ router.beforeEach(async (to, _from, next) => {
   let isAdmin = false;
   let currentUserId = "";
   let canMaterialClip = false;
+  let canJuliangBuild = false;
 
   if (userText) {
     try {
@@ -90,24 +97,33 @@ router.beforeEach(async (to, _from, next) => {
         (item) => item.id === currentUserId,
       );
       canMaterialClip = currentDaren?.enableMaterialClip === true;
+      canJuliangBuild = currentDaren?.enableJuliangBuild === true;
     } catch {
       canMaterialClip = false;
+      canJuliangBuild = false;
     }
   }
 
-  if (to.meta.requiresMaterialClip && !isAdmin && currentUserId) {
+  if (
+    (to.meta.requiresMaterialClip || to.meta.requiresJuliangBuild) &&
+    !isAdmin &&
+    currentUserId
+  ) {
     try {
       const latestConfig = await window.api.getDarenConfig();
       const currentDaren = latestConfig.darenList?.find(
         (item) => item.id === currentUserId,
       );
       canMaterialClip = currentDaren?.enableMaterialClip === true;
+      canJuliangBuild = currentDaren?.enableJuliangBuild === true;
     } catch {}
   }
 
   if (to.meta.requiresAuth && !isLoggedIn) {
     next("/login");
   } else if (to.meta.requiresAdmin && !isAdmin) {
+    next("/home");
+  } else if (to.meta.requiresJuliangBuild && !(isAdmin || canJuliangBuild)) {
     next("/home");
   } else if (to.meta.requiresMaterialClip && !(isAdmin || canMaterialClip)) {
     next("/home");

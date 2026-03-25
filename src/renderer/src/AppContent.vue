@@ -20,6 +20,7 @@ import {
   RocketOutline,
   ConstructOutline,
   CutOutline,
+  FlashOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -90,6 +91,15 @@ const menuOptions = computed(() => {
     });
   }
 
+  // 巨量搭建 - 管理员或有巨量搭建权限的达人可见
+  if (isAdmin || darenStore.canJuliangBuild) {
+    options.push({
+      label: "巨量搭建",
+      key: "juliang-build",
+      icon: () => h(NIcon, null, { default: () => h(FlashOutline) }),
+    });
+  }
+
   // 系统设置 - 仅管理员可见
   if (isAdmin) {
     options.push({
@@ -109,6 +119,7 @@ const defaultRoute = computed(() => {
   if (authStore.isAdmin) return "/download";
   if (darenStore.canUpload) return "/upload";
   if (darenStore.canJuliang) return "/juliang";
+  if (darenStore.canJuliangBuild) return "/juliang-build";
   if (darenStore.canUploadBuild) return "/upload-build";
   return "/login";
 });
