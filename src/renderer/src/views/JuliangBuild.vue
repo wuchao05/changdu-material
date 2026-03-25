@@ -607,6 +607,7 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
             {
               "action-button--disabled": disabled,
               "action-button--building": isBuilding,
+              "action-button--idle": !disabled && !isBuilding,
             },
           ],
           disabled,
@@ -986,24 +987,48 @@ onUnmounted(() => {
 .action-button {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  justify-content: center;
+  min-width: 92px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
   color: #2563eb;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+
+.action-button--idle:hover {
+  background: linear-gradient(180deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #93c5fd;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
 }
 
 .action-button--disabled {
-  color: #a5b4fc;
-  cursor: default;
+  background: linear-gradient(180deg, #fafafa 0%, #f3f4f6 100%);
+  border-color: #e5e7eb;
+  color: #9ca3af;
+  box-shadow: none;
+  cursor: not-allowed;
 }
 
 .action-button--building {
-  color: #16a34a;
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+  border-color: #86efac;
+  color: #15803d;
+  box-shadow: 0 1px 2px rgba(22, 163, 74, 0.08);
 }
 
 .empty-block {
