@@ -383,20 +383,37 @@ export class MaterialClipService {
       this.runState.currentDramaDate ?? currentDramaCandidate?.date ?? null;
 
     try {
-      const config = await this.getConfig();
+      const config = this.activeRunConfig ?? (await this.getConfig());
       await this.terminateProcess(processToStop);
+
+      const cleanupErrors: string[] = [];
+      let removedExportDir: string | null = null;
+
       if (currentRecordId) {
-        await this.revertRecordToPending(currentRecordId);
+        try {
+          await this.revertRecordToPending(currentRecordId, config);
+        } catch (error) {
+          cleanupErrors.push(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
-      const removedExportDir =
-        currentDramaName
-          ? await this.removeDramaExportDir(
-              config,
-              currentDramaName,
-              currentDramaDate,
-            )
-          : null;
-      await this.refreshPendingDramas();
+
+      if (currentDramaName) {
+        try {
+          removedExportDir = await this.removeDramaExportDir(
+            config,
+            currentDramaName,
+            currentDramaDate,
+          );
+        } catch (error) {
+          cleanupErrors.push(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+      }
+
+      await this.refreshPendingDramas(config);
       this.runState.running = false;
       this.runState.mode = "idle";
       this.runState.status = "stopped";
@@ -409,12 +426,19 @@ export class MaterialClipService {
       this.runState.totalMaterials = 0;
       this.runState.completedMaterials = 0;
       this.runState.remainingMaterials = 0;
-      this.runState.message = removedExportDir
-        ? "轮询剪辑已停止，当前剧目已回退为待剪辑并清理导出目录"
-        : "轮询剪辑已停止，当前剧目已回退为待剪辑";
+      if (cleanupErrors.length > 0) {
+        this.runState.message =
+          "轮询剪辑已停止，但部分收尾操作失败，请查看日志";
+      } else {
+        this.runState.message = removedExportDir
+          ? "轮询剪辑已停止，当前剧目已回退为待剪辑并清理导出目录"
+          : "轮询剪辑已停止，当前剧目已回退为待剪辑";
+      }
       this.touchRunState();
       this.emitRunState();
-      return { success: true };
+      return cleanupErrors.length > 0
+        ? { success: false, error: cleanupErrors.join("；") }
+        : { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.runState.status = "running";
@@ -1809,13 +1833,16 @@ export class MaterialClipService {
     return null;
   }
 
-  private async revertRecordToPending(recordId: string): Promise<void> {
-    const config = await this.getConfig();
+  private async revertRecordToPending(
+    recordId: string,
+    config?: MaterialClipConfig,
+  ): Promise<void> {
+    const resolvedConfig = config ?? this.activeRunConfig ?? (await this.getConfig());
     const updated = await this.apiService.updateFeishuRecordStatus(
       recordId,
-      config.feishu.pending_status_value,
+      resolvedConfig.feishu.pending_status_value,
       this.configService,
-      config.feishu.table_id,
+      resolvedConfig.feishu.table_id,
     );
 
     if (!updated) {
