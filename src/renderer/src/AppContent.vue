@@ -21,7 +21,7 @@ import {
   ConstructOutline,
   CutOutline,
   FlashOutline,
-  LibraryOutline,
+  NutritionOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -247,7 +247,7 @@ onMounted(async () => {
       <div class="title-bar-text">
         <span class="app-icon">
           <NIcon size="16">
-            <LibraryOutline />
+            <NutritionOutline />
           </NIcon>
         </span>
         <span class="brand-text">番茄挂载工具</span>
@@ -406,8 +406,8 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
-  color: #2563eb;
+  background: linear-gradient(135deg, #ffe1dc 0%, #ffd1cc 100%);
+  color: #d9485f;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
