@@ -83,7 +83,7 @@ let tray: Tray | null = null;
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1400,
     height: 800,
     minWidth: 900,
     minHeight: 600,
