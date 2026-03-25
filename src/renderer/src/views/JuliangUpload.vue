@@ -26,6 +26,8 @@ const isInitializing = ref(false);
 const isReady = ref(false);
 const isUploading = ref(false);
 const needLogin = ref(false);
+const isExportingLoginState = ref(false);
+const isImportingLoginState = ref(false);
 
 // 调度器状态
 const schedulerStatus = ref<"idle" | "running" | "stopped">("idle");
@@ -187,6 +189,62 @@ async function saveConfig() {
     await window.api.juliangUpdateConfig(cfg);
   } catch (error) {
     message.error(`保存配置失败: ${error}`);
+  }
+}
+
+async function exportLoginState() {
+  if (isExportingLoginState.value) return;
+
+  isExportingLoginState.value = true;
+  try {
+    const result = await window.api.juliangExportLoginState();
+    if (result.cancelled) {
+      return;
+    }
+
+    if (!result.success) {
+      message.error(result.error || "导出登录态失败");
+      return;
+    }
+
+    message.success(`登录态已导出到：${result.filePath || "指定文件"}`);
+  } catch (error) {
+    message.error(`导出登录态失败: ${error}`);
+  } finally {
+    isExportingLoginState.value = false;
+  }
+}
+
+async function importLoginState() {
+  if (isImportingLoginState.value) return;
+
+  isImportingLoginState.value = true;
+  try {
+    const result = await window.api.juliangImportLoginState();
+    if (result.cancelled) {
+      return;
+    }
+
+    if (!result.success) {
+      message.error(result.error || "导入登录态失败");
+      return;
+    }
+
+    isReady.value = true;
+    needLogin.value = result.needLogin ?? false;
+
+    const loginResult = await window.api.juliangCheckLogin();
+    needLogin.value = loginResult.needLogin;
+
+    if (needLogin.value) {
+      message.warning("登录态已导入，但当前仍需要重新登录");
+    } else {
+      message.success("登录态导入成功，当前可直接复用登录状态");
+    }
+  } catch (error) {
+    message.error(`导入登录态失败: ${error}`);
+  } finally {
+    isImportingLoginState.value = false;
   }
 }
 
@@ -607,6 +665,24 @@ onUnmounted(() => {
             @click="cancelAll"
           >
             取消上传
+          </NButton>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            :disabled="schedulerStatus === 'running' || hasActiveUploadTask"
+            :loading="isExportingLoginState"
+            @click="exportLoginState"
+          >
+            导出登录态
+          </NButton>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            :disabled="schedulerStatus === 'running' || hasActiveUploadTask"
+            :loading="isImportingLoginState"
+            @click="importLoginState"
+          >
+            导入登录态
           </NButton>
           <NButton
             v-if="schedulerStatus !== 'running'"

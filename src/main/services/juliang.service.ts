@@ -5,7 +5,7 @@
 
 import { chromium, BrowserContext, Page } from "playwright";
 import { app, BrowserWindow } from "electron";
-import { basename, join } from "path";
+import { basename, dirname, join } from "path";
 import * as fs from "fs";
 import { execSync } from "child_process";
 import { JuliangProgressManager } from "./juliang-progress.service";
@@ -71,6 +71,34 @@ interface JuliangUploadRowSnapshot {
   rowText: string;
   isSuccess: boolean;
   hasError: boolean;
+}
+
+interface JuliangLoginStateCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  expires: number;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "Strict" | "Lax" | "None";
+}
+
+interface JuliangLoginStateOrigin {
+  origin: string;
+  localStorage: Array<{ name: string; value: string }>;
+}
+
+interface JuliangLoginStateStorage {
+  cookies: JuliangLoginStateCookie[];
+  origins: JuliangLoginStateOrigin[];
+}
+
+interface JuliangLoginStateFile {
+  type: "juliang-login-state";
+  version: 1;
+  exportedAt: string;
+  storageState: JuliangLoginStateStorage;
 }
 
 // 巨量配置
@@ -461,6 +489,177 @@ export class JuliangService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.error(`[Juliang] 初始化浏览器失败: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  private parseLoginStateFile(content: string): JuliangLoginStateStorage {
+    const parsed = JSON.parse(content) as
+      | JuliangLoginStateFile
+      | JuliangLoginStateStorage
+      | null;
+
+    const storageState =
+      parsed &&
+      typeof parsed === "object" &&
+      "storageState" in parsed &&
+      parsed.storageState
+        ? parsed.storageState
+        : parsed;
+
+    if (
+      !storageState ||
+      typeof storageState !== "object" ||
+      !Array.isArray(storageState.cookies) ||
+      !Array.isArray(storageState.origins)
+    ) {
+      throw new Error("登录态文件格式无效");
+    }
+
+    return {
+      cookies: storageState.cookies,
+      origins: storageState.origins,
+    };
+  }
+
+  private async ensureInitializedForLoginState(): Promise<void> {
+    if (this.isReady()) {
+      return;
+    }
+
+    const result = await this.initialize();
+    if (!result.success) {
+      throw new Error(result.error || "浏览器初始化失败");
+    }
+  }
+
+  async exportLoginState(filePath: string): Promise<{
+    success: boolean;
+    cancelled?: boolean;
+    filePath?: string;
+    error?: string;
+  }> {
+    try {
+      await this.ensureInitializedForLoginState();
+
+      if (!this.context) {
+        throw new Error("巨量浏览器未初始化");
+      }
+
+      const loginStatus = await this.checkLoginStatus();
+      if (loginStatus.needLogin) {
+        throw new Error("当前巨量后台未登录，请先登录后再导出登录态");
+      }
+
+      const storageState = await this.context.storageState();
+      const hasLocalStorage = storageState.origins.some(
+        (item) => item.localStorage.length > 0,
+      );
+      if (!storageState.cookies.length && !hasLocalStorage) {
+        throw new Error("未读取到有效登录态，请先完成登录后再导出");
+      }
+
+      const payload: JuliangLoginStateFile = {
+        type: "juliang-login-state",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        storageState: {
+          cookies: storageState.cookies as JuliangLoginStateCookie[],
+          origins: storageState.origins,
+        },
+      };
+
+      fs.mkdirSync(dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf-8");
+      this.log(`登录态已导出: ${filePath}`);
+
+      return { success: true, filePath };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(`[Juliang] 导出登录态失败: ${errorMessage}`);
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  async importLoginState(filePath: string): Promise<{
+    success: boolean;
+    cancelled?: boolean;
+    filePath?: string;
+    error?: string;
+    needLogin?: boolean;
+  }> {
+    try {
+      if (!fs.existsSync(filePath)) {
+        throw new Error("登录态文件不存在");
+      }
+
+      const storageState = this.parseLoginStateFile(
+        fs.readFileSync(filePath, "utf-8"),
+      );
+      const hasLocalStorage = storageState.origins.some(
+        (item) => item.localStorage.length > 0,
+      );
+      if (!storageState.cookies.length && !hasLocalStorage) {
+        throw new Error("登录态文件内容为空");
+      }
+
+      await this.close();
+
+      const userDataDir = this.getUserDataDir();
+      if (fs.existsSync(userDataDir)) {
+        fs.rmSync(userDataDir, { recursive: true, force: true });
+      }
+
+      await this.ensureInitializedForLoginState();
+
+      if (!this.context || !this.page) {
+        throw new Error("浏览器上下文初始化失败");
+      }
+
+      await this.context.clearCookies();
+
+      if (storageState.cookies.length > 0) {
+        await this.context.addCookies(storageState.cookies);
+      }
+
+      for (const originState of storageState.origins) {
+        if (!originState.origin) {
+          continue;
+        }
+
+        await this.page.goto(originState.origin, {
+          waitUntil: "domcontentloaded",
+          timeout: 30000,
+        });
+        await this.page.evaluate((entries) => {
+          window.localStorage.clear();
+          for (const entry of entries) {
+            window.localStorage.setItem(entry.name, entry.value);
+          }
+        }, originState.localStorage);
+      }
+
+      await this.page.goto("https://ad.oceanengine.com/", {
+        waitUntil: "domcontentloaded",
+        timeout: 15000,
+      });
+      await this.page.waitForTimeout(2000);
+
+      const loginStatus = await this.checkLoginStatus();
+      this.log(
+        `登录态已导入: ${filePath}，当前状态: ${loginStatus.needLogin ? "需要重新登录" : "已登录"}`,
+      );
+
+      return {
+        success: true,
+        filePath,
+        needLogin: loginStatus.needLogin,
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(`[Juliang] 导入登录态失败: ${errorMessage}`);
       return { success: false, error: errorMessage };
     }
   }

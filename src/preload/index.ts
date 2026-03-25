@@ -323,6 +323,8 @@ const api = {
   juliangGetLogs: () => ipcRenderer.invoke("juliang:getLogs"),
   juliangGetTaskStates: () => ipcRenderer.invoke("juliang:getTaskStates"),
   juliangClearLogs: () => ipcRenderer.invoke("juliang:clearLogs"),
+  juliangExportLoginState: () => ipcRenderer.invoke("juliang:exportLoginState"),
+  juliangImportLoginState: () => ipcRenderer.invoke("juliang:importLoginState"),
   juliangBuildGetPendingDramas: (tableId?: string) =>
     ipcRenderer.invoke("juliang-build:getPendingDramas", tableId),
   juliangBuildGetSchedulerStatus: (tableId?: string) =>

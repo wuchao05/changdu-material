@@ -588,6 +588,19 @@ interface Api {
     }>
   >;
   juliangClearLogs: () => Promise<{ success: boolean }>;
+  juliangExportLoginState: () => Promise<{
+    success: boolean;
+    cancelled?: boolean;
+    filePath?: string;
+    error?: string;
+  }>;
+  juliangImportLoginState: () => Promise<{
+    success: boolean;
+    cancelled?: boolean;
+    filePath?: string;
+    error?: string;
+    needLogin?: boolean;
+  }>;
   juliangBuildGetPendingDramas: (
     tableId?: string,
   ) => Promise<{

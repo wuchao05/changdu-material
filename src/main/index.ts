@@ -601,6 +601,46 @@ function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  ipcMain.handle("juliang:exportLoginState", async () => {
+    const { dialog } = await import("electron");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const options = {
+      title: "导出巨量登录态",
+      defaultPath: join(
+        app.getPath("downloads"),
+        `juliang-login-state-${timestamp}.json`,
+      ),
+      filters: [{ name: "JSON 文件", extensions: ["json"] }],
+    };
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, options)
+      : await dialog.showSaveDialog(options);
+
+    if (result.canceled || !result.filePath) {
+      return { success: false, cancelled: true };
+    }
+
+    return await juliangService.exportLoginState(result.filePath);
+  });
+
+  ipcMain.handle("juliang:importLoginState", async () => {
+    const { dialog } = await import("electron");
+    const options = {
+      title: "导入巨量登录态",
+      properties: ["openFile"] as Array<"openFile">,
+      filters: [{ name: "JSON 文件", extensions: ["json"] }],
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+
+    if (result.canceled || !result.filePaths.length) {
+      return { success: false, cancelled: true };
+    }
+
+    return await juliangService.importLoginState(result.filePaths[0]);
+  });
+
   // ==================== 上传搭建 ====================
   ipcMain.handle("daily-build:startTask", async (_event, task) => {
     if (mainWindow) {
