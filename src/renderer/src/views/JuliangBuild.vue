@@ -594,11 +594,11 @@ async function handleTriggerDrama(record: PendingDramaRecord) {
 
   const dramaName = parseTextField(record.fields["剧名"]) || "当前剧集";
   manualBuildingId.value = record.record_id;
+  message.success(`正在搭建 ${dramaName}`, { duration: 3000 });
   try {
     const result = await window.api.juliangBuildTriggerScheduler(record.record_id);
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
-    message.info(`正在搭建 ${dramaName}`, { duration: 3000 });
     await loadSchedulerStatus({
       showLoading: false,
       syncPendingOnChange: true,
@@ -794,21 +794,25 @@ onUnmounted(() => {
 
 <template>
   <div class="juliang-build-page">
-    <div class="page-header">
-      <h2 class="page-title">巨量搭建</h2>
-      <NSpace>
-        <NSelect
-          v-if="authStore.isAdmin"
-          v-model:value="darenStore.selectedDarenId"
-          class="daren-select"
-          placeholder="请选择达人"
-          :options="adminDarenOptions"
-          clearable
-          @update:value="darenStore.setSelectedDaren"
-        />
-        <NButton :loading="refreshing" @click="refreshAll()">刷新</NButton>
-      </NSpace>
-    </div>
+    <NCard class="overview-card" :bordered="false">
+      <div class="hero-row">
+        <div class="hero-title">巨量搭建</div>
+        <NSpace class="hero-actions" wrap>
+          <NSelect
+            v-if="authStore.isAdmin"
+            v-model:value="darenStore.selectedDarenId"
+            class="daren-select"
+            placeholder="请选择达人"
+            :options="adminDarenOptions"
+            clearable
+            @update:value="darenStore.setSelectedDaren"
+          />
+          <NButton quaternary class="hero-action-btn" :loading="refreshing" @click="refreshAll()">
+            刷新
+          </NButton>
+        </NSpace>
+      </div>
+    </NCard>
 
     <NCard class="control-card" :bordered="false">
       <template #header>
@@ -945,6 +949,31 @@ onUnmounted(() => {
   gap: 16px;
   max-width: 1400px;
   margin: 0 auto;
+}
+
+.overview-card {
+  background: #fff;
+}
+
+.hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.hero-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.hero-actions {
+  justify-content: flex-end;
+}
+
+.hero-action-btn {
+  border-radius: 999px;
 }
 
 .page-header {

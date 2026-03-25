@@ -1566,18 +1566,21 @@ const columns: DataTableColumns<DownloadTask> = [
 
 <template>
   <div class="download-page">
-    <div
-      style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px"
-    >
-      <h2 class="page-title" style="margin-bottom: 0">剧目下载</h2>
-      <NButton text @click="showHelpModal = true" style="padding: 4px">
-        <template #icon>
-          <NIcon size="20" color="#666">
-            <HelpCircleOutline />
-          </NIcon>
-        </template>
-      </NButton>
-    </div>
+    <NCard class="overview-card">
+      <div class="hero-row">
+        <div class="hero-title">剧目下载</div>
+        <NSpace class="hero-actions" wrap>
+          <NButton text class="hero-help-btn" @click="showHelpModal = true">
+            <template #icon>
+              <NIcon size="18" color="#64748b">
+                <HelpCircleOutline />
+              </NIcon>
+            </template>
+            使用说明
+          </NButton>
+        </NSpace>
+      </div>
+    </NCard>
 
     <!-- 操作栏 -->
     <NCard class="action-card">
@@ -1800,31 +1803,48 @@ const columns: DataTableColumns<DownloadTask> = [
 
 <style scoped>
 .download-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   max-width: 1200px;
   margin: 0 auto;
 }
 
-.page-title {
+.overview-card {
+  background: #fff;
+}
+
+.hero-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.hero-title {
   font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 20px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.hero-actions {
+  justify-content: flex-end;
+}
+
+.hero-help-btn {
+  color: #64748b;
 }
 
 .action-card {
-  margin-bottom: 16px;
 }
 
 .path-card {
-  margin-bottom: 16px;
 }
 
 .stats-grid {
-  margin-bottom: 16px;
 }
 
 .auto-download-alert {
-  margin-bottom: 16px;
 }
 
 .table-card {

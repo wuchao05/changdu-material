@@ -21,6 +21,7 @@ import {
   ConstructOutline,
   CutOutline,
   FlashOutline,
+  LibraryOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useDarenStore } from "./stores/daren";
@@ -244,10 +245,14 @@ onMounted(async () => {
     <!-- 自定义标题栏 -->
     <div class="title-bar" style="-webkit-app-region: drag">
       <div class="title-bar-text">
-        <span class="app-icon">📺</span>
-        <span>常读素材管理工具</span>
+        <span class="app-icon">
+          <NIcon size="16">
+            <LibraryOutline />
+          </NIcon>
+        </span>
+        <span class="brand-text">常读素材管理工具</span>
         <span v-if="authStore.currentUser" class="user-info">
-          - {{ authStore.currentUser.label || authStore.currentUser.id }}
+          {{ authStore.currentUser.label || authStore.currentUser.id }}
         </span>
       </div>
       <div class="title-bar-actions" style="-webkit-app-region: no-drag">
@@ -355,21 +360,23 @@ onMounted(async () => {
 
 .title-bar {
   height: 36px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #f8fbff 0%, #eef4ff 55%, #f7f8fc 100%);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 12px;
-  color: white;
+  color: #1f2937;
   gap: 12px;
+  border-bottom: 1px solid #dbe5f1;
+  box-shadow: 0 6px 18px rgba(148, 163, 184, 0.08);
 }
 
 .title-bar-text {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   flex: 1;
 }
 
@@ -380,22 +387,41 @@ onMounted(async () => {
 }
 
 .title-bar-actions :deep(.n-button) {
-  color: white;
+  color: #334155;
   padding: 0 8px;
   border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border-color: transparent;
 }
 
 .title-bar-actions :deep(.n-button:hover) {
-  background: rgba(255, 255, 255, 0.1);
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 .app-icon {
-  font-size: 18px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #dbeafe 0%, #e0f2fe 100%);
+  color: #2563eb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.brand-text {
+  color: #0f172a;
 }
 
 .user-info {
   font-size: 12px;
-  opacity: 0.9;
+  color: #475569;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 .title-bar-buttons {
@@ -404,13 +430,16 @@ onMounted(async () => {
 }
 
 .title-bar-buttons :deep(.n-button) {
-  color: white;
+  color: #334155;
   padding: 0 8px;
   border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  border-color: transparent;
 }
 
 .title-bar-buttons :deep(.n-button:hover) {
-  background: rgba(255, 255, 255, 0.1);
+  background: #e2e8f0;
+  color: #0f172a;
 }
 
 .main-layout {
@@ -467,8 +496,8 @@ onMounted(async () => {
 .main-content :deep(.n-button) {
   border-radius: 10px;
   box-shadow: none;
-  border-color: #d8e1ec;
-  background: #ffffff;
+  border-color: transparent;
+  background: #f1f5f9;
   color: #334155;
   transition:
     background-color 0.2s ease,
@@ -477,44 +506,44 @@ onMounted(async () => {
 }
 
 .main-content :deep(.n-button:not(.n-button--disabled):hover) {
-  background: #f8fafc;
-  border-color: #cbd5e1;
+  background: #e2e8f0;
+  border-color: transparent;
   color: #0f172a;
 }
 
 .main-content :deep(.n-button.n-button--primary-type) {
   background: #eff6ff;
-  border-color: #bfdbfe;
+  border-color: transparent;
   color: #2563eb;
 }
 
 .main-content :deep(.n-button.n-button--primary-type:not(.n-button--disabled):hover) {
   background: #dbeafe;
-  border-color: #93c5fd;
+  border-color: transparent;
   color: #1d4ed8;
 }
 
 .main-content :deep(.n-button.n-button--error-type) {
   background: #fef2f2;
-  border-color: #fecaca;
+  border-color: transparent;
   color: #dc2626;
 }
 
 .main-content :deep(.n-button.n-button--error-type:not(.n-button--disabled):hover) {
   background: #fee2e2;
-  border-color: #fca5a5;
+  border-color: transparent;
   color: #b91c1c;
 }
 
 .main-content :deep(.n-button.n-button--warning-type) {
   background: #fff7ed;
-  border-color: #fed7aa;
+  border-color: transparent;
   color: #ea580c;
 }
 
 .main-content :deep(.n-button.n-button--success-type) {
   background: #ecfdf5;
-  border-color: #bbf7d0;
+  border-color: transparent;
   color: #16a34a;
 }
 

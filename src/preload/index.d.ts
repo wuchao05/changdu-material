@@ -614,6 +614,7 @@ interface Api {
   juliangBuildTriggerScheduler: (dramaId?: string) => Promise<{
     code: number;
     message?: string;
+    timedOut?: boolean;
     data: JuliangBuildSchedulerStatus;
   }>;
 

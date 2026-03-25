@@ -431,6 +431,7 @@ export class ApiService {
   async triggerRemoteDailyBuildScheduler(dramaId?: string): Promise<{
     code: number
     message?: string
+    timedOut?: boolean
     data: RemoteDailyBuildSchedulerStatus
   }> {
     const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/trigger`, {
@@ -455,6 +456,7 @@ export class ApiService {
       return {
         code: 0,
         message: '接口响应超时，但已按状态接口继续跟踪搭建任务',
+        timedOut: true,
         data: statusResult.data,
       }
     }
