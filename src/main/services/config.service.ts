@@ -43,6 +43,10 @@ export interface ChangduConfig {
   changduRootAdUserId: string;
 }
 
+export interface DownloadCenterRequestConfig extends ChangduConfig {
+  appType: string;
+}
+
 export interface ApiConfig {
   // 常读平台配置（两套）
   sanrouChangdu: ChangduConfig; // 散柔-常读配置
@@ -97,6 +101,13 @@ export class ConfigService {
   private apiConfigPath: string;
   private remoteConfigService: RemoteConfigService;
   private webSessionService: WebSessionService;
+  private downloadCenterConfigCache: {
+    data: DownloadCenterRequestConfig | null;
+    expireAt: number;
+  } = {
+    data: null,
+    expireAt: 0,
+  };
 
   constructor(webSessionService: WebSessionService) {
     const userDataPath = app.getPath("userData");
@@ -511,6 +522,73 @@ export class ConfigService {
 
   async getCurrentRuntimeConfig(): Promise<SessionRuntimeData | null> {
     return await this.webSessionService.getSession();
+  }
+
+  async getDownloadCenterRequestConfig(
+    fallbackConfig: ChangduConfig,
+  ): Promise<DownloadCenterRequestConfig> {
+    const now = Date.now();
+    if (
+      this.downloadCenterConfigCache.data &&
+      this.downloadCenterConfigCache.expireAt > now
+    ) {
+      return this.downloadCenterConfigCache.data;
+    }
+
+    try {
+      const axios = (await import("axios")).default;
+      const response = await axios.get(
+        "https://cxyy.top/api/public/download-center/default",
+        {
+          timeout: 15000,
+        },
+      );
+
+      const raw = response.data;
+      const data = raw?.data && typeof raw.data === "object" ? raw.data : raw;
+
+      if (!data || typeof data !== "object") {
+        throw new Error("响应数据为空");
+      }
+
+      const remoteConfig: DownloadCenterRequestConfig = {
+        cookie: String(data.cookie || "").trim(),
+        distributorId: String(data.distributorId || "").trim(),
+        changduAppId: String(data.appId || "").trim(),
+        changduAdUserId: String(data.adUserId || "").trim(),
+        changduRootAdUserId: String(
+          data.rootAdUserId || data.adUserId || "",
+        ).trim(),
+        appType: String(data.appType || "7").trim() || "7",
+      };
+
+      if (
+        !remoteConfig.cookie ||
+        !remoteConfig.distributorId ||
+        !remoteConfig.changduAppId ||
+        !remoteConfig.changduAdUserId
+      ) {
+        throw new Error("默认下载中心配置字段不完整");
+      }
+
+      this.downloadCenterConfigCache = {
+        data: remoteConfig,
+        expireAt: now + 5 * 60 * 1000,
+      };
+
+      console.log("[ConfigService] 已加载远程下载中心默认配置");
+      return remoteConfig;
+    } catch (error) {
+      console.warn(
+        "[ConfigService] 获取远程下载中心默认配置失败，回退当前常读配置:",
+        error,
+      );
+
+      return {
+        ...fallbackConfig,
+        appType: "7",
+      };
+    }
   }
 
   private mapRuntimeToApiConfig(runtimeConfig: SessionRuntimeData): ApiConfig {

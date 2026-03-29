@@ -1,7 +1,12 @@
 import axios, { AxiosRequestConfig } from 'axios'
 import fs from 'fs'
 import FormData from 'form-data'
-import type { ConfigService, ApiConfig } from './config.service'
+import type {
+  ConfigService,
+  ApiConfig,
+  ChangduConfig,
+  DownloadCenterRequestConfig,
+} from './config.service'
 import {
   FIXED_FEISHU_APP_ID,
   FIXED_FEISHU_APP_SECRET,
@@ -537,7 +542,7 @@ export class ApiService {
     const apiConfig = await configService.getApiConfig()
 
     // 根据 configType 选择配置
-    let changduConfig
+    let changduConfig: ChangduConfig
     if (configType === 'custom' && customConfig) {
       changduConfig = customConfig
       console.log('[ApiService] 使用定制配置')
@@ -547,6 +552,16 @@ export class ApiService {
       changduConfig = apiConfig.sanrouChangdu
     }
 
+    const isDownloadCenterRequest = endpoint.includes(
+      '/node/api/platform/distributor/download_center/'
+    )
+    const requestConfig: DownloadCenterRequestConfig = isDownloadCenterRequest
+      ? await configService.getDownloadCenterRequestConfig(changduConfig)
+      : {
+          ...changduConfig,
+          appType: '7',
+        }
+
     const url = new URL(`https://www.changdunovel.com${endpoint}`)
     Object.entries(params).forEach(([key, value]) => {
       url.searchParams.append(key, String(value))
@@ -554,18 +569,19 @@ export class ApiService {
 
     const requestHeaders = {
       ...headers,
-      Cookie: changduConfig.cookie,
-      Appid: changduConfig.changduAppId || '40012555',
-      Apptype: '7',
-      Distributorid: changduConfig.distributorId,
-      Aduserid: changduConfig.changduAdUserId,
-      Rootaduserid: changduConfig.changduRootAdUserId
+      Cookie: requestConfig.cookie,
+      Appid: requestConfig.changduAppId || '40012555',
+      Apptype: requestConfig.appType || '7',
+      Distributorid: requestConfig.distributorId,
+      Aduserid: requestConfig.changduAdUserId,
+      Rootaduserid:
+        requestConfig.changduRootAdUserId || requestConfig.changduAdUserId
     }
 
     console.log('[ApiService] 完整请求 URL:', url.toString())
     console.log('[ApiService] 请求头:', {
       ...requestHeaders,
-      Cookie: changduConfig.cookie ? `${changduConfig.cookie.substring(0, 50)}...` : 'no cookie'
+      Cookie: requestConfig.cookie ? `${requestConfig.cookie.substring(0, 50)}...` : 'no cookie'
     })
 
     const response = await axios.get(url.toString(), {
