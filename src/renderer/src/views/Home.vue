@@ -16,18 +16,20 @@ onMounted(async () => {
   }
 
   // 根据权限重定向到正确的页面
-  if (authStore.isAdmin || darenStore.canUpload) {
-    router.replace("/upload");
+  if (authStore.isAdmin) {
+    router.replace("/download");
   } else if (darenStore.canDownload) {
     router.replace("/download");
-  } else if (darenStore.canJuliang) {
-    router.replace("/juliang");
-  } else if (darenStore.canJuliangBuild) {
-    router.replace("/juliang-build");
-  } else if (darenStore.canUploadBuild) {
-    router.replace("/upload-build");
   } else if (darenStore.canMaterialClip) {
     router.replace("/material-clip");
+  } else if (darenStore.canUpload) {
+    router.replace("/upload");
+  } else if (darenStore.canJuliang) {
+    router.replace("/juliang");
+  } else if (darenStore.canUploadBuild) {
+    router.replace("/upload-build");
+  } else if (darenStore.canJuliangBuild) {
+    router.replace("/juliang-build");
   } else {
     // 没有任何权限，跳转到登录页
     router.replace("/login");

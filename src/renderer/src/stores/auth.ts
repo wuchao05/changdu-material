@@ -1,62 +1,48 @@
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { computed } from "vue";
+import { defineStore } from "pinia";
+import { storeToRefs } from "pinia";
+import { useSessionStore } from "./session";
 
 export interface UserInfo {
-  id: string
-  label: string
-  isAdmin: boolean
+  id: string;
+  label: string;
+  isAdmin: boolean;
 }
 
-export const useAuthStore = defineStore('auth', () => {
-  // State
-  const token = ref<string | null>(localStorage.getItem('auth-token'))
-  const currentUser = ref<UserInfo | null>(null)
+export const useAuthStore = defineStore("auth", () => {
+  const sessionStore = useSessionStore();
+  const { isAuthenticated, isAdmin, currentUser } = storeToRefs(sessionStore);
 
-  // Computed
-  const isLoggedIn = computed(() => !!token.value)
-  const isAdmin = computed(() => currentUser.value?.isAdmin === true)
+  const token = computed<string | null>(() =>
+    isAuthenticated.value ? "session-authenticated" : null,
+  );
 
-  // Actions
-  function login(user: UserInfo, authToken: string) {
-    token.value = authToken
-    currentUser.value = user
-    localStorage.setItem('auth-token', authToken)
-    localStorage.setItem('auth-user', JSON.stringify(user))
-  }
-
-  function logout() {
-    token.value = null
-    currentUser.value = null
-    localStorage.removeItem('auth-token')
-    localStorage.removeItem('auth-user')
-  }
-
-  function loadFromStorage() {
-    const savedToken = localStorage.getItem('auth-token')
-    const savedUser = localStorage.getItem('auth-user')
-    
-    if (savedToken && savedUser) {
-      token.value = savedToken
-      try {
-        currentUser.value = JSON.parse(savedUser)
-      } catch {
-        currentUser.value = null
-      }
+  const normalizedCurrentUser = computed<UserInfo | null>(() => {
+    if (!currentUser.value) {
+      return null;
     }
+
+    return {
+      id: currentUser.value.id,
+      label: currentUser.value.nickname || currentUser.value.account || currentUser.value.id,
+      isAdmin: isAdmin.value,
+    };
+  });
+
+  async function logout() {
+    await sessionStore.logout();
   }
 
-  // 初始化时从 localStorage 加载
-  loadFromStorage()
+  async function loadFromStorage() {
+    await sessionStore.loadSession();
+  }
 
   return {
     token,
-    currentUser,
-    isLoggedIn,
+    currentUser: normalizedCurrentUser,
+    isLoggedIn: isAuthenticated,
     isAdmin,
-    login,
     logout,
-    loadFromStorage
-  }
-}, {
-  persist: false // 我们手动处理持久化
-})
+    loadFromStorage,
+  };
+});

@@ -14,7 +14,6 @@ import {
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
 import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
-import { useAuthStore } from "../stores/auth";
 import { useDarenStore, type DarenInfo } from "../stores/daren";
 import { useApiConfigStore } from "../stores/apiConfig";
 
@@ -57,7 +56,6 @@ interface HistoryRow extends SchedulerTaskHistory {
 }
 
 const message = useMessage();
-const authStore = useAuthStore();
 const darenStore = useDarenStore();
 const apiConfigStore = useApiConfigStore();
 
@@ -87,15 +85,6 @@ const intervalOptions = [
   { label: "1.5 小时", value: 90 },
   { label: "2 小时", value: 120 },
 ];
-
-const adminDarenOptions = computed(() =>
-  darenStore.darenList
-    .filter((item) => item.feishuDramaStatusTableId?.trim())
-    .map((item) => ({
-      label: `${item.label} (${item.id})`,
-      value: item.id,
-    })),
-);
 
 const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
 const currentTableId = computed(
@@ -369,25 +358,6 @@ function isDramaBuilding(record: PendingDramaRecord): boolean {
 async function ensureBaseConfigLoaded() {
   if (!apiConfigStore.loaded) {
     await apiConfigStore.loadConfig();
-  }
-}
-
-async function ensureCurrentDarenSelected() {
-  if (!authStore.isAdmin) return;
-  const selectedId = darenStore.selectedDarenId;
-  const hasSelected = selectedId
-    ? darenStore.darenList.some((item) => item.id === selectedId)
-    : false;
-
-  if (hasSelected) return;
-
-  const fallbackDaren =
-    darenStore.darenList.find((item) => item.enableJuliangBuild) ||
-    darenStore.darenList.find((item) => item.feishuDramaStatusTableId?.trim()) ||
-    null;
-
-  if (fallbackDaren) {
-    darenStore.setSelectedDaren(fallbackDaren.id);
   }
 }
 
@@ -831,7 +801,6 @@ watch(
 onMounted(async () => {
   await ensureBaseConfigLoaded();
   await darenStore.loadFromServer(true);
-  await ensureCurrentDarenSelected();
   await refreshAll();
   syncStatusPollTimer();
 });
@@ -847,15 +816,9 @@ onUnmounted(() => {
       <div class="hero-row">
         <div class="hero-title">巨量搭建</div>
         <NSpace class="hero-actions" wrap>
-          <NSelect
-            v-if="authStore.isAdmin"
-            v-model:value="darenStore.selectedDarenId"
-            class="daren-select"
-            placeholder="请选择达人"
-            :options="adminDarenOptions"
-            clearable
-            @update:value="darenStore.setSelectedDaren"
-          />
+          <NTag v-if="apiConfigStore.config.channelName" type="info" size="small">
+            {{ apiConfigStore.config.channelName }}
+          </NTag>
           <NButton quaternary class="hero-action-btn" :loading="refreshing" @click="refreshAll()">
             刷新
           </NButton>

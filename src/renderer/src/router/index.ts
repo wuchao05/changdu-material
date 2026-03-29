@@ -4,7 +4,7 @@ import type { RouteRecordRaw } from "vue-router";
 const routes: RouteRecordRaw[] = [
   {
     path: "/",
-    redirect: "/home", // 临时重定向，会在 AppContent 中根据权限重新路由
+    redirect: "/home",
   },
   {
     path: "/home",
@@ -22,43 +22,43 @@ const routes: RouteRecordRaw[] = [
     path: "/upload",
     name: "Upload",
     component: () => import("../views/Upload.vue"),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, menuKey: "upload" },
   },
   {
     path: "/download",
     name: "Download",
     component: () => import("../views/Download.vue"),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, menuKey: "download" },
   },
   {
     path: "/settings",
     name: "Settings",
     component: () => import("../views/Settings.vue"),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, requiresAdmin: true },
   },
   {
     path: "/juliang",
     name: "Juliang",
     component: () => import("../views/JuliangUpload.vue"),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, menuKey: "juliangUpload" },
   },
   {
     path: "/upload-build",
     name: "UploadBuild",
     component: () => import("../views/UploadBuild.vue"),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, menuKey: "uploadBuild" },
   },
   {
     path: "/juliang-build",
     name: "JuliangBuild",
     component: () => import("../views/JuliangBuild.vue"),
-    meta: { requiresAuth: true, requiresJuliangBuild: true },
+    meta: { requiresAuth: true, menuKey: "juliangBuild" },
   },
   {
     path: "/material-clip",
     name: "MaterialClip",
     component: () => import("../views/MaterialClip.vue"),
-    meta: { requiresAuth: true, requiresMaterialClip: true },
+    meta: { requiresAuth: true, menuKey: "materialClip" },
   },
 ];
 
@@ -67,71 +67,53 @@ const router = createRouter({
   routes,
 });
 
-// 路由守卫
-router.beforeEach(async (to, _from, next) => {
-  const isLoggedIn = localStorage.getItem("auth-token");
-  const userText = localStorage.getItem("auth-user");
-  const darenCacheText = localStorage.getItem("daren-list-cache");
-  let isAdmin = false;
-  let currentUserId = "";
-  let canMaterialClip = false;
-  let canJuliangBuild = false;
-
-  if (userText) {
-    try {
-      const user = JSON.parse(userText) as { isAdmin?: boolean; id?: string };
-      isAdmin = user.isAdmin === true;
-      currentUserId = user.id || "";
-    } catch {
-      isAdmin = false;
-      currentUserId = "";
-    }
+function resolveDefaultRoute(session: SessionRuntimeData | null): string {
+  if (!session) {
+    return "/login";
   }
 
-  if (darenCacheText && currentUserId) {
-    try {
-      const cache = JSON.parse(darenCacheText) as {
-        list?: Array<{ id: string; enableMaterialClip?: boolean }>;
-      };
-      const currentDaren = cache.list?.find(
-        (item) => item.id === currentUserId,
-      );
-      canMaterialClip = currentDaren?.enableMaterialClip === true;
-      canJuliangBuild = currentDaren?.enableJuliangBuild === true;
-    } catch {
-      canMaterialClip = false;
-      canJuliangBuild = false;
-    }
+  if (session.user.userType === "admin") {
+    return "/download";
   }
 
-  if (
-    (to.meta.requiresMaterialClip || to.meta.requiresJuliangBuild) &&
-    !isAdmin &&
-    currentUserId
-  ) {
-    try {
-      const latestConfig = await window.api.getDarenConfig();
-      const currentDaren = latestConfig.darenList?.find(
-        (item) => item.id === currentUserId,
-      );
-      canMaterialClip = currentDaren?.enableMaterialClip === true;
-      canJuliangBuild = currentDaren?.enableJuliangBuild === true;
-    } catch {}
-  }
+  const menus = session.runtimeUser?.permissions?.desktopMenus;
+  if (menus?.download) return "/download";
+  if (menus?.materialClip) return "/material-clip";
+  if (menus?.upload) return "/upload";
+  if (menus?.juliangUpload) return "/juliang";
+  if (menus?.uploadBuild) return "/upload-build";
+  if (menus?.juliangBuild) return "/juliang-build";
+  return "/login";
+}
+
+router.beforeEach(async (to) => {
+  const session = await window.api.sessionGet();
+  const isLoggedIn = Boolean(session?.user?.id);
+  const isAdmin = session?.user?.userType === "admin";
+  const desktopMenus = session?.runtimeUser?.permissions?.desktopMenus;
 
   if (to.meta.requiresAuth && !isLoggedIn) {
-    next("/login");
-  } else if (to.meta.requiresAdmin && !isAdmin) {
-    next("/home");
-  } else if (to.meta.requiresJuliangBuild && !(isAdmin || canJuliangBuild)) {
-    next("/home");
-  } else if (to.meta.requiresMaterialClip && !(isAdmin || canMaterialClip)) {
-    next("/home");
-  } else if (to.path === "/login" && isLoggedIn) {
-    next("/home"); // 让 Home 页面根据权限重定向
-  } else {
-    next();
+    return "/login";
   }
+
+  if (to.path === "/login" && isLoggedIn) {
+    return resolveDefaultRoute(session);
+  }
+
+  if (to.meta.requiresAdmin && !isAdmin) {
+    return resolveDefaultRoute(session || null);
+  }
+
+  if (!isLoggedIn || isAdmin) {
+    return true;
+  }
+
+  const menuKey = typeof to.meta.menuKey === "string" ? to.meta.menuKey : "";
+  if (menuKey && !desktopMenus?.[menuKey as keyof DesktopMenus]) {
+    return resolveDefaultRoute(session || null);
+  }
+
+  return true;
 });
 
 export default router;

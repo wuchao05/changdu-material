@@ -62,9 +62,11 @@ import { juliangService } from "./services/juliang.service";
 import { DailyBuildService } from "./services/daily-build.service";
 import { getJuliangScheduler } from "./services/juliang-scheduler.service";
 import { MaterialClipService } from "./services/material-clip.service";
+import { WebSessionService } from "./services/web-session.service";
 
 // 初始化服务
-const configService = new ConfigService();
+const webSessionService = new WebSessionService();
+const configService = new ConfigService(webSessionService);
 const fileService = new FileService();
 const downloadService = new DownloadService();
 const apiService = new ApiService();
@@ -193,6 +195,32 @@ function registerIpcHandlers(): void {
     return { success: true };
   });
 
+  // ==================== Web 会话 ====================
+  ipcMain.handle("session:login", async (_event, account, password) => {
+    return await webSessionService.login(account, password);
+  });
+
+  ipcMain.handle("session:get", async () => {
+    return await webSessionService.getSession();
+  });
+
+  ipcMain.handle("session:switchChannel", async (_event, channelId) => {
+    return await webSessionService.switchChannel(channelId);
+  });
+
+  ipcMain.handle("session:logout", async () => {
+    await webSessionService.logout();
+    return { success: true };
+  });
+
+  ipcMain.handle("admin:listUsers", async () => {
+    return await webSessionService.listUsers();
+  });
+
+  ipcMain.handle("admin:updateUser", async (_event, id, payload) => {
+    return await webSessionService.updateUser(id, payload);
+  });
+
   // ==================== 配置管理 ====================
   ipcMain.handle("config:getDaren", async () => {
     return await configService.getDarenConfig();
@@ -216,20 +244,6 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("config:saveApiConfig", async (_event, config) => {
     return await configService.saveApiConfig(config);
-  });
-
-  // Auth 配置获取（从 cxyy.top）
-  ipcMain.handle("config:fetchAuthConfig", async () => {
-    return await configService.fetchAuthConfig();
-  });
-
-  // 远程配置同步
-  ipcMain.handle("config:syncFromRemote", async () => {
-    return await configService.syncFromRemote();
-  });
-
-  ipcMain.handle("config:pushToRemote", async () => {
-    return await configService.pushToRemote();
   });
 
   ipcMain.handle("clip:getConfig", async (_event, config) => {
@@ -259,6 +273,27 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("clip:refreshPending", async (_event, config) => {
     return await materialClipService.refreshPendingQueue(config);
+  });
+
+  ipcMain.handle("clip:getAiHighlightState", async () => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.getAiHighlightState();
+  });
+
+  ipcMain.handle("clip:refreshAiHighlight", async (_event, config) => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.refreshAiHighlightQueue(config);
+  });
+
+  ipcMain.handle("clip:runAiHighlight", async (_event, config) => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.runAiHighlightRecognition(config);
   });
 
   ipcMain.handle("clip:autoRun", async (_event, config) => {
@@ -784,11 +819,6 @@ app.whenReady().then(() => {
     materialClipService.setMainWindow(mainWindow);
   }
   createTray();
-
-  // 启动时静默获取 Auth 配置，失败不阻塞
-  configService.fetchAuthConfig().catch((err) => {
-    console.error("[Main] 启动时获取 Auth 配置失败:", err);
-  });
 
   // 全局快捷键：F12 打开开发者工具（用于调试打包后的应用）
   globalShortcut.register("F12", () => {

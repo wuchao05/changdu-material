@@ -19,13 +19,13 @@ import {
   NTooltip,
   useMessage,
 } from "naive-ui";
-import { useAuthStore } from "../stores/auth";
 import {
   useDarenStore,
   type DarenInfo,
   type DouyinMaterialRule,
   type UploadBuildSettings,
 } from "../stores/daren";
+import { useSessionStore } from "../stores/session";
 
 type UploadStatus = "pending" | "uploading" | "uploaded" | "failed";
 type BuildStatus = "idle" | "building" | "built" | "failed" | "cancelled";
@@ -134,8 +134,8 @@ const COLLAPSIBLE_SECTION_NAMES = [
   "upload-list",
 ];
 
-const authStore = useAuthStore();
 const darenStore = useDarenStore();
+const sessionStore = useSessionStore();
 const message = useMessage();
 
 const rootDir = ref("");
@@ -155,7 +155,6 @@ const buildSettings = ref<UploadBuildSettings>(createDefaultBuildSettings());
 const ruleModalVisible = ref(false);
 const editingRuleId = ref<string | null>(null);
 const ruleForm = ref<DouyinMaterialRule>(createEmptyRule());
-const isPushingRemoteConfig = ref(false);
 
 const uploadConfig = ref({
   baseUploadUrl: "",
@@ -199,14 +198,6 @@ const activeBuildRow = computed(
   () => rows.value.find((row) => row.buildStatus === "building") || null,
 );
 const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
-const darenOptions = computed(() =>
-  darenStore.darenList
-    .filter((item) => authStore.isAdmin || item.enableUploadBuild)
-    .map((item) => ({
-      label: `${item.label} (${item.id})`,
-      value: item.id,
-    })),
-);
 const validDouyinRules = computed(() =>
   buildSettings.value.douyinMaterialRules.filter(
     (rule) =>
@@ -519,21 +510,6 @@ function getBuildButtonText(row: DramaUploadRow) {
   return "开始搭建";
 }
 
-function handleAdminDarenChange(value: string | null) {
-  darenStore.setSelectedDaren(value);
-}
-
-function ensureAdminSelectedDaren() {
-  if (!authStore.isAdmin) return;
-  if (darenStore.currentDaren) return;
-  const preferred =
-    darenStore.darenList.find((item) => item.enableUploadBuild) ||
-    darenStore.darenList[0];
-  if (preferred) {
-    darenStore.setSelectedDaren(preferred.id);
-  }
-}
-
 function schedulePersistBuildSettings() {
   if (syncingBuildSettings || !currentDaren.value) {
     return;
@@ -568,34 +544,6 @@ async function persistBuildSettingsNow() {
   await darenStore.updateDaren(currentDaren.value.id, {
     uploadBuildSettings: payload,
   });
-}
-
-async function handlePushRemoteConfig() {
-  if (isPushingRemoteConfig.value) {
-    return;
-  }
-
-  if (!currentDaren.value) {
-    message.warning("请先选择达人后再推送配置");
-    return;
-  }
-
-  isPushingRemoteConfig.value = true;
-  try {
-    await persistBuildSettingsNow();
-    const result = await window.api.pushRemoteConfig();
-    if (!result.success) {
-      throw new Error(result.error || "推送失败");
-    }
-    message.success("上传搭建配置已推送到服务器，其他电脑登录后会自动同步");
-  } catch (error) {
-    console.error("推送远程配置失败:", error);
-    message.error(
-      `推送配置失败：${error instanceof Error ? error.message : String(error)}`,
-    );
-  } finally {
-    isPushingRemoteConfig.value = false;
-  }
 }
 
 watch(
@@ -1723,7 +1671,6 @@ onMounted(async () => {
   if (!darenStore.darenList.length) {
     await darenStore.loadFromServer(true);
   }
-  ensureAdminSelectedDaren();
 
   await loadUploadConfig();
 
@@ -1797,19 +1744,11 @@ onUnmounted(() => {
   <div class="upload-build-page">
     <div class="page-actions">
       <div class="page-actions-copy">
-        <div class="page-actions-title">配置同步</div>
+        <div class="page-actions-title">本地配置</div>
         <div class="page-actions-desc">
-          点击后会把当前达人在本页维护的达人名称、素材名称模板、搭建参数配置、抖音号匹配素材规则一起推送到服务器。
+          当前页面的达人名称、素材名称模板和搭建参数仅保存在当前登录用户的当前渠道下，不再推送到服务器。
         </div>
       </div>
-      <NButton
-        type="primary"
-        :loading="isPushingRemoteConfig"
-        :disabled="!currentDaren"
-        @click="handlePushRemoteConfig"
-      >
-        {{ isPushingRemoteConfig ? "推送中..." : "推送配置到服务器" }}
-      </NButton>
     </div>
 
     <div class="status-bar">
@@ -1901,16 +1840,15 @@ onUnmounted(() => {
             {{ isScanning ? "扫描中..." : "重新扫描" }}
           </NButton>
         </div>
-        <div v-if="authStore.isAdmin" class="toolbar-main">
-          <span class="toolbar-label">当前达人</span>
-          <NSelect
-            :value="darenStore.selectedDarenId"
-            :options="darenOptions"
-            class="toolbar-select"
-            placeholder="请选择要配置的达人"
-            @update:value="handleAdminDarenChange"
+        <div class="toolbar-main">
+          <span class="toolbar-label">当前渠道</span>
+          <NInput
+            :value="sessionStore.currentChannel?.name || ''"
+            class="toolbar-input"
+            readonly
+            placeholder="请先登录并选择渠道"
           />
-          <span class="toolbar-hint">上传搭建配置按达人隔离存储</span>
+          <span class="toolbar-hint">上传搭建配置按登录用户和渠道隔离存储</span>
         </div>
         <div class="toolbar-hint">
           目录结构：指定目录 / 剧名文件夹 / 素材视频文件
@@ -1940,7 +1878,7 @@ onUnmounted(() => {
           <div class="table-header">
             <span>搭建参数配置</span>
             <span class="table-header-desc"
-              >修改后立即生效，仅作用于当前达人</span
+              >修改后立即生效，仅作用于当前登录用户的当前渠道</span
             >
           </div>
         </template>

@@ -1,28 +1,7 @@
-import { defineStore } from "pinia";
-import { ref, computed, toRaw } from "vue";
-import { useAuthStore } from "./auth";
-
-export interface DarenInfo {
-  id: string; // 账户
-  label: string; // 名称
-  password?: string; // 登录密码
-  feishuDramaStatusTableId?: string; // 飞书剧集状态表 ID
-  enableUpload?: boolean; // 启用上传功能
-  enableDownload?: boolean; // 启用下载功能
-  enableJuliang?: boolean; // 启用巨量上传功能
-  enableJuliangBuild?: boolean; // 启用巨量搭建功能
-  enableUploadBuild?: boolean; // 启用上传搭建功能
-  enableMaterialClip?: boolean;
-  changduConfigType?: "sanrou" | "meiri" | "custom"; // 常读配置类型：散柔/每日/定制
-  customChangduConfig?: {
-    cookie: string;
-    distributorId: string;
-    changduAppId: string;
-    changduAdUserId: string;
-    changduRootAdUserId: string;
-  }; // 定制的常读配置
-  uploadBuildSettings?: UploadBuildSettings; // 上传搭建配置
-}
+import { computed, ref } from "vue";
+import { defineStore, storeToRefs } from "pinia";
+import { useApiConfigStore } from "./apiConfig";
+import { useSessionStore } from "./session";
 
 export interface UploadBuildParams {
   distributorId: string;
@@ -56,174 +35,210 @@ export interface UploadBuildSettings {
   douyinMaterialRules: DouyinMaterialRule[];
 }
 
-export const useDarenStore = defineStore("daren", () => {
-  const authStore = useAuthStore();
+export interface DarenInfo {
+  id: string;
+  label: string;
+  feishuDramaStatusTableId?: string;
+  enableUpload?: boolean;
+  enableDownload?: boolean;
+  enableJuliang?: boolean;
+  enableJuliangBuild?: boolean;
+  enableUploadBuild?: boolean;
+  enableMaterialClip?: boolean;
+  uploadBuildSettings?: UploadBuildSettings;
+}
 
-  // State
+function createDefaultBuildSettings(nickname = "小鱼"): UploadBuildSettings {
+  return {
+    buildParams: {
+      distributorId: "",
+      secretKey: "",
+      source: "",
+      bid: 5,
+      productId: "",
+      productPlatformId: "",
+      landingUrl: "",
+      microAppName: "",
+      microAppId: "",
+      ccId: "",
+      rechargeTemplateId: "",
+    },
+    darenName: nickname,
+    materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
+    materialDateValue: "",
+    douyinMaterialRules: [],
+  };
+}
+
+function normalizeRule(
+  rule?: Partial<DouyinMaterialRule>,
+): DouyinMaterialRule {
+  const now = new Date().toISOString();
+  return {
+    id: rule?.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    douyinAccount: rule?.douyinAccount?.trim() || "",
+    douyinAccountId: rule?.douyinAccountId?.trim() || "",
+    shortName: rule?.shortName?.trim() || "",
+    materialRange: rule?.materialRange?.trim() || "",
+    createdAt: rule?.createdAt || now,
+    updatedAt: rule?.updatedAt || now,
+  };
+}
+
+function normalizeBuildSettings(
+  settings: Partial<UploadBuildSettings> | undefined,
+  nickname: string,
+): UploadBuildSettings {
+  const defaults = createDefaultBuildSettings(nickname);
+  return {
+    buildParams: {
+      ...defaults.buildParams,
+      ...(settings?.buildParams || {}),
+    },
+    darenName: settings?.darenName?.trim() || defaults.darenName,
+    materialFilenameTemplate:
+      settings?.materialFilenameTemplate?.trim() ||
+      defaults.materialFilenameTemplate,
+    materialDateValue: settings?.materialDateValue?.trim() || "",
+    douyinMaterialRules: Array.isArray(settings?.douyinMaterialRules)
+      ? settings.douyinMaterialRules.map((rule) => normalizeRule(rule))
+      : [],
+  };
+}
+
+function buildSettingsStorageKey(userId: string, channelId: string) {
+  return `upload-build-settings:${userId}:${channelId}`;
+}
+
+export const useDarenStore = defineStore("daren", () => {
+  const sessionStore = useSessionStore();
+  const apiConfigStore = useApiConfigStore();
+  const { currentRuntimeUser, currentChannel, desktopMenus, currentUser, isAdmin } =
+    storeToRefs(sessionStore);
+
+  const loading = ref(false);
+  const buildSettings = ref<UploadBuildSettings | null>(null);
   const darenList = ref<DarenInfo[]>([]);
   const selectedDarenId = ref<string | null>(null);
-  const loading = ref(false);
 
-  // Computed
-  const currentDaren = computed(() => {
-    const userId = selectedDarenId.value || authStore.currentUser?.id;
-    return darenList.value.find((d) => d.id === userId) || null;
-  });
-
-  // 功能权限
-  const canUpload = computed(() => {
-    // 管理员默认拥有所有权限
-    if (authStore.isAdmin) {
-      return true;
+  const currentDaren = computed<DarenInfo | null>(() => {
+    const runtimeUser = currentRuntimeUser.value;
+    if (!runtimeUser || !currentChannel.value) {
+      return null;
     }
-    // 达人根据配置判断
-    return currentDaren.value?.enableUpload === true;
+
+    return {
+      id: runtimeUser.id,
+      label: runtimeUser.nickname || runtimeUser.account || runtimeUser.id,
+      feishuDramaStatusTableId: apiConfigStore.config.dramaStatusTableId,
+      enableUpload: desktopMenus.value.upload,
+      enableDownload: desktopMenus.value.download,
+      enableJuliang: desktopMenus.value.juliangUpload,
+      enableJuliangBuild: desktopMenus.value.juliangBuild,
+      enableUploadBuild: desktopMenus.value.uploadBuild,
+      enableMaterialClip: desktopMenus.value.materialClip,
+      uploadBuildSettings: buildSettings.value || undefined,
+    };
   });
 
-  const canDownload = computed(() => {
-    // 管理员默认拥有所有权限
-    if (authStore.isAdmin) {
-      return true;
+  const canUpload = computed(() => desktopMenus.value.upload || isAdmin.value);
+  const canDownload = computed(() => desktopMenus.value.download || isAdmin.value);
+  const canJuliang = computed(() => desktopMenus.value.juliangUpload || isAdmin.value);
+  const canUploadBuild = computed(() => desktopMenus.value.uploadBuild || isAdmin.value);
+  const canJuliangBuild = computed(() => desktopMenus.value.juliangBuild || isAdmin.value);
+  const canMaterialClip = computed(() => desktopMenus.value.materialClip || isAdmin.value);
+
+  function loadBuildSettingsFromStorage() {
+    const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";
+    const channelId = currentChannel.value?.id || "";
+    const nickname =
+      currentRuntimeUser.value?.nickname ||
+      currentUser.value?.nickname ||
+      "小鱼";
+
+    if (!userId || !channelId) {
+      buildSettings.value = normalizeBuildSettings(undefined, nickname);
+      return;
     }
-    // 达人根据配置判断
-    return currentDaren.value?.enableDownload === true;
-  });
 
-  const canJuliang = computed(() => {
-    // 管理员默认拥有所有权限
-    if (authStore.isAdmin) {
-      return true;
-    }
-    // 达人根据配置判断
-    return currentDaren.value?.enableJuliang === true;
-  });
-
-  const canUploadBuild = computed(() => {
-    if (authStore.isAdmin) {
-      return true;
-    }
-    return currentDaren.value?.enableUploadBuild === true;
-  });
-
-  const canJuliangBuild = computed(() => {
-    if (authStore.isAdmin) {
-      return true;
-    }
-    return currentDaren.value?.enableJuliangBuild === true;
-  });
-
-  const canMaterialClip = computed(() => {
-    if (authStore.isAdmin) {
-      return true;
-    }
-    return currentDaren.value?.enableMaterialClip === true;
-  });
-
-  // Actions
-  async function loadFromServer(forceRefresh = false) {
-    if (loading.value) return;
-
-    // 尝试从缓存加载
-    if (!forceRefresh) {
-      const cached = localStorage.getItem("daren-list-cache");
-      if (cached) {
-        try {
-          const data = JSON.parse(cached);
-          if (Date.now() - data.timestamp < 24 * 60 * 60 * 1000) {
-            darenList.value = data.list;
-            return;
-          }
-        } catch {
-          // 忽略缓存错误
-        }
+    try {
+      const raw = localStorage.getItem(buildSettingsStorageKey(userId, channelId));
+      if (!raw) {
+        buildSettings.value = normalizeBuildSettings(undefined, nickname);
+        return;
       }
+      buildSettings.value = normalizeBuildSettings(
+        JSON.parse(raw) as Partial<UploadBuildSettings>,
+        nickname,
+      );
+    } catch (error) {
+      console.warn("加载上传搭建本地配置失败:", error);
+      buildSettings.value = normalizeBuildSettings(undefined, nickname);
+    }
+  }
+
+  function saveBuildSettingsToStorage(nextSettings: Partial<UploadBuildSettings>) {
+    const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";
+    const channelId = currentChannel.value?.id || "";
+    const nickname =
+      currentRuntimeUser.value?.nickname ||
+      currentUser.value?.nickname ||
+      "小鱼";
+
+    if (!userId || !channelId) {
+      buildSettings.value = normalizeBuildSettings(nextSettings, nickname);
+      return buildSettings.value;
+    }
+
+    const normalizedSettings = normalizeBuildSettings(nextSettings, nickname);
+    localStorage.setItem(
+      buildSettingsStorageKey(userId, channelId),
+      JSON.stringify(normalizedSettings),
+    );
+    buildSettings.value = normalizedSettings;
+    return normalizedSettings;
+  }
+
+  async function loadFromServer(forceRefresh = false) {
+    if (loading.value && !forceRefresh) {
+      return;
     }
 
     loading.value = true;
     try {
-      const result = await window.api.getDarenConfig();
-      darenList.value = result.darenList || [];
-
-      // 缓存到本地
-      localStorage.setItem(
-        "daren-list-cache",
-        JSON.stringify({
-          timestamp: Date.now(),
-          list: darenList.value,
-        }),
-      );
-    } catch (error) {
-      console.error("加载达人配置失败:", error);
+      const session = await sessionStore.loadSession(forceRefresh);
+      apiConfigStore.applySessionData(session);
+      loadBuildSettingsFromStorage();
+      darenList.value = currentDaren.value ? [currentDaren.value] : [];
+      selectedDarenId.value = currentDaren.value?.id || null;
     } finally {
       loading.value = false;
     }
   }
 
-  async function addDaren(daren: DarenInfo) {
-    // 转换为纯对象，避免 IPC 克隆错误
-    const plainDaren = JSON.parse(JSON.stringify(toRaw(daren)));
-    const result = await window.api.addDaren(plainDaren);
-    darenList.value.push(result);
-    updateCache();
-    return result;
-  }
-
   async function updateDaren(id: string, updates: Partial<DarenInfo>) {
-    // 转换为纯对象，避免 IPC 克隆错误
-    const plainUpdates = JSON.parse(JSON.stringify(toRaw(updates)));
-    const result = await window.api.updateDaren(id, plainUpdates);
-    const index = darenList.value.findIndex((d) => d.id === id);
-    if (index >= 0) {
-      if (updates.id && updates.id !== id) {
-        darenList.value.splice(index, 1);
-        darenList.value.push(result);
-      } else {
-        darenList.value[index] = result;
-      }
+    if (id !== currentDaren.value?.id) {
+      throw new Error("当前只支持更新当前登录用户在当前渠道下的本地配置");
     }
-    updateCache();
-    return result;
-  }
 
-  async function deleteDaren(id: string) {
-    await window.api.deleteDaren(id);
-    const index = darenList.value.findIndex((d) => d.id === id);
-    if (index >= 0) {
-      darenList.value.splice(index, 1);
-    }
-    if (selectedDarenId.value === id) {
-      selectedDarenId.value = null;
-    }
-    updateCache();
+    const nextSettings = saveBuildSettingsToStorage(
+      updates.uploadBuildSettings || currentDaren.value?.uploadBuildSettings,
+    );
+    const nextDaren = {
+      ...currentDaren.value,
+      ...updates,
+      uploadBuildSettings: nextSettings,
+    } as DarenInfo;
+    darenList.value = [nextDaren];
+    return nextDaren;
   }
 
   function setSelectedDaren(id: string | null) {
     selectedDarenId.value = id;
-    if (id) {
-      localStorage.setItem("selected-daren-id", id);
-    } else {
-      localStorage.removeItem("selected-daren-id");
-    }
   }
 
   function findDarenById(id: string): DarenInfo | undefined {
-    return darenList.value.find((d) => d.id === id);
-  }
-
-  function updateCache() {
-    localStorage.setItem(
-      "daren-list-cache",
-      JSON.stringify({
-        timestamp: Date.now(),
-        list: darenList.value,
-      }),
-    );
-  }
-
-  // 初始化时加载选中的达人 ID
-  const savedSelectedId = localStorage.getItem("selected-daren-id");
-  if (savedSelectedId) {
-    selectedDarenId.value = savedSelectedId;
+    return darenList.value.find((item) => item.id === id);
   }
 
   return {
@@ -238,9 +253,7 @@ export const useDarenStore = defineStore("daren", () => {
     canUploadBuild,
     canMaterialClip,
     loadFromServer,
-    addDaren,
     updateDaren,
-    deleteDaren,
     setSelectedDaren,
     findDarenById,
   };

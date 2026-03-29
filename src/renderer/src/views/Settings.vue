@@ -1,437 +1,379 @@
 <script setup lang="ts">
-import { ref, onMounted, h } from "vue";
+import { computed, h, onMounted, reactive, ref } from "vue";
 import {
-  NCard,
-  NForm,
-  NFormItem,
-  NInput,
   NButton,
-  NSpace,
+  NCard,
   NDataTable,
-  NSwitch,
+  NEmpty,
   NModal,
+  NSpace,
+  NSwitch,
   NTag,
-  NRadioGroup,
-  NRadio,
   useMessage,
-  useDialog,
 } from "naive-ui";
 import type { DataTableColumns } from "naive-ui";
-import { useDarenStore, type DarenInfo } from "../stores/daren";
-import { useAuthStore } from "../stores/auth";
+import { useSessionStore } from "../stores/session";
+
+interface EditableDesktopMenus {
+  download: boolean;
+  materialClip: boolean;
+  upload: boolean;
+  juliangUpload: boolean;
+  uploadBuild: boolean;
+  juliangBuild: boolean;
+}
+
+interface EditableChannelConfig {
+  channelId: string;
+  channelName: string;
+  menus: EditableDesktopMenus;
+}
+
+interface SettingsUserProfile {
+  id: string;
+  nickname: string;
+  account: string;
+  userType: "admin" | "normal";
+  channelIds: string[];
+  defaultChannelId: string;
+  channelNames?: string[];
+  defaultChannelName?: string;
+  channelConfigs?: Record<
+    string,
+    {
+      permissions?: {
+        syncAccount?: boolean;
+        desktopMenus?: Partial<EditableDesktopMenus>;
+      };
+    }
+  >;
+}
 
 const message = useMessage();
-const dialog = useDialog();
-const darenStore = useDarenStore();
-const authStore = useAuthStore();
+const sessionStore = useSessionStore();
 
-// 达人表单
-const showDarenModal = ref(false);
-const editingDaren = ref<DarenInfo | null>(null);
-const darenForm = ref<DarenInfo>({
-  id: "",
-  label: "",
-  password: "",
-  feishuDramaStatusTableId: "",
-  enableUpload: true,
-  enableDownload: true,
-  enableJuliang: false, // 默认不启用巨量上传
-  enableJuliangBuild: false, // 默认不启用巨量搭建
-  enableUploadBuild: false, // 默认不启用上传搭建
-  enableMaterialClip: false,
-  changduConfigType: "sanrou", // 默认使用散柔配置
-  customChangduConfig: undefined, // 定制配置
+const loading = ref(false);
+const saving = ref(false);
+const users = ref<SettingsUserProfile[]>([]);
+const showEditor = ref(false);
+const editingUser = ref<SettingsUserProfile | null>(null);
+const editableChannels = reactive<EditableChannelConfig[]>([]);
+
+const channelNameMap = computed(() => {
+  return new Map(
+    sessionStore.availableChannels.map((item) => [item.id, item.name]),
+  );
 });
 
-// 加载数据
-onMounted(async () => {
-  await darenStore.loadFromServer(true);
-});
-
-// 打开达人编辑弹窗
-function openDarenModal(daren?: DarenInfo) {
-  if (daren) {
-    editingDaren.value = daren;
-    darenForm.value = {
-      ...daren,
-      enableJuliangBuild: daren.enableJuliangBuild ?? false,
-      enableMaterialClip: daren.enableMaterialClip ?? false,
-      changduConfigType: daren.changduConfigType || "sanrou", // 确保有默认值
-      customChangduConfig: daren.customChangduConfig || {
-        cookie: "",
-        distributorId: "",
-        changduAppId: "",
-        changduAdUserId: "",
-        changduRootAdUserId: "",
-      },
-    };
-  } else {
-    editingDaren.value = null;
-    darenForm.value = {
-      id: "",
-      label: "",
-      password: "",
-      feishuDramaStatusTableId: "",
-      enableUpload: true,
-      enableDownload: true,
-      enableJuliang: false,
-      enableJuliangBuild: false,
-      enableUploadBuild: false,
-      enableMaterialClip: false,
-      changduConfigType: "sanrou", // 默认使用散柔配置
-      customChangduConfig: {
-        cookie: "",
-        distributorId: "",
-        changduAppId: "",
-        changduAdUserId: "",
-        changduRootAdUserId: "",
-      },
-    };
-  }
-  showDarenModal.value = true;
-}
-
-// 保存达人
-async function saveDaren() {
-  if (!darenForm.value.id || !darenForm.value.label) {
-    message.warning("请填写必填项");
-    return;
-  }
-
-  try {
-    if (editingDaren.value) {
-      await darenStore.updateDaren(editingDaren.value.id, darenForm.value);
-    } else {
-      await darenStore.addDaren(darenForm.value);
-    }
-    showDarenModal.value = false;
-
-    // 推送到远程服务器
-    console.log("[Settings] 达人配置变更，推送到远程服务器...");
-    const pushResult = await window.api.pushRemoteConfig();
-    if (pushResult.success) {
-      console.log("[Settings] ✓ 配置推送成功");
-      message.success(
-        editingDaren.value
-          ? "更新成功并同步到服务器"
-          : "添加成功并同步到服务器",
-      );
-    } else {
-      console.warn("[Settings] 配置推送失败:", pushResult.error);
-      message.warning(
-        editingDaren.value
-          ? "更新成功，但同步到服务器失败"
-          : "添加成功，但同步到服务器失败",
-      );
-    }
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : "操作失败");
-  }
-}
-
-// 删除达人
-function confirmDeleteDaren(daren: DarenInfo) {
-  dialog.warning({
-    title: "确认删除",
-    content: `确定要删除达人 "${daren.label}" 吗？`,
-    positiveText: "删除",
-    negativeText: "取消",
-    onPositiveClick: async () => {
-      try {
-        await darenStore.deleteDaren(daren.id);
-
-        // 推送到远程服务器
-        console.log("[Settings] 达人删除，推送到远程服务器...");
-        const pushResult = await window.api.pushRemoteConfig();
-        if (pushResult.success) {
-          console.log("[Settings] ✓ 配置推送成功");
-          message.success("删除成功并同步到服务器");
-        } else {
-          console.warn("[Settings] 配置推送失败:", pushResult.error);
-          message.warning("删除成功，但同步到服务器失败");
-        }
-      } catch (error) {
-        message.error("删除失败");
-      }
-    },
-  });
-}
-
-// 达人表格列
-const darenColumns: DataTableColumns<DarenInfo> = [
+const columns: DataTableColumns<SettingsUserProfile> = [
   {
-    title: "用户ID",
-    key: "id",
-    width: 180,
-    ellipsis: { tooltip: true },
-  },
-  {
-    title: "名称",
-    key: "label",
-    width: 120,
-  },
-  {
-    title: "常读配置",
-    key: "changduConfigType",
-    width: 120,
-    render: (row) => {
-      const typeMap = {
-        sanrou: "散柔",
-        meiri: "每日",
-        custom: "定制",
-      };
-      const type = row.changduConfigType || "sanrou";
-      const tagType =
-        type === "sanrou" ? "info" : type === "meiri" ? "success" : "warning";
-      return h(
-        NTag,
-        { type: tagType, size: "small" },
-        { default: () => typeMap[type] },
-      );
-    },
-  },
-  {
-    title: "状态表 ID",
-    key: "feishuDramaStatusTableId",
-    width: 200,
-    ellipsis: { tooltip: true },
-    render: (row) => row.feishuDramaStatusTableId || "-",
-  },
-  {
-    title: "功能",
-    key: "features",
+    title: "昵称",
+    key: "nickname",
     width: 140,
-    render: (row) => {
-      const tags: Array<{ type: "success" | "default"; text: string }> = [];
-      if (row.enableUpload) tags.push({ type: "success", text: "上传" });
-      if (row.enableDownload) tags.push({ type: "success", text: "下载" });
-      if (row.enableJuliang) tags.push({ type: "success", text: "巨量" });
-      if (row.enableJuliangBuild)
-        tags.push({ type: "success", text: "巨量搭建" });
-      if (row.enableUploadBuild) tags.push({ type: "success", text: "搭建" });
-      if (row.enableMaterialClip) tags.push({ type: "success", text: "剪辑" });
-
-      if (tags.length === 0)
-        return h(
-          NTag,
-          { type: "default", size: "small" },
-          { default: () => "无" },
-        );
-
-      return h(
-        NSpace,
-        { size: "small" },
-        {
-          default: () =>
-            tags.map((tag) =>
-              h(
-                NTag,
-                { type: tag.type, size: "small" },
-                { default: () => tag.text },
-              ),
-            ),
-        },
-      );
-    },
+  },
+  {
+    title: "账号",
+    key: "account",
+    width: 180,
+  },
+  {
+    title: "类型",
+    key: "userType",
+    width: 110,
+    render: (row) =>
+      h(
+        NTag,
+        { type: row.userType === "admin" ? "warning" : "success", size: "small" },
+        { default: () => (row.userType === "admin" ? "管理员" : "普通用户") },
+      ),
+  },
+  {
+    title: "渠道",
+    key: "channelNames",
+    render: (row) => row.channelNames?.join("、") || "-",
+  },
+  {
+    title: "默认渠道",
+    key: "defaultChannelName",
+    width: 140,
+    render: (row) => row.defaultChannelName || "-",
   },
   {
     title: "操作",
     key: "actions",
-    width: 150,
-    render: (row) => {
-      return h(
-        NSpace,
-        { size: "small" },
+    width: 120,
+    render: (row) =>
+      h(
+        NButton,
         {
-          default: () => [
-            h(
-              NButton,
-              {
-                size: "small",
-                onClick: () => openDarenModal(row),
-              },
-              { default: () => "编辑" },
-            ),
-            h(
-              NButton,
-              {
-                size: "small",
-                type: "error",
-                onClick: () => confirmDeleteDaren(row),
-              },
-              { default: () => "删除" },
-            ),
-          ],
+          size: "small",
+          onClick: () => openEditor(row),
         },
-      );
-    },
+        { default: () => "配置菜单" },
+      ),
   },
 ];
+
+function createEmptyMenus(): EditableDesktopMenus {
+  return {
+    download: false,
+    materialClip: false,
+    upload: false,
+    juliangUpload: false,
+    uploadBuild: false,
+    juliangBuild: false,
+  };
+}
+
+function openEditor(user: SettingsUserProfile) {
+  editingUser.value = JSON.parse(JSON.stringify(user)) as SettingsUserProfile;
+  editableChannels.splice(0, editableChannels.length);
+
+  for (const channelId of user.channelIds || []) {
+    const channelConfig = user.channelConfigs?.[channelId];
+    const menus = channelConfig?.permissions?.desktopMenus || {};
+    editableChannels.push({
+      channelId,
+      channelName: channelNameMap.value.get(channelId) || channelId,
+      menus: {
+        ...createEmptyMenus(),
+        ...menus,
+      },
+    });
+  }
+
+  showEditor.value = true;
+}
+
+async function loadUsers() {
+  loading.value = true;
+  try {
+    const result = (await window.api.adminListUsers()) as SettingsUserProfile[];
+    users.value = Array.isArray(result) ? result : [];
+  } catch (error) {
+    console.error("[Settings] 加载用户列表失败:", error);
+    message.error(error instanceof Error ? error.message : "加载用户列表失败");
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function saveMenus() {
+  if (!editingUser.value) {
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const nextChannelConfigs = {
+      ...(editingUser.value.channelConfigs || {}),
+    };
+
+    for (const item of editableChannels) {
+      nextChannelConfigs[item.channelId] = {
+        ...(nextChannelConfigs[item.channelId] || {}),
+        permissions: {
+          ...(nextChannelConfigs[item.channelId]?.permissions || {}),
+          desktopMenus: {
+            ...item.menus,
+          },
+        },
+      };
+    }
+
+    await window.api.adminUpdateUser(editingUser.value.id, {
+      channelConfigs: nextChannelConfigs,
+    });
+
+    message.success("菜单权限已更新");
+    showEditor.value = false;
+    await loadUsers();
+  } catch (error) {
+    console.error("[Settings] 保存菜单权限失败:", error);
+    message.error(error instanceof Error ? error.message : "保存菜单权限失败");
+  } finally {
+    saving.value = false;
+  }
+}
+
+onMounted(() => {
+  void loadUsers();
+});
 </script>
 
 <template>
   <div class="settings-page">
-    <h2 class="page-title">达人配置</h2>
-
-    <NCard>
+    <NCard :bordered="false" class="settings-card">
       <template #header>
-        <NSpace justify="space-between" align="center">
-          <span>达人列表</span>
-          <NButton
-            v-if="authStore.isAdmin"
-            type="primary"
-            @click="openDarenModal()"
-          >
-            添加达人
-          </NButton>
-        </NSpace>
+        <div class="settings-header">
+          <div>
+            <p class="settings-header__eyebrow">管理员菜单配置</p>
+            <h2 class="settings-header__title">按用户、按渠道控制客户端入口</h2>
+          </div>
+          <NButton :loading="loading" @click="loadUsers">刷新列表</NButton>
+        </div>
       </template>
 
       <NDataTable
-        :columns="darenColumns"
-        :data="darenStore.darenList"
+        v-if="users.length"
+        :columns="columns"
+        :data="users"
+        :loading="loading"
         :bordered="false"
+        :single-line="false"
       />
+      <NEmpty v-else description="暂无用户数据" />
     </NCard>
 
-    <!-- 达人编辑弹窗 -->
-    <NModal
-      v-model:show="showDarenModal"
-      preset="card"
-      :title="editingDaren ? '编辑达人' : '添加达人'"
-      style="width: 600px"
-    >
-      <NForm :model="darenForm" label-placement="left" label-width="120px">
-        <NFormItem label="用户 ID" required>
-          <NInput
-            v-model:value="darenForm.id"
-            placeholder="达人的用户 ID"
-            :disabled="!!editingDaren"
-          />
-        </NFormItem>
-        <NFormItem label="名称" required>
-          <NInput v-model:value="darenForm.label" placeholder="达人名称" />
-        </NFormItem>
-        <NFormItem label="登录密码">
-          <NInput
-            v-model:value="darenForm.password"
-            type="password"
-            show-password-on="click"
-            placeholder="达人登录密码（留空则无需密码）"
-          />
-        </NFormItem>
-        <NFormItem label="常读配置" required>
-          <NRadioGroup v-model:value="darenForm.changduConfigType">
-            <NSpace>
-              <NRadio value="sanrou">散柔-常读配置</NRadio>
-              <NRadio value="meiri">每日-常读配置</NRadio>
-              <NRadio value="custom">定制配置</NRadio>
-            </NSpace>
-          </NRadioGroup>
-        </NFormItem>
-
-        <!-- 定制配置表单 -->
-        <template v-if="darenForm.changduConfigType === 'custom'">
-          <div
-            style="
-              border: 1px solid #e0e0e0;
-              border-radius: 4px;
-              padding: 16px;
-              margin-bottom: 16px;
-              background: #fafafa;
-            "
-          >
-            <h4 style="margin-bottom: 12px; color: #666">定制常读配置</h4>
-            <NFormItem label="Cookie" required>
-              <NInput
-                v-model:value="darenForm.customChangduConfig!.cookie"
-                type="textarea"
-                :rows="3"
-                placeholder="常读平台 Cookie"
-              />
-            </NFormItem>
-            <NFormItem label="Distributor ID" required>
-              <NInput
-                v-model:value="darenForm.customChangduConfig!.distributorId"
-                placeholder="分销商 ID"
-              />
-            </NFormItem>
-            <NFormItem label="App ID" required>
-              <NInput
-                v-model:value="darenForm.customChangduConfig!.changduAppId"
-                placeholder="常读应用 ID"
-              />
-            </NFormItem>
-            <NFormItem label="Ad User ID" required>
-              <NInput
-                v-model:value="darenForm.customChangduConfig!.changduAdUserId"
-                placeholder="广告用户 ID"
-              />
-            </NFormItem>
-            <NFormItem label="Root Ad User ID" required>
-              <NInput
-                v-model:value="
-                  darenForm.customChangduConfig!.changduRootAdUserId
-                "
-                placeholder="根广告用户 ID"
-              />
-            </NFormItem>
-          </div>
-        </template>
-
-        <NFormItem label="状态表 ID">
-          <NInput
-            v-model:value="darenForm.feishuDramaStatusTableId"
-            placeholder="飞书剧集状态表 ID"
-          />
-        </NFormItem>
-
-        <div
-          style="border-top: 1px solid #eee; margin: 16px 0; padding-top: 16px"
-        >
-          <h4 style="margin-bottom: 12px; color: #666">功能权限</h4>
+    <NModal v-model:show="showEditor" preset="card" title="配置客户端菜单权限" class="settings-modal">
+      <div v-if="editingUser" class="menu-editor">
+        <div class="menu-editor__meta">
+          <span>{{ editingUser.nickname }}（{{ editingUser.account }}）</span>
+          <NTag size="small" :type="editingUser.userType === 'admin' ? 'warning' : 'success'">
+            {{ editingUser.userType === "admin" ? "管理员" : "普通用户" }}
+          </NTag>
         </div>
 
-        <NFormItem label="启用上传功能">
-          <NSwitch v-model:value="darenForm.enableUpload" />
-        </NFormItem>
-        <NFormItem label="启用下载功能">
-          <NSwitch v-model:value="darenForm.enableDownload" />
-        </NFormItem>
-        <NFormItem label="启用巨量上传">
-          <NSwitch v-model:value="darenForm.enableJuliang" />
-        </NFormItem>
-        <NFormItem label="启用巨量搭建">
-          <NSwitch v-model:value="darenForm.enableJuliangBuild" />
-        </NFormItem>
-        <NFormItem label="启用上传搭建">
-          <NSwitch v-model:value="darenForm.enableUploadBuild" />
-        </NFormItem>
-        <NFormItem label="启用素材剪辑">
-          <NSwitch v-model:value="darenForm.enableMaterialClip" />
-        </NFormItem>
-      </NForm>
+        <div v-if="editableChannels.length" class="menu-editor__channels">
+          <div v-for="item in editableChannels" :key="item.channelId" class="menu-editor__channel">
+            <div class="menu-editor__channel-header">
+              <h3>{{ item.channelName }}</h3>
+              <span class="menu-editor__channel-id">{{ item.channelId }}</span>
+            </div>
 
-      <template #footer>
+            <div class="menu-editor__grid">
+              <label class="menu-editor__switch">
+                <span>剧目下载</span>
+                <NSwitch v-model:value="item.menus.download" />
+              </label>
+              <label class="menu-editor__switch">
+                <span>素材剪辑</span>
+                <NSwitch v-model:value="item.menus.materialClip" />
+              </label>
+              <label class="menu-editor__switch">
+                <span>形天上传</span>
+                <NSwitch v-model:value="item.menus.upload" />
+              </label>
+              <label class="menu-editor__switch">
+                <span>巨量上传</span>
+                <NSwitch v-model:value="item.menus.juliangUpload" />
+              </label>
+              <label class="menu-editor__switch">
+                <span>上传搭建</span>
+                <NSwitch v-model:value="item.menus.uploadBuild" />
+              </label>
+              <label class="menu-editor__switch">
+                <span>巨量搭建</span>
+                <NSwitch v-model:value="item.menus.juliangBuild" />
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <NEmpty v-else description="该用户当前没有绑定渠道" />
+
         <NSpace justify="end">
-          <NButton @click="showDarenModal = false">取消</NButton>
-          <NButton type="primary" @click="saveDaren">保存</NButton>
+          <NButton @click="showEditor = false">取消</NButton>
+          <NButton type="primary" :loading="saving" @click="saveMenus">保存</NButton>
         </NSpace>
-      </template>
+      </div>
     </NModal>
   </div>
 </template>
 
 <style scoped>
 .settings-page {
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 24px;
 }
 
-.page-title {
+.settings-card {
+  border-radius: 24px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-header__eyebrow {
+  margin: 0 0 6px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.settings-header__title {
+  margin: 0;
   font-size: 24px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 20px;
+  color: #0f172a;
+}
+
+.settings-modal {
+  width: min(920px, calc(100vw - 32px));
+}
+
+.menu-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.menu-editor__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #334155;
+}
+
+.menu-editor__channels {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.menu-editor__channel {
+  padding: 16px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.menu-editor__channel-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.menu-editor__channel-header h3 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.menu-editor__channel-id {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.menu-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.menu-editor__switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  color: #334155;
 }
 </style>

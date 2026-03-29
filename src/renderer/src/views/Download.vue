@@ -125,7 +125,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
       appToken: appToken ? `${appToken.substring(0, 10)}...` : "未配置",
       tableId: tableId || "未配置",
       currentDaren: darenStore.currentDaren?.label || "无",
-      isAdmin: authStore.currentUser?.role === "admin",
+      isAdmin: authStore.isAdmin,
     });
 
     if (!appToken) {

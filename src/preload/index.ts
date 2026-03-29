@@ -77,6 +77,7 @@ interface MaterialClipPendingDrama {
   rating: string | null;
   uploadTime: number | null;
   plannedMaterials: number | null;
+  highlightStartPoints: string | null;
 }
 
 interface MaterialClipProcessedDrama {
@@ -112,8 +113,47 @@ interface MaterialClipRunState {
   message: string;
 }
 
+interface MaterialClipAiHighlightDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  sourceDir: string | null;
+  sourceMatched: boolean;
+  highlightStartPoints: string | null;
+  status: "pending" | "running" | "success" | "failed" | "unmatched";
+  message: string;
+  highlightCount: number;
+  updatedAt: string | null;
+}
+
+interface MaterialClipAiHighlightState {
+  running: boolean;
+  status: "idle" | "running" | "completed" | "failed";
+  message: string;
+  totalPending: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  dramas: MaterialClipAiHighlightDrama[];
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
+}
+
 // Custom APIs for renderer
 const api = {
+  // ==================== Web 会话 ====================
+  sessionLogin: (account: string, password: string) =>
+    ipcRenderer.invoke("session:login", account, password),
+  sessionGet: () => ipcRenderer.invoke("session:get"),
+  sessionSwitchChannel: (channelId: string) =>
+    ipcRenderer.invoke("session:switchChannel", channelId),
+  sessionLogout: () => ipcRenderer.invoke("session:logout"),
+  adminListUsers: () => ipcRenderer.invoke("admin:listUsers"),
+  adminUpdateUser: (id: string, payload: unknown) =>
+    ipcRenderer.invoke("admin:updateUser", id, payload),
+
   // ==================== 配置管理 ====================
   getDarenConfig: () => ipcRenderer.invoke("config:getDaren"),
   addDaren: (daren: unknown) => ipcRenderer.invoke("config:addDaren", daren),
@@ -140,6 +180,12 @@ const api = {
     ipcRenderer.invoke("clip:importRuntime"),
   clipRefreshPending: (config: unknown) =>
     ipcRenderer.invoke("clip:refreshPending", config),
+  clipGetAiHighlightState: (): Promise<MaterialClipAiHighlightState> =>
+    ipcRenderer.invoke("clip:getAiHighlightState"),
+  clipRefreshAiHighlight: (config: unknown) =>
+    ipcRenderer.invoke("clip:refreshAiHighlight", config),
+  clipRunAiHighlight: (config: unknown) =>
+    ipcRenderer.invoke("clip:runAiHighlight", config),
   clipAutoRun: (config: unknown) => ipcRenderer.invoke("clip:autoRun", config),
   clipManualRun: (dramaNames: string, config: unknown) =>
     ipcRenderer.invoke("clip:manualRun", dramaNames, config),
@@ -162,6 +208,17 @@ const api = {
     ) => callback(state);
     ipcRenderer.on("material-clip:state", handler);
     return () => ipcRenderer.removeListener("material-clip:state", handler);
+  },
+  onClipAiHighlightState: (
+    callback: (state: MaterialClipAiHighlightState) => void,
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      state: MaterialClipAiHighlightState,
+    ) => callback(state);
+    ipcRenderer.on("material-clip:ai-highlight-state", handler);
+    return () =>
+      ipcRenderer.removeListener("material-clip:ai-highlight-state", handler);
   },
 
   // ==================== 文件系统 ====================

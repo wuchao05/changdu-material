@@ -63,6 +63,90 @@ interface DarenInfo {
   uploadBuildSettings?: UploadBuildSettings;
 }
 
+interface DesktopMenus {
+  download: boolean;
+  materialClip: boolean;
+  upload: boolean;
+  juliangUpload: boolean;
+  uploadBuild: boolean;
+  juliangBuild: boolean;
+}
+
+interface RuntimePermissions {
+  syncAccount: boolean;
+  desktopMenus: DesktopMenus;
+}
+
+interface RuntimeUserProfile {
+  id: string;
+  nickname: string;
+  account: string;
+  userType: "admin" | "normal";
+  channelIds: string[];
+  defaultChannelId: string;
+  permissions?: RuntimePermissions;
+  feishu?: {
+    dramaListTableId: string;
+    dramaStatusTableId: string;
+    accountTableId: string;
+  };
+  douyinMaterialMatches?: Array<{
+    id: string;
+    douyinAccount: string;
+    douyinAccountId: string;
+    materialRange: string;
+    createdAt?: string;
+    updatedAt?: string;
+  }>;
+}
+
+interface SessionRuntimeData {
+  user: RuntimeUserProfile;
+  runtimeUser: RuntimeUserProfile | null;
+  channel: {
+    id: string;
+    name: string;
+  } | null;
+  availableChannels: Array<{
+    id: string;
+    name: string;
+  }>;
+  platforms: {
+    changdu: {
+      channel: {
+        cookie: string;
+        distributorId: string;
+        adUserId: string;
+        rootAdUserId: string;
+        appId: string;
+      };
+    };
+    juliang: {
+      channel: string;
+    };
+    adx?: {
+      cookie: string;
+    };
+  };
+  feishu: {
+    dramaListTableId: string;
+    dramaStatusTableId: string;
+    accountTableId: string;
+  };
+  buildConfig: {
+    secretKey: string;
+    source: string;
+    productId: string;
+    productPlatformId: string;
+    landingUrl: string;
+    microAppName: string;
+    microAppId: string;
+    ccId: string;
+    rechargeTemplateId: string;
+    adCallbackConfigId?: string;
+  };
+}
+
 interface ApiConfig {
   sanrouChangdu: {
     cookie: string;
@@ -243,6 +327,7 @@ interface MaterialClipFeishuConfig {
   priority_rating_value: string;
   upload_time_sort_desc: boolean;
   douyin_material_field_name: string;
+  highlight_start_field_name: string;
   page_size: number;
   token_refresh_interval: number;
 }
@@ -264,6 +349,23 @@ interface MaterialClipDateDeduplicationConfig {
   enabled: boolean;
   storage_dir: string;
   skip_processed_by_default: boolean;
+}
+
+interface MaterialClipAiHighlightConfig {
+  enabled: boolean;
+  script_path: string;
+  only_priority_rating: boolean;
+  dashscope_api_key: string;
+  model_name: string;
+  group_count: number;
+  target_highlights_per_drama: number;
+  group_highlight_buffer: number;
+  video_fps: number;
+  analyze_first_portion_only: boolean;
+  analyze_portion_ratio: number;
+  auto_retry_insufficient_groups: boolean;
+  max_auto_retry_rounds: number;
+  use_dashscope_proxy: boolean;
 }
 
 interface MaterialClipConfig {
@@ -328,6 +430,8 @@ interface MaterialClipConfig {
   feishu_webhook_url: string | null;
   enable_feishu_notification: boolean;
   date_deduplication: MaterialClipDateDeduplicationConfig;
+  ai_highlight: MaterialClipAiHighlightConfig;
+  highlight_start_points_by_drama: Record<string, string> | null;
 }
 
 interface MaterialClipLogEntry {
@@ -339,6 +443,34 @@ interface MaterialClipRunResult {
   success: boolean;
   error?: string;
   pid?: number;
+}
+
+interface MaterialClipAiHighlightDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  sourceDir: string | null;
+  sourceMatched: boolean;
+  highlightStartPoints: string | null;
+  status: "pending" | "running" | "success" | "failed" | "unmatched";
+  message: string;
+  highlightCount: number;
+  updatedAt: string | null;
+}
+
+interface MaterialClipAiHighlightState {
+  running: boolean;
+  status: "idle" | "running" | "completed" | "failed";
+  message: string;
+  totalPending: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  dramas: MaterialClipAiHighlightDrama[];
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
 }
 
 interface MaterialClipEnvironmentStatus {
@@ -378,6 +510,7 @@ interface MaterialClipPendingDrama {
   rating: string | null;
   uploadTime: number | null;
   plannedMaterials: number | null;
+  highlightStartPoints: string | null;
 }
 
 interface MaterialClipProcessedDrama {
@@ -417,6 +550,16 @@ interface MaterialClipRunState {
 }
 
 interface Api {
+  sessionLogin: (account: string, password: string) => Promise<SessionRuntimeData>;
+  sessionGet: () => Promise<SessionRuntimeData | null>;
+  sessionSwitchChannel: (channelId: string) => Promise<SessionRuntimeData>;
+  sessionLogout: () => Promise<{ success: boolean }>;
+  adminListUsers: () => Promise<RuntimeUserProfile[]>;
+  adminUpdateUser: (
+    id: string,
+    payload: Record<string, unknown>,
+  ) => Promise<RuntimeUserProfile>;
+
   // 配置管理
   getDarenConfig: () => Promise<{ darenList: DarenInfo[] }>;
   addDaren: (daren: DarenInfo) => Promise<DarenInfo>;
@@ -436,6 +579,13 @@ interface Api {
   installClipEnvironment: () => Promise<MaterialClipInstallResult>;
   importClipRuntime: () => Promise<MaterialClipRuntimeImportResult>;
   clipRefreshPending: (config: unknown) => Promise<MaterialClipRunState>;
+  clipGetAiHighlightState: () => Promise<MaterialClipAiHighlightState>;
+  clipRefreshAiHighlight: (
+    config: unknown,
+  ) => Promise<MaterialClipAiHighlightState>;
+  clipRunAiHighlight: (
+    config: unknown,
+  ) => Promise<{ success: boolean; error?: string }>;
   clipAutoRun: (config: unknown) => Promise<MaterialClipRunResult>;
   clipManualRun: (
     dramaNames: string,
@@ -448,6 +598,9 @@ interface Api {
   clipClearProcessedDramas: () => Promise<{ success: boolean }>;
   onClipLog: (callback: (log: MaterialClipLogEntry) => void) => () => void;
   onClipState: (callback: (state: MaterialClipRunState) => void) => () => void;
+  onClipAiHighlightState: (
+    callback: (state: MaterialClipAiHighlightState) => void,
+  ) => () => void;
 
   // 文件系统
   scanVideos: (basePath: string) => Promise<VideoMaterial[]>;

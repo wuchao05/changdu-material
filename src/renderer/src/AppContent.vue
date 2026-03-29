@@ -8,6 +8,7 @@ import {
   NMenu,
   NIcon,
   NButton,
+  NSelect,
   useMessage,
 } from "naive-ui";
 import {
@@ -24,17 +25,22 @@ import {
   NutritionOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
+import { useApiConfigStore } from "./stores/apiConfig";
 import { useDarenStore } from "./stores/daren";
+import { useSessionStore } from "./stores/session";
 
 const router = useRouter();
 const route = useRoute();
 const message = useMessage();
 const authStore = useAuthStore();
 const darenStore = useDarenStore();
+const sessionStore = useSessionStore();
+const apiConfigStore = useApiConfigStore();
 
 const collapsed = ref(false);
 const activeKey = ref("upload");
 const refreshing = ref(false);
+const switchingChannel = ref(false);
 
 // 根据权限动态生成菜单选项
 const menuOptions = computed(() => {
@@ -104,7 +110,7 @@ const menuOptions = computed(() => {
   // 系统设置 - 仅管理员可见
   if (isAdmin) {
     options.push({
-      label: "达人配置",
+      label: "菜单配置",
       key: "settings",
       icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
     });
@@ -115,15 +121,24 @@ const menuOptions = computed(() => {
 
 // 获取默认路由
 const defaultRoute = computed(() => {
+  if (authStore.isAdmin) return "/download";
   if (darenStore.canDownload) return "/download";
   if (darenStore.canMaterialClip) return "/material-clip";
-  if (authStore.isAdmin) return "/download";
   if (darenStore.canUpload) return "/upload";
   if (darenStore.canJuliang) return "/juliang";
-  if (darenStore.canJuliangBuild) return "/juliang-build";
   if (darenStore.canUploadBuild) return "/upload-build";
+  if (darenStore.canJuliangBuild) return "/juliang-build";
   return "/login";
 });
+
+const channelOptions = computed(() =>
+  sessionStore.availableChannels.map((item) => ({
+    label: item.name,
+    value: item.id,
+  })),
+);
+
+const currentChannelId = computed(() => sessionStore.currentChannel?.id || "");
 
 // 处理菜单选择
 function handleMenuSelect(key: string) {
@@ -147,7 +162,8 @@ watch(
 
 // 退出登录
 async function handleLogout() {
-  authStore.logout();
+  await authStore.logout();
+  apiConfigStore.resetConfig();
   message.success("已退出登录");
   router.push("/login");
 }
@@ -179,62 +195,61 @@ async function handleRefresh() {
   refreshing.value = true;
 
   try {
-    console.log("[AppContent] 开始刷新...");
-
-    // 1. 获取 Auth 配置（常读配置 + 素材库 Token）
-    const authResult = await window.api.fetchAuthConfig();
-    if (authResult.success) {
-      console.log("[AppContent] ✓ Auth 配置获取成功");
-      message.info("配置已更新");
-    } else {
-      console.warn("[AppContent] Auth 配置获取失败:", authResult.error);
-    }
-
-    // 2. 重新加载达人配置（强制刷新）
+    await sessionStore.loadSession(true);
+    apiConfigStore.applySessionData(sessionStore.session);
     await darenStore.loadFromServer(true);
-    console.log("[AppContent] ✓ 达人配置已刷新");
-
-    // 3. 重新加载当前页面（使用浏览器原生刷新）
+    message.info("配置已更新");
     window.location.reload();
   } catch (error) {
     console.error("[AppContent] 刷新失败:", error);
     message.error("刷新失败");
+  } finally {
     refreshing.value = false;
   }
 }
 
-// 初始化
+async function handleChannelChange(channelId: string) {
+  if (!channelId || channelId === currentChannelId.value || switchingChannel.value) {
+    return;
+  }
+
+  switchingChannel.value = true;
+  try {
+    const session = await sessionStore.switchChannel(channelId);
+    apiConfigStore.applySessionData(session);
+    await darenStore.loadFromServer(true);
+    message.success(`已切换到渠道：${session.channel?.name || channelId}`);
+
+    const currentKey = route.path.slice(1);
+    const availableKeys = menuOptions.value.map((opt) => opt.key);
+    if (!availableKeys.includes(currentKey)) {
+      await router.push(defaultRoute.value);
+      return;
+    }
+
+    window.location.reload();
+  } catch (error) {
+    console.error("[AppContent] 切换渠道失败:", error);
+    message.error(error instanceof Error ? error.message : "切换渠道失败");
+  } finally {
+    switchingChannel.value = false;
+  }
+}
+
 onMounted(async () => {
-  // 检查登录状态
+  await sessionStore.loadSession();
+  apiConfigStore.applySessionData(sessionStore.session);
+
   if (!authStore.isLoggedIn) {
     router.push("/login");
     return;
   }
 
-  // 获取 Auth 配置
-  try {
-    console.log("[AppContent] 获取 Auth 配置...");
-    const authResult = await window.api.fetchAuthConfig();
-    if (authResult.success) {
-      console.log("[AppContent] ✓ Auth 配置获取成功");
-    } else {
-      console.log("[AppContent] Auth 配置获取失败:", authResult.error);
-    }
-  } catch (error) {
-    console.warn("[AppContent] Auth 配置获取失败:", error);
-  }
-
-  // 加载达人配置（强制刷新，避免缓存导致新达人不可见）
   await darenStore.loadFromServer(true);
 
-  // 如果当前路由没有权限，重定向到默认路由
   const currentKey = route.path.slice(1);
   const availableKeys = menuOptions.value.map((opt) => opt.key);
-  if (
-    currentKey &&
-    !availableKeys.includes(currentKey) &&
-    currentKey !== "login"
-  ) {
+  if (currentKey && !availableKeys.includes(currentKey) && currentKey !== "login") {
     router.push(defaultRoute.value);
   }
 });
@@ -254,8 +269,20 @@ onMounted(async () => {
         <span v-if="authStore.currentUser" class="user-info">
           {{ authStore.currentUser.label || authStore.currentUser.id }}
         </span>
+        <span v-if="sessionStore.currentChannel" class="user-info">
+          {{ sessionStore.currentChannel.name }}
+        </span>
       </div>
       <div class="title-bar-actions" style="-webkit-app-region: no-drag">
+        <NSelect
+          v-if="authStore.isLoggedIn && channelOptions.length > 1"
+          :value="currentChannelId"
+          :options="channelOptions"
+          size="small"
+          style="width: 180px"
+          :loading="switchingChannel"
+          @update:value="handleChannelChange"
+        />
         <NButton
           v-if="authStore.isLoggedIn"
           quaternary

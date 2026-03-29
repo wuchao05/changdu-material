@@ -2,6 +2,10 @@ import { app } from "electron";
 import fs from "fs/promises";
 import path from "path";
 import { RemoteConfigService } from "./remote-config.service";
+import type {
+  SessionRuntimeData,
+  WebSessionService,
+} from "./web-session.service";
 import {
   FIXED_FEISHU_APP_ID,
   FIXED_FEISHU_APP_SECRET,
@@ -92,12 +96,14 @@ export class ConfigService {
   private darenConfigPath: string;
   private apiConfigPath: string;
   private remoteConfigService: RemoteConfigService;
+  private webSessionService: WebSessionService;
 
-  constructor() {
+  constructor(webSessionService: WebSessionService) {
     const userDataPath = app.getPath("userData");
     this.darenConfigPath = path.join(userDataPath, "daren-config.json");
     this.apiConfigPath = path.join(userDataPath, "api-config.json");
     this.remoteConfigService = new RemoteConfigService();
+    this.webSessionService = webSessionService;
   }
 
   // ==================== Auth 配置获取 ====================
@@ -252,6 +258,13 @@ export class ConfigService {
   // ==================== 达人配置 ====================
 
   async getDarenConfig(): Promise<DarenConfig> {
+    const runtimeConfig = await this.getCurrentRuntimeConfig();
+    if (runtimeConfig?.runtimeUser) {
+      return {
+        darenList: [this.mapRuntimeToDarenInfo(runtimeConfig)],
+      };
+    }
+
     try {
       const data = await fs.readFile(this.darenConfigPath, "utf-8");
       return JSON.parse(data);
@@ -470,6 +483,11 @@ export class ConfigService {
   }
 
   async getApiConfig(): Promise<ApiConfig> {
+    const runtimeConfig = await this.getCurrentRuntimeConfig();
+    if (runtimeConfig) {
+      return this.mapRuntimeToApiConfig(runtimeConfig);
+    }
+
     try {
       const data = await fs.readFile(this.apiConfigPath, "utf-8");
       const parsed = JSON.parse(data) as Partial<ApiConfig>;
@@ -489,5 +507,82 @@ export class ConfigService {
       JSON.stringify(normalizedConfig, null, 2),
       "utf-8",
     );
+  }
+
+  async getCurrentRuntimeConfig(): Promise<SessionRuntimeData | null> {
+    return await this.webSessionService.getSession();
+  }
+
+  private mapRuntimeToApiConfig(runtimeConfig: SessionRuntimeData): ApiConfig {
+    const channelConfig = runtimeConfig.platforms?.changdu?.channel;
+    const mappedChangduConfig: ChangduConfig = {
+      cookie: String(channelConfig?.cookie || "").trim(),
+      distributorId: String(channelConfig?.distributorId || "").trim(),
+      changduAppId: String(channelConfig?.appId || "").trim(),
+      changduAdUserId: String(channelConfig?.adUserId || "").trim(),
+      changduRootAdUserId: String(channelConfig?.rootAdUserId || "").trim(),
+    };
+
+    return this.normalizeApiConfig({
+      sanrouChangdu: mappedChangduConfig,
+      meiriChangdu: mappedChangduConfig,
+      feishuAppId: FIXED_FEISHU_APP_ID,
+      feishuAppSecret: FIXED_FEISHU_APP_SECRET,
+      feishuAppToken: FIXED_FEISHU_APP_TOKEN,
+      tosAccessKeyId: "",
+      tosAccessKeySecret: "",
+      tosBucket: FIXED_TOS_BUCKET,
+      tosRegion: FIXED_TOS_REGION,
+      xtToken: "",
+    });
+  }
+
+  private mapRuntimeToDarenInfo(runtimeConfig: SessionRuntimeData): DarenInfo {
+    const runtimeUser = runtimeConfig.runtimeUser;
+    const desktopMenus = runtimeUser?.permissions?.desktopMenus;
+    const buildConfig = runtimeConfig.buildConfig;
+    const douyinMaterialRules = Array.isArray(runtimeUser?.douyinMaterialMatches)
+      ? runtimeUser.douyinMaterialMatches.map((item) =>
+          this.normalizeDouyinMaterialRule({
+            id: item.id,
+            douyinAccount: item.douyinAccount,
+            douyinAccountId: item.douyinAccountId,
+            materialRange: item.materialRange,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
+          }),
+        )
+      : [];
+
+    return this.normalizeDarenData({
+      id: runtimeUser?.id || runtimeConfig.user.id,
+      label: runtimeUser?.nickname || runtimeConfig.user.nickname,
+      feishuDramaStatusTableId: runtimeConfig.feishu.dramaStatusTableId,
+      enableUpload: desktopMenus?.upload,
+      enableDownload: desktopMenus?.download,
+      enableJuliang: desktopMenus?.juliangUpload,
+      enableJuliangBuild: desktopMenus?.juliangBuild,
+      enableUploadBuild: desktopMenus?.uploadBuild,
+      enableMaterialClip: desktopMenus?.materialClip,
+      uploadBuildSettings: {
+        buildParams: {
+          distributorId: runtimeConfig.platforms.changdu.channel.distributorId,
+          secretKey: buildConfig.secretKey,
+          source: buildConfig.source,
+          bid: 5,
+          productId: buildConfig.productId,
+          productPlatformId: buildConfig.productPlatformId,
+          landingUrl: buildConfig.landingUrl,
+          microAppName: buildConfig.microAppName,
+          microAppId: buildConfig.microAppId,
+          ccId: buildConfig.ccId,
+          rechargeTemplateId: buildConfig.rechargeTemplateId,
+        },
+        darenName: runtimeUser?.nickname || runtimeConfig.user.nickname,
+        materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
+        materialDateValue: "",
+        douyinMaterialRules,
+      },
+    });
   }
 }
