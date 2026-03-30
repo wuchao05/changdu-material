@@ -107,11 +107,37 @@ const currentTaskDramaName = computed(
   () => schedulerStatus.value?.currentTask?.dramaName?.trim() || "",
 );
 
-const buildRuleItems = [
+function normalizeAdvanceHours(value: string | number | null | undefined): number {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return 0;
+  }
+  return Math.floor(numericValue);
+}
+
+const advanceHoursAfterTen = computed(() =>
+  normalizeAdvanceHours(apiConfigStore.config.advanceHoursAfterTen),
+);
+const advanceHoursBeforeTen = computed(() =>
+  normalizeAdvanceHours(apiConfigStore.config.advanceHoursBeforeTen),
+);
+
+function formatAdvanceRuleSegment(prefix: string, hours: number): string {
+  return hours > 0
+    ? `${prefix}提前 ${hours} 小时可搭建`
+    : `${prefix}不允许提前搭建，必须等上架后才能搭建`;
+}
+
+const advanceRuleDescription = computed(
+  () =>
+    `${formatAdvanceRuleSegment("10点及之后：", advanceHoursAfterTen.value)}；${formatAdvanceRuleSegment("10点之前：", advanceHoursBeforeTen.value)}`,
+);
+
+const buildRuleItems = computed(() => [
   {
     index: 1,
     title: "先过可搭建时间门槛",
-    desc: "系统会先判断这部剧现在能不能开始搭建。没到最早可搭建时间的剧会先跳过，这一轮不参与排序。",
+    desc: `系统会先判断这部剧现在能不能开始搭建。${advanceRuleDescription.value}。没到最早可搭建时间的剧会先跳过，这一轮不参与排序。`,
   },
   {
     index: 2,
@@ -157,7 +183,7 @@ const buildRuleItems = [
     title: "同评级再看上架时间",
     desc: "如果日期和评级都一样，就再按上架时间从晚到早排，越晚上架的越优先。",
   },
-];
+]);
 
 function parseTextField(value: unknown): string {
   if (typeof value === "string") return value;
@@ -217,7 +243,9 @@ function formatDateTime(value?: string | number | null): string {
 }
 
 function getAdvanceHours(publishTime: Date): number {
-  return publishTime.getHours() >= 10 ? 10 : 1;
+  return publishTime.getHours() >= 10
+    ? advanceHoursAfterTen.value
+    : advanceHoursBeforeTen.value;
 }
 
 function getEarliestBuildTime(record: PendingDramaRecord): Date | null {
@@ -356,9 +384,7 @@ function isDramaBuilding(record: PendingDramaRecord): boolean {
 }
 
 async function ensureBaseConfigLoaded() {
-  if (!apiConfigStore.loaded) {
-    await apiConfigStore.loadConfig();
-  }
+  await apiConfigStore.loadConfig();
 }
 
 async function loadPendingDramas(showLoading = true) {
@@ -372,6 +398,7 @@ async function loadPendingDramas(showLoading = true) {
   }
 
   try {
+    await ensureBaseConfigLoaded();
     const result = await window.api.juliangBuildGetPendingDramas(
       currentTableId.value,
     );

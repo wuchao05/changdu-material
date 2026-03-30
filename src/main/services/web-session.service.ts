@@ -49,6 +49,8 @@ export interface RuntimeBuildConfig {
   ccId: string;
   rechargeTemplateId: string;
   adCallbackConfigId?: string;
+  advanceHoursAfterTen: string;
+  advanceHoursBeforeTen: string;
 }
 
 export interface RuntimeUserProfile {
@@ -226,6 +228,12 @@ function normalizeSessionRuntimeData(data?: Partial<SessionRuntimeData> | null):
       ccId: String(data.buildConfig?.ccId || "").trim(),
       rechargeTemplateId: String(data.buildConfig?.rechargeTemplateId || "").trim(),
       adCallbackConfigId: String(data.buildConfig?.adCallbackConfigId || "").trim(),
+      advanceHoursAfterTen: String(
+        data.buildConfig?.advanceHoursAfterTen || "0",
+      ).trim(),
+      advanceHoursBeforeTen: String(
+        data.buildConfig?.advanceHoursBeforeTen || "0",
+      ).trim(),
     },
   };
 }

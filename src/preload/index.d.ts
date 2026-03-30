@@ -144,6 +144,8 @@ interface SessionRuntimeData {
     ccId: string;
     rechargeTemplateId: string;
     adCallbackConfigId?: string;
+    advanceHoursAfterTen: string;
+    advanceHoursBeforeTen: string;
   };
 }
 

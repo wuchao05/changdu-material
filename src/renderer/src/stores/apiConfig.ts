@@ -17,6 +17,8 @@ export interface ApiConfig {
   channelName: string;
   nickname: string;
   juliangCookie: string;
+  advanceHoursAfterTen: string;
+  advanceHoursBeforeTen: string;
 }
 
 const DEFAULT_API_CONFIG: ApiConfig = {
@@ -35,6 +37,8 @@ const DEFAULT_API_CONFIG: ApiConfig = {
   channelName: "",
   nickname: "",
   juliangCookie: "",
+  advanceHoursAfterTen: "0",
+  advanceHoursBeforeTen: "0",
 };
 
 export const useApiConfigStore = defineStore("apiConfig", () => {
@@ -72,6 +76,12 @@ export const useApiConfigStore = defineStore("apiConfig", () => {
         session.runtimeUser?.nickname || session.user?.nickname || "",
       ).trim(),
       juliangCookie: String(session.platforms?.juliang?.channel || "").trim(),
+      advanceHoursAfterTen: String(
+        session.buildConfig?.advanceHoursAfterTen || "0",
+      ).trim(),
+      advanceHoursBeforeTen: String(
+        session.buildConfig?.advanceHoursBeforeTen || "0",
+      ).trim(),
     };
     loaded.value = true;
   }
