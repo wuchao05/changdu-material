@@ -2035,15 +2035,25 @@ export class MaterialClipService {
     return maxNumber > 0 ? maxNumber : null;
   }
 
-  private ensureCurrentDramaStarted(dramaName: string) {
+  private resetCurrentDramaProgress(plannedMaterials?: number | null) {
+    const total =
+      plannedMaterials && plannedMaterials > 0 ? plannedMaterials : 0;
+    this.runState.totalMaterials = total;
+    this.runState.completedMaterials = 0;
+    this.runState.remainingMaterials = total;
+  }
+
+  private ensureCurrentDramaStarted(dramaName: string): boolean {
     if (this.runState.currentDramaName !== dramaName) {
       this.runState.currentDramaStartedAt = new Date().toISOString();
-      return;
+      return true;
     }
 
     if (!this.runState.currentDramaStartedAt) {
       this.runState.currentDramaStartedAt = new Date().toISOString();
     }
+
+    return false;
   }
 
   private upsertProcessedDrama(
@@ -2571,22 +2581,25 @@ export class MaterialClipService {
     if (selectedDramaMatch) {
       const [, rawDate, dramaName] = selectedDramaMatch;
       const date = this.normalizeDisplayText(rawDate);
-      this.ensureCurrentDramaStarted(dramaName);
+      const switchedDrama = this.ensureCurrentDramaStarted(dramaName);
       this.runState.currentDramaName = dramaName;
       this.runState.currentDramaDate = date;
+      if (switchedDrama) {
+        this.runState.currentDramaRating = null;
+        this.runState.currentRecordId = null;
+        this.resetCurrentDramaProgress();
+      }
       this.runState.message = `正在处理《${dramaName}》`;
       const matched = this.findPendingDramaCandidate(dramaName, date ?? null);
       if (matched) {
         this.runState.currentDramaRating = matched.rating;
         this.runState.currentRecordId = matched.recordId;
         if (
-          this.runState.totalMaterials <= 0 &&
+          (switchedDrama || this.runState.totalMaterials <= 0) &&
           matched.plannedMaterials &&
           matched.plannedMaterials > 0
         ) {
-          this.runState.totalMaterials = matched.plannedMaterials;
-          this.runState.completedMaterials = 0;
-          this.runState.remainingMaterials = matched.plannedMaterials;
+          this.resetCurrentDramaProgress(matched.plannedMaterials);
         }
       }
       shouldRefreshPending = true;
@@ -2697,11 +2710,16 @@ export class MaterialClipService {
   }
 
   private markDramaAsCurrent(dramaName: string, dramaDate?: string | null) {
-    this.ensureCurrentDramaStarted(dramaName);
+    const switchedDrama = this.ensureCurrentDramaStarted(dramaName);
     this.clearPollingSchedule();
     this.runState.currentDramaName = dramaName;
     this.runState.currentDramaDate =
       this.normalizeDisplayText(dramaDate) ?? this.runState.currentDramaDate;
+    if (switchedDrama) {
+      this.runState.currentDramaRating = null;
+      this.runState.currentRecordId = null;
+      this.resetCurrentDramaProgress();
+    }
     const matched = this.findPendingDramaCandidate(
       dramaName,
       this.runState.currentDramaDate,
@@ -2714,13 +2732,11 @@ export class MaterialClipService {
     this.runState.currentDramaRating = matched.rating;
     this.runState.currentRecordId = matched.recordId;
     if (
-      this.runState.totalMaterials <= 0 &&
+      (switchedDrama || this.runState.totalMaterials <= 0) &&
       matched.plannedMaterials &&
       matched.plannedMaterials > 0
     ) {
-      this.runState.totalMaterials = matched.plannedMaterials;
-      this.runState.completedMaterials = 0;
-      this.runState.remainingMaterials = matched.plannedMaterials;
+      this.resetCurrentDramaProgress(matched.plannedMaterials);
     }
     this.runState.pendingDramas = this.runState.pendingDramas.filter(
       (item) => item.recordId !== matched.recordId,
