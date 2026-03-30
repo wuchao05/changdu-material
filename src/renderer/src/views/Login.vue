@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import {
   NAlert,
   NButton,
@@ -12,10 +12,10 @@ import {
   NRadio,
   NRadioGroup,
   type FormInst,
-} from "naive-ui";
-import { useApiConfigStore } from "../stores/apiConfig";
-import { useDarenStore } from "../stores/daren";
-import { useSessionStore } from "../stores/session";
+} from 'naive-ui';
+import { useApiConfigStore } from '../stores/apiConfig';
+import { useDarenStore } from '../stores/daren';
+import { useSessionStore } from '../stores/session';
 
 const router = useRouter();
 const sessionStore = useSessionStore();
@@ -25,41 +25,41 @@ const darenStore = useDarenStore();
 const formRef = ref<FormInst | null>(null);
 const loading = ref(false);
 const bootstrapping = ref(true);
-const errorMessage = ref("");
+const errorMessage = ref('');
 const showChannelSelector = ref(false);
-const selectedChannelId = ref("");
+const selectedChannelId = ref('');
 
 const form = reactive({
-  account: "",
-  password: "",
+  account: '',
+  password: '',
 });
 
 const rules = {
   account: {
     required: true,
-    message: "请输入账号",
-    trigger: ["blur", "input"],
+    message: '请输入账号',
+    trigger: ['blur', 'input'],
   },
   password: {
     required: true,
-    message: "请输入密码",
-    trigger: ["blur", "input"],
+    message: '请输入密码',
+    trigger: ['blur', 'input'],
   },
 };
 
 function resolveDefaultRoute(session: SessionRuntimeData) {
-  if (session.user.userType === "admin") {
-    return "/download";
+  if (session.user.userType === 'admin') {
+    return '/download';
   }
 
   const menus = session.runtimeUser?.permissions?.desktopMenus;
-  if (menus?.download) return "/download";
-  if (menus?.materialClip) return "/material-clip";
-  if (menus?.upload) return "/upload";
-  if (menus?.juliangUpload) return "/juliang";
-  if (menus?.uploadBuild) return "/upload-build";
-  if (menus?.juliangBuild) return "/juliang-build";
-  return "/login";
+  if (menus?.download) return '/download';
+  if (menus?.materialClip) return '/material-clip';
+  if (menus?.upload) return '/upload';
+  if (menus?.juliangUpload) return '/juliang';
+  if (menus?.uploadBuild) return '/upload-build';
+  if (menus?.juliangBuild) return '/juliang-build';
+  return '/login';
 }
 
 async function finishLogin(session: SessionRuntimeData) {
@@ -78,15 +78,15 @@ async function bootstrapSession() {
       await router.replace(resolveDefaultRoute(session));
     }
   } catch (error) {
-    console.error("[Login] 加载失败:", error);
-    errorMessage.value = "初始化登录态失败，请稍后重试";
+    console.error('[Login] 加载失败:', error);
+    errorMessage.value = '初始化登录态失败，请稍后重试';
   } finally {
     bootstrapping.value = false;
   }
 }
 
 async function handleLogin() {
-  errorMessage.value = "";
+  errorMessage.value = '';
 
   try {
     await formRef.value?.validate();
@@ -97,7 +97,7 @@ async function handleLogin() {
   const account = form.account.trim();
   const password = form.password.trim();
   if (!account) {
-    errorMessage.value = "请输入账号";
+    errorMessage.value = '请输入账号';
     return;
   }
 
@@ -105,17 +105,16 @@ async function handleLogin() {
   try {
     const session = await sessionStore.login(account, password);
     if (!session) {
-      errorMessage.value = "登录失败，请稍后重试";
+      errorMessage.value = '登录失败，请稍后重试';
       return;
     }
 
     if (
-      session.user.userType !== "admin" &&
+      session.user.userType !== 'admin' &&
       Array.isArray(session.availableChannels) &&
       session.availableChannels.length > 1
     ) {
-      selectedChannelId.value =
-        session.channel?.id || session.availableChannels[0]?.id || "";
+      selectedChannelId.value = session.channel?.id || session.availableChannels[0]?.id || '';
       showChannelSelector.value = true;
       apiConfigStore.applySessionData(session);
       return;
@@ -123,9 +122,8 @@ async function handleLogin() {
 
     await finishLogin(session);
   } catch (error) {
-    console.error("[Login] 登录失败:", error);
-    errorMessage.value =
-      error instanceof Error ? error.message : "登录失败，请稍后重试";
+    console.error('[Login] 登录失败:', error);
+    errorMessage.value = error instanceof Error ? error.message : '登录失败，请稍后重试';
   } finally {
     loading.value = false;
   }
@@ -133,7 +131,7 @@ async function handleLogin() {
 
 async function confirmChannelSelection() {
   if (!selectedChannelId.value) {
-    errorMessage.value = "请选择要进入的渠道";
+    errorMessage.value = '请选择要进入的渠道';
     return;
   }
 
@@ -143,9 +141,8 @@ async function confirmChannelSelection() {
     showChannelSelector.value = false;
     await finishLogin(session);
   } catch (error) {
-    console.error("[Login] 切换渠道失败:", error);
-    errorMessage.value =
-      error instanceof Error ? error.message : "切换渠道失败，请稍后重试";
+    console.error('[Login] 切换渠道失败:', error);
+    errorMessage.value = error instanceof Error ? error.message : '切换渠道失败，请稍后重试';
   } finally {
     loading.value = false;
   }
@@ -153,10 +150,10 @@ async function confirmChannelSelection() {
 
 function cancelChannelSelection() {
   showChannelSelector.value = false;
-  selectedChannelId.value = "";
+  selectedChannelId.value = '';
   void sessionStore.logout();
   apiConfigStore.resetConfig();
-  errorMessage.value = "已取消登录，请重新选择渠道";
+  errorMessage.value = '已取消登录，请重新选择渠道';
 }
 
 onMounted(() => {
@@ -187,9 +184,7 @@ onMounted(() => {
           <div class="login-copy">
             <p class="login-copy__eyebrow">统一登录入口</p>
             <h1 class="login-copy__title">欢迎回来</h1>
-            <p class="login-copy__desc">
-              素材下载、剪辑、上传、搭建一站式全流程服务平台。
-            </p>
+            <p class="login-copy__desc">素材下载、剪辑、上传、搭建一站式全流程服务平台。</p>
           </div>
 
           <NForm
@@ -200,11 +195,7 @@ onMounted(() => {
             class="login-form"
           >
             <NFormItem label="账号" path="account">
-              <NInput
-                v-model:value="form.account"
-                placeholder="请输入达人账号、达人名称或管理员账号"
-                size="large"
-              />
+              <NInput v-model:value="form.account" placeholder="请输入账号或名称" size="large" />
             </NFormItem>
 
             <NFormItem label="密码" path="password">
@@ -219,12 +210,7 @@ onMounted(() => {
             </NFormItem>
           </NForm>
 
-          <NAlert
-            v-if="errorMessage"
-            type="error"
-            :bordered="false"
-            class="login-alert"
-          >
+          <NAlert v-if="errorMessage" type="error" :bordered="false" class="login-alert">
             {{ errorMessage }}
           </NAlert>
 
@@ -237,7 +223,7 @@ onMounted(() => {
             class="login-submit"
             @click="handleLogin"
           >
-            {{ bootstrapping ? "正在初始化..." : "登录" }}
+            {{ bootstrapping ? '正在初始化...' : '登录' }}
           </NButton>
 
           <div class="login-footer">
@@ -389,7 +375,7 @@ onMounted(() => {
 }
 
 .login-card::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0 auto auto 0;
   width: 100%;
@@ -481,12 +467,7 @@ onMounted(() => {
 .login-footer__line {
   flex: 1;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(148, 163, 184, 0.45),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.45), transparent);
 }
 
 :deep(.login-card .n-card__content) {

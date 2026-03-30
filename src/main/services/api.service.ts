@@ -237,7 +237,7 @@ export class ApiService {
     const response = await axios.post(
       `https://open.feishu.cn/open-apis/bitable/v1/apps/${FIXED_FEISHU_APP_TOKEN}/tables/${finalTableId}/records/search`,
       {
-        field_names: ['剧名', '日期', '当前状态', '主体', '账户'],
+        field_names: ['剧名', '日期', '当前状态', '账户'],
         page_size: 100,
         filter: {
           conjunction: 'and',
@@ -353,6 +353,7 @@ export class ApiService {
   }
 
   async getRemotePendingBuildDramas(
+    configService: ConfigService,
     tableId?: string
   ): Promise<{
     code: number
@@ -363,7 +364,9 @@ export class ApiService {
     const response = await fetch(`${REMOTE_API_BASE_URL}/feishu/bitable/drama-status/pending-build`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        ...configService.getWebSessionHeaders({
+          'Content-Type': 'application/json'
+        })
       },
       body: JSON.stringify({
         table_id: tableId?.trim() || undefined,
@@ -393,7 +396,10 @@ export class ApiService {
     return await this.parseRemoteJsonResponse(response, '查询待搭建剧集失败')
   }
 
-  async getRemoteDailyBuildSchedulerStatus(tableId?: string): Promise<{
+  async getRemoteDailyBuildSchedulerStatus(
+    configService: ConfigService,
+    tableId?: string
+  ): Promise<{
     code: number
     message?: string
     data: RemoteDailyBuildSchedulerStatus
@@ -402,19 +408,30 @@ export class ApiService {
     const query = finalTableId
       ? `?table_id=${encodeURIComponent(finalTableId)}`
       : ''
-    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/status${query}`)
+    const response = await fetch(
+      `${REMOTE_API_BASE_URL}/build-workflow/scheduler/status${query}`,
+      {
+        headers: configService.getWebSessionHeaders(),
+      }
+    )
     return await this.parseRemoteJsonResponse(response, '查询智能搭建状态失败')
   }
 
-  async startRemoteDailyBuildScheduler(intervalMinutes: number, tableId?: string): Promise<{
+  async startRemoteDailyBuildScheduler(
+    intervalMinutes: number,
+    configService: ConfigService,
+    tableId?: string
+  ): Promise<{
     code: number
     message?: string
     data: RemoteDailyBuildSchedulerStatus
   }> {
-    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/start`, {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/build-workflow/scheduler/start`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        ...configService.getWebSessionHeaders({
+          'Content-Type': 'application/json'
+        })
       },
       body: JSON.stringify({
         intervalMinutes,
@@ -425,15 +442,20 @@ export class ApiService {
     return await this.parseRemoteJsonResponse(response, '启动智能搭建失败')
   }
 
-  async stopRemoteDailyBuildScheduler(tableId?: string): Promise<{
+  async stopRemoteDailyBuildScheduler(
+    configService: ConfigService,
+    tableId?: string
+  ): Promise<{
     code: number
     message?: string
     data: RemoteDailyBuildSchedulerStatus
   }> {
-    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/stop`, {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/build-workflow/scheduler/stop`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        ...configService.getWebSessionHeaders({
+          'Content-Type': 'application/json'
+        })
       },
       body: JSON.stringify({
         table_id: tableId?.trim() || undefined
@@ -443,16 +465,22 @@ export class ApiService {
     return await this.parseRemoteJsonResponse(response, '停止智能搭建失败')
   }
 
-  async triggerRemoteDailyBuildScheduler(dramaId?: string, tableId?: string): Promise<{
+  async triggerRemoteDailyBuildScheduler(
+    dramaId: string | undefined,
+    configService: ConfigService,
+    tableId?: string
+  ): Promise<{
     code: number
     message?: string
     timedOut?: boolean
     data: RemoteDailyBuildSchedulerStatus
   }> {
-    const response = await fetch(`${REMOTE_API_BASE_URL}/daily-build/scheduler/trigger`, {
+    const response = await fetch(`${REMOTE_API_BASE_URL}/build-workflow/scheduler/trigger`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        ...configService.getWebSessionHeaders({
+          'Content-Type': 'application/json'
+        })
       },
       body: JSON.stringify({
         ...(dramaId ? { dramaId } : {}),
@@ -470,7 +498,10 @@ export class ApiService {
         '[ApiService] 触发搭建接口返回 504，尝试通过状态接口确认任务是否已提交',
         text
       )
-      const statusResult = await this.getRemoteDailyBuildSchedulerStatus(tableId)
+      const statusResult = await this.getRemoteDailyBuildSchedulerStatus(
+        configService,
+        tableId,
+      )
       return {
         code: 0,
         message: '接口响应超时，但已按状态接口继续跟踪搭建任务',

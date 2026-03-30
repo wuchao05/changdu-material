@@ -35,7 +35,7 @@ const DAILY_BUILD_CONFIG = {
     sellingPoint: "爆款短剧推荐",
     callToAction: "精彩继续",
   },
-  coverImageUrl: "https://cxyy.top/api/daily-build/cover-image",
+  coverImageUrl: "https://cxyy.top/api/build-workflow/cover-image",
 };
 
 export type DailyBuildTaskStatus =

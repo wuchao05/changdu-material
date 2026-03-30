@@ -510,23 +510,23 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle("juliang-build:getPendingDramas", async (_event, tableId?: string) => {
-    return await apiService.getRemotePendingBuildDramas(tableId);
+    return await apiService.getRemotePendingBuildDramas(configService, tableId);
   });
 
   ipcMain.handle("juliang-build:getSchedulerStatus", async (_event, tableId?: string) => {
-    return await apiService.getRemoteDailyBuildSchedulerStatus(tableId);
+    return await apiService.getRemoteDailyBuildSchedulerStatus(configService, tableId);
   });
 
   ipcMain.handle("juliang-build:startScheduler", async (_event, intervalMinutes: number, tableId?: string) => {
-    return await apiService.startRemoteDailyBuildScheduler(intervalMinutes, tableId);
+    return await apiService.startRemoteDailyBuildScheduler(intervalMinutes, configService, tableId);
   });
 
   ipcMain.handle("juliang-build:stopScheduler", async (_event, tableId?: string) => {
-    return await apiService.stopRemoteDailyBuildScheduler(tableId);
+    return await apiService.stopRemoteDailyBuildScheduler(configService, tableId);
   });
 
   ipcMain.handle("juliang-build:triggerScheduler", async (_event, dramaId?: string, tableId?: string) => {
-    return await apiService.triggerRemoteDailyBuildScheduler(dramaId, tableId);
+    return await apiService.triggerRemoteDailyBuildScheduler(dramaId, configService, tableId);
   });
 
   // ==================== TOS 上传 ====================

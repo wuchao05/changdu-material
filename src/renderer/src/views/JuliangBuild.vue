@@ -816,9 +816,6 @@ onUnmounted(() => {
       <div class="hero-row">
         <div class="hero-title">巨量搭建</div>
         <NSpace class="hero-actions" wrap>
-          <NTag v-if="apiConfigStore.config.channelName" type="info" size="small">
-            {{ apiConfigStore.config.channelName }}
-          </NTag>
           <NButton quaternary class="hero-action-btn" :loading="refreshing" @click="refreshAll()">
             刷新
           </NButton>

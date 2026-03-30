@@ -74,6 +74,7 @@ export interface MaterialClipFeishuConfig {
   priority_rating_value: string;
   upload_time_sort_desc: boolean;
   douyin_material_field_name: string;
+  highlight_start_field_name: string;
   page_size: number;
   token_refresh_interval: number;
 }
@@ -95,6 +96,23 @@ export interface MaterialClipDateDeduplicationConfig {
   enabled: boolean;
   storage_dir: string;
   skip_processed_by_default: boolean;
+}
+
+export interface MaterialClipAiHighlightConfig {
+  enabled: boolean;
+  script_path: string;
+  only_priority_rating: boolean;
+  dashscope_api_key: string;
+  model_name: string;
+  group_count: number;
+  target_highlights_per_drama: number;
+  group_highlight_buffer: number;
+  video_fps: number;
+  analyze_first_portion_only: boolean;
+  analyze_portion_ratio: number;
+  auto_retry_insufficient_groups: boolean;
+  max_auto_retry_rounds: number;
+  use_dashscope_proxy: boolean;
 }
 
 export interface MaterialClipConfig {
@@ -159,6 +177,8 @@ export interface MaterialClipConfig {
   feishu_webhook_url: string | null;
   enable_feishu_notification: boolean;
   date_deduplication: MaterialClipDateDeduplicationConfig;
+  ai_highlight: MaterialClipAiHighlightConfig;
+  highlight_start_points_by_drama: Record<string, string> | null;
 }
 
 export interface MaterialClipLogEntry {
@@ -211,6 +231,7 @@ export interface MaterialClipPendingDrama {
   rating: string | null;
   uploadTime: number | null;
   plannedMaterials: number | null;
+  highlightStartPoints: string | null;
 }
 
 export interface MaterialClipProcessedDrama {
@@ -247,6 +268,34 @@ export interface MaterialClipRunState {
   lastPollAt: string | null;
   nextPollAt: string | null;
   message: string;
+}
+
+export interface MaterialClipAiHighlightDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  sourceDir: string | null;
+  sourceMatched: boolean;
+  highlightStartPoints: string | null;
+  status: "pending" | "running" | "success" | "failed" | "unmatched";
+  message: string;
+  highlightCount: number;
+  updatedAt: string | null;
+}
+
+export interface MaterialClipAiHighlightState {
+  running: boolean;
+  status: "idle" | "running" | "completed" | "failed";
+  message: string;
+  totalPending: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  dramas: MaterialClipAiHighlightDrama[];
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
 }
 
 interface MaterialClipFeishuRecordFieldValue {
@@ -313,6 +362,8 @@ export class MaterialClipService {
   private mainWindow: BrowserWindow | null = null;
   private runningProcess: ChildProcessByStdio<null, Readable, Readable> | null =
     null;
+  private aiHighlightProcess: ChildProcessByStdio<null, Readable, Readable> | null =
+    null;
   private installingProcess: ChildProcessByStdio<
     null,
     Readable,
@@ -321,6 +372,8 @@ export class MaterialClipService {
   private readonly configService: ConfigService;
   private readonly apiService: ApiService;
   private runState: MaterialClipRunState = this.createEmptyRunState();
+  private aiHighlightState: MaterialClipAiHighlightState =
+    this.createEmptyAiHighlightState();
   private activeRunConfig: MaterialClipConfig | null = null;
   private pendingRefreshTimer: NodeJS.Timeout | null = null;
   private pendingRefreshInFlight = false;
@@ -352,6 +405,13 @@ export class MaterialClipService {
       await this.refreshPendingDramas();
     }
     return this.getRunStateSnapshot();
+  }
+
+  async getAiHighlightState(): Promise<MaterialClipAiHighlightState> {
+    if (!this.aiHighlightState.running && this.aiHighlightState.status === "idle") {
+      await this.refreshAiHighlightQueue();
+    }
+    return this.getAiHighlightStateSnapshot();
   }
 
   async stopAutoRun(): Promise<{ success: boolean; error?: string }> {
@@ -474,6 +534,20 @@ export class MaterialClipService {
     };
   }
 
+  private createEmptyAiHighlightState(): MaterialClipAiHighlightState {
+    return {
+      running: false,
+      status: "idle",
+      message: "等待开始高光识别",
+      totalPending: 0,
+      matchedCount: 0,
+      unmatchedCount: 0,
+      dramas: [],
+      startedAt: null,
+      lastUpdatedAt: null,
+    };
+  }
+
   private getRunStateSnapshot(): MaterialClipRunState {
     return {
       ...this.runState,
@@ -484,8 +558,19 @@ export class MaterialClipService {
     };
   }
 
+  private getAiHighlightStateSnapshot(): MaterialClipAiHighlightState {
+    return {
+      ...this.aiHighlightState,
+      dramas: this.aiHighlightState.dramas.map((item) => ({ ...item })),
+    };
+  }
+
   private touchRunState() {
     this.runState.lastUpdatedAt = new Date().toISOString();
+  }
+
+  private touchAiHighlightState() {
+    this.aiHighlightState.lastUpdatedAt = new Date().toISOString();
   }
 
   private markPollCycleStarted(at = new Date()) {
@@ -535,6 +620,15 @@ export class MaterialClipService {
     }
   }
 
+  private emitAiHighlightState() {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send(
+        "material-clip:ai-highlight-state",
+        this.getAiHighlightStateSnapshot(),
+      );
+    }
+  }
+
   async getConfig(configOverride?: unknown): Promise<MaterialClipConfig> {
     const config =
       configOverride === undefined
@@ -563,6 +657,115 @@ export class MaterialClipService {
     const config = await this.getConfig(configOverride);
     await this.refreshPendingDramas(config);
     return this.getRunStateSnapshot();
+  }
+
+  async refreshAiHighlightQueue(
+    configOverride?: unknown,
+  ): Promise<MaterialClipAiHighlightState> {
+    const config = await this.getConfig(configOverride);
+    const dramas = await this.buildAiHighlightDramaList(config);
+    this.aiHighlightState = {
+      running: false,
+      status: "idle",
+      message:
+        dramas.length > 0
+          ? `已匹配 ${dramas.filter((item) => item.sourceMatched).length} 部可识别剧目`
+          : "当前没有可识别的待剪辑剧",
+      totalPending: dramas.length,
+      matchedCount: dramas.filter((item) => item.sourceMatched).length,
+      unmatchedCount: dramas.filter((item) => !item.sourceMatched).length,
+      dramas,
+      startedAt: null,
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    this.emitAiHighlightState();
+    return this.getAiHighlightStateSnapshot();
+  }
+
+  async runAiHighlightRecognition(
+    configOverride?: unknown,
+  ): Promise<{ success: boolean; error?: string }> {
+    const config = await this.getConfig(configOverride);
+    if (!config.ai_highlight.enabled) {
+      return { success: false, error: "请先开启 AI 智能高光" };
+    }
+
+    if (!config.ai_highlight.dashscope_api_key.trim()) {
+      return { success: false, error: "请先填写 DASHSCOPE API Key" };
+    }
+
+    const environmentStatus = await this.getEnvironmentStatus();
+    if (!environmentStatus.ready) {
+      return { success: false, error: "素材剪辑环境未就绪，请先完成运行时导入和环境安装" };
+    }
+
+    if (this.runningProcess) {
+      return { success: false, error: "素材剪辑运行中，暂时不能执行 AI 高光识别" };
+    }
+
+    if (this.aiHighlightProcess) {
+      return { success: false, error: "AI 高光识别任务已在运行中" };
+    }
+
+    const dramas = await this.buildAiHighlightDramaList(config);
+    const matchedDramas = dramas.filter((item) => item.sourceMatched);
+    if (matchedDramas.length === 0) {
+      this.aiHighlightState = {
+        running: false,
+        status: "failed",
+        message: "没有匹配到本地源素材目录中的待剪辑剧",
+        totalPending: dramas.length,
+        matchedCount: 0,
+        unmatchedCount: dramas.length,
+        dramas,
+        startedAt: null,
+        lastUpdatedAt: new Date().toISOString(),
+      };
+      this.emitAiHighlightState();
+      return { success: false, error: this.aiHighlightState.message };
+    }
+
+    this.aiHighlightState = {
+      running: true,
+      status: "running",
+      message: `开始识别 ${matchedDramas.length} 部剧的 AI 高光`,
+      totalPending: dramas.length,
+      matchedCount: matchedDramas.length,
+      unmatchedCount: dramas.length - matchedDramas.length,
+      dramas,
+      startedAt: new Date().toISOString(),
+      lastUpdatedAt: new Date().toISOString(),
+    };
+    this.emitAiHighlightState();
+
+    try {
+      for (const drama of matchedDramas) {
+        await this.runSingleAiHighlightDrama(drama, config);
+      }
+
+      const failedCount = this.aiHighlightState.dramas.filter(
+        (item) => item.status === "failed",
+      ).length;
+      this.aiHighlightState.running = false;
+      this.aiHighlightState.status = failedCount > 0 ? "failed" : "completed";
+      this.aiHighlightState.message =
+        failedCount > 0
+          ? `AI 高光识别完成，其中 ${failedCount} 部失败`
+          : "AI 高光识别已全部完成";
+      this.touchAiHighlightState();
+      this.emitAiHighlightState();
+      return failedCount > 0
+        ? { success: false, error: this.aiHighlightState.message }
+        : { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.aiHighlightState.running = false;
+      this.aiHighlightState.status = "failed";
+      this.aiHighlightState.message = `AI 高光识别失败：${message}`;
+      this.touchAiHighlightState();
+      this.emitAiHighlightState();
+      return { success: false, error: this.aiHighlightState.message };
+    }
   }
 
   async runAutoClip(configOverride?: unknown): Promise<MaterialClipRunResult> {
@@ -835,6 +1038,7 @@ export class MaterialClipService {
       "feishu",
       "feishu_watcher",
       "date_deduplication",
+      "ai_highlight",
     ];
 
     for (const field of objectFields) {
@@ -881,6 +1085,14 @@ export class MaterialClipService {
       !isNumberArray(raw.floating_watermark_speed_range)
     ) {
       throw new Error("floating_watermark_speed_range 必须是数字数组");
+    }
+
+    if (
+      raw.highlight_start_points_by_drama !== undefined &&
+      raw.highlight_start_points_by_drama !== null &&
+      !isPlainObject(raw.highlight_start_points_by_drama)
+    ) {
+      throw new Error("highlight_start_points_by_drama 必须是对象或 null");
     }
 
     const baseConfig = await this.createDefaultConfig();
@@ -993,6 +1205,34 @@ export class MaterialClipService {
       typeof normalized.feishu.base_url === "string"
         ? normalized.feishu.base_url
         : "https://open.feishu.cn/open-apis/bitable/v1";
+    normalized.feishu.highlight_start_field_name = "高光起始点";
+
+    normalized.ai_highlight.script_path =
+      typeof normalized.ai_highlight.script_path === "string"
+        ? normalized.ai_highlight.script_path
+        : "";
+    normalized.ai_highlight.dashscope_api_key =
+      typeof normalized.ai_highlight.dashscope_api_key === "string"
+        ? normalized.ai_highlight.dashscope_api_key
+        : "";
+    normalized.ai_highlight.model_name =
+      typeof normalized.ai_highlight.model_name === "string" &&
+      normalized.ai_highlight.model_name.trim()
+        ? normalized.ai_highlight.model_name.trim()
+        : "qwen3-vl-plus";
+
+    if (
+      !isPlainObject(normalized.highlight_start_points_by_drama) ||
+      Object.keys(normalized.highlight_start_points_by_drama).length === 0
+    ) {
+      normalized.highlight_start_points_by_drama = null;
+    } else {
+      normalized.highlight_start_points_by_drama = Object.fromEntries(
+        Object.entries(normalized.highlight_start_points_by_drama)
+          .map(([key, value]) => [key.trim(), typeof value === "string" ? value : ""])
+          .filter(([key, value]) => Boolean(key) && Boolean(value.trim())),
+      );
+    }
 
     return normalized;
   }
@@ -1123,7 +1363,7 @@ export class MaterialClipService {
         app_token: FIXED_FEISHU_APP_TOKEN,
         table_id: "",
         base_url: "https://open.feishu.cn/open-apis/bitable/v1",
-        field_names: ["剧名", "账户", "日期", "搭建时间", "主体"],
+        field_names: ["剧名", "账户", "日期", "搭建时间"],
         status_field_name: "当前状态",
         pending_status_value: "待剪辑",
         completed_status_value: "待上传",
@@ -1135,6 +1375,7 @@ export class MaterialClipService {
         priority_rating_value: "红标",
         upload_time_sort_desc: true,
         douyin_material_field_name: "抖音素材",
+        highlight_start_field_name: "高光起始点",
         page_size: 200,
         token_refresh_interval: 7200000,
       },
@@ -1157,6 +1398,23 @@ export class MaterialClipService {
         storage_dir: "history/date_dedup",
         skip_processed_by_default: false,
       },
+      ai_highlight: {
+        enabled: false,
+        script_path: "src/drama_processor/integrations/video_highlight_ai.py",
+        only_priority_rating: false,
+        dashscope_api_key: "",
+        model_name: "qwen3-vl-plus",
+        group_count: 10,
+        target_highlights_per_drama: 60,
+        group_highlight_buffer: 4,
+        video_fps: 1,
+        analyze_first_portion_only: true,
+        analyze_portion_ratio: 0.3,
+        auto_retry_insufficient_groups: true,
+        max_auto_retry_rounds: 2,
+        use_dashscope_proxy: false,
+      },
+      highlight_start_points_by_drama: null,
     };
   }
 
@@ -1200,6 +1458,237 @@ export class MaterialClipService {
     this.emitRunState();
   }
 
+  private async buildHighlightStartPointMapping(
+    config: MaterialClipConfig,
+  ): Promise<Record<string, string> | null> {
+    const pendingDramas = await this.fetchPendingDramas(config);
+    const entries = pendingDramas
+      .map((item) => [item.dramaName, item.highlightStartPoints || ""] as const)
+      .filter(([, value]) => Boolean(value.trim()));
+
+    return entries.length > 0 ? Object.fromEntries(entries) : null;
+  }
+
+  private async buildAiHighlightDramaList(
+    config: MaterialClipConfig,
+  ): Promise<MaterialClipAiHighlightDrama[]> {
+    const pendingDramas = await this.fetchPendingDramas(config);
+    const onlyPriorityRating = Boolean(config.ai_highlight.only_priority_rating);
+    const targetRating = config.feishu.priority_rating_value?.trim() || "红标";
+    const filteredPendingDramas = onlyPriorityRating
+      ? pendingDramas.filter((item) => item.rating?.trim() === targetRating)
+      : pendingDramas;
+    const sourceRoot = await this.resolveAvailableSourceRoot(config);
+    const localDramaMap = sourceRoot
+      ? await this.scanLocalDramaDirectories(sourceRoot)
+      : new Map<string, string>();
+
+    return filteredPendingDramas.map((item, index) => {
+      const sourceDir = localDramaMap.get(item.dramaName) || null;
+      const sourceMatched = Boolean(sourceDir);
+      return {
+        order: index + 1,
+        dramaName: item.dramaName,
+        recordId: item.recordId,
+        date: item.date,
+        fullDate: item.fullDate,
+        rating: item.rating,
+        sourceDir,
+        sourceMatched,
+        highlightStartPoints: item.highlightStartPoints,
+        status: sourceMatched ? "pending" : "unmatched",
+        message: sourceMatched ? "等待识别" : "未匹配到本地源素材目录",
+        highlightCount: item.highlightStartPoints
+          ? item.highlightStartPoints.split(/\r?\n/).filter(Boolean).length
+          : 0,
+        updatedAt: null,
+      };
+    });
+  }
+
+  private async resolveAvailableSourceRoot(
+    config: MaterialClipConfig,
+  ): Promise<string | null> {
+    const candidates = [
+      config.default_source_dir,
+      config.backup_source_dir,
+    ].filter((item, index, array) => item.trim() && array.indexOf(item) === index);
+
+    for (const candidate of candidates) {
+      try {
+        const stat = await fsp.stat(candidate);
+        if (stat.isDirectory()) {
+          return candidate;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  private async scanLocalDramaDirectories(
+    sourceRoot: string,
+  ): Promise<Map<string, string>> {
+    const entries = await fsp.readdir(sourceRoot, { withFileTypes: true });
+    const dramaMap = new Map<string, string>();
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name.startsWith(".") || entry.name.startsWith("__")) {
+        continue;
+      }
+
+      const dramaDir = path.join(sourceRoot, entry.name);
+      try {
+        const files = await fsp.readdir(dramaDir);
+        const hasEpisode = files.some((fileName) => fileName.toLowerCase().endsWith(".mp4"));
+        if (hasEpisode) {
+          dramaMap.set(entry.name, dramaDir);
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return dramaMap;
+  }
+
+  private updateAiHighlightDrama(
+    recordId: string,
+    updater: (item: MaterialClipAiHighlightDrama) => MaterialClipAiHighlightDrama,
+  ) {
+    const index = this.aiHighlightState.dramas.findIndex(
+      (item) => item.recordId === recordId,
+    );
+    if (index < 0) {
+      return;
+    }
+
+    this.aiHighlightState.dramas[index] = updater(this.aiHighlightState.dramas[index]);
+    this.touchAiHighlightState();
+    this.emitAiHighlightState();
+  }
+
+  private async runSingleAiHighlightDrama(
+    drama: MaterialClipAiHighlightDrama,
+    config: MaterialClipConfig,
+  ): Promise<void> {
+    if (!drama.sourceDir) {
+      this.updateAiHighlightDrama(drama.recordId, (item) => ({
+        ...item,
+        status: "unmatched",
+        message: "未匹配到本地源素材目录",
+        updatedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    this.updateAiHighlightDrama(drama.recordId, (item) => ({
+      ...item,
+      status: "running",
+      message: "正在执行 AI 高光识别",
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const scriptPath = await this.resolveAiHighlightScriptPath(config);
+    const pythonCommand = await this.resolveAiHighlightPythonCommand();
+    const workRoot = path.join(
+      app.getPath("userData"),
+      "material-clip-ai-highlight",
+      `${Date.now()}-${this.sanitizePathSegment(drama.dramaName)}`,
+    );
+    const sourceRoot = path.join(workRoot, "source");
+    const linkedDramaPath = path.join(sourceRoot, drama.dramaName);
+    const outputJsonPath = path.join(workRoot, "result.json");
+    const analysisClipDir = path.join(workRoot, ".analysis_clips");
+
+    await fsp.mkdir(sourceRoot, { recursive: true });
+    await this.createDramaSymlink(drama.sourceDir, linkedDramaPath);
+
+    const env = {
+      ...process.env,
+      SOURCE_VIDEO_ROOT: sourceRoot,
+      OUTPUT_JSON_PATH: outputJsonPath,
+      ANALYSIS_CLIP_DIR: analysisClipDir,
+      DASHSCOPE_API_KEY: config.ai_highlight.dashscope_api_key,
+      QWEN_MODEL: config.ai_highlight.model_name,
+      GROUP_COUNT: String(config.ai_highlight.group_count),
+      TARGET_HIGHLIGHTS_PER_DRAMA: String(
+        config.ai_highlight.target_highlights_per_drama,
+      ),
+      GROUP_HIGHLIGHT_BUFFER: String(config.ai_highlight.group_highlight_buffer),
+      VIDEO_FPS: String(config.ai_highlight.video_fps),
+      ANALYZE_FIRST_PORTION_ONLY: String(
+        config.ai_highlight.analyze_first_portion_only,
+      ),
+      ANALYZE_PORTION_RATIO: String(config.ai_highlight.analyze_portion_ratio),
+      AUTO_RETRY_INSUFFICIENT_GROUPS: String(
+        config.ai_highlight.auto_retry_insufficient_groups,
+      ),
+      MAX_AUTO_RETRY_ROUNDS: String(
+        config.ai_highlight.max_auto_retry_rounds,
+      ),
+      ENABLE_POLLING: "false",
+      DASHSCOPE_USE_PROXY: "false",
+    };
+
+    this.log(
+      `[AI高光] 开始识别《${drama.dramaName}》：${pythonCommand.command} ${scriptPath}`,
+    );
+
+    try {
+      await this.executeAiHighlightScript(
+        drama.dramaName,
+        pythonCommand.command,
+        [...pythonCommand.prefixArgs, scriptPath],
+        env,
+      );
+      const highlights = await this.readAiHighlightResult(
+        outputJsonPath,
+        drama.dramaName,
+      );
+      if (highlights.length === 0) {
+        throw new Error("脚本未返回有效高光起始点");
+      }
+
+      const highlightText = this.formatHighlightStartPointLines(highlights);
+      if (!highlightText.trim()) {
+        throw new Error("高光起始点格式化失败");
+      }
+      await this.updateFeishuRecordFields(
+        drama.recordId,
+        {
+          [config.feishu.highlight_start_field_name || "高光起始点"]: highlightText,
+        },
+        config,
+      );
+
+      this.updateAiHighlightDrama(drama.recordId, (item) => ({
+        ...item,
+        status: "success",
+        message: `识别完成，已写回 ${highlights.length} 个起始点`,
+        highlightCount: highlights.length,
+        highlightStartPoints: highlightText,
+        updatedAt: new Date().toISOString(),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`[AI高光] 《${drama.dramaName}》识别失败：${message}`);
+      this.updateAiHighlightDrama(drama.recordId, (item) => ({
+        ...item,
+        status: "failed",
+        message,
+        updatedAt: new Date().toISOString(),
+      }));
+    } finally {
+      await fsp.rm(workRoot, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
   private schedulePendingRefresh(delayMs = 600) {
     if (this.pendingRefreshTimer) {
       clearTimeout(this.pendingRefreshTimer);
@@ -1236,9 +1725,18 @@ export class MaterialClipService {
     const ratingField = config.feishu.rating_field_name || "评级";
     const douyinField =
       config.feishu.douyin_material_field_name || "抖音素材";
+    const highlightField =
+      config.feishu.highlight_start_field_name || "高光起始点";
     const endpoint = `/open-apis/bitable/v1/apps/${config.feishu.app_token}/tables/${config.feishu.table_id}/records/search`;
     const payload = {
-      field_names: ["剧名", "日期", "上架时间", ratingField, douyinField],
+      field_names: [
+        "剧名",
+        "日期",
+        "上架时间",
+        ratingField,
+        douyinField,
+        highlightField,
+      ],
       page_size: config.feishu.page_size || 200,
       filter: {
         conjunction: "and",
@@ -1272,7 +1770,13 @@ export class MaterialClipService {
 
       return response.data.items
         .map((record, index) =>
-          this.normalizePendingDrama(record, ratingField, douyinField, index),
+          this.normalizePendingDrama(
+            record,
+            ratingField,
+            douyinField,
+            highlightField,
+            index,
+          ),
         )
         .filter((item): item is MaterialClipPendingDrama => item !== null);
     } catch (error) {
@@ -1286,6 +1790,7 @@ export class MaterialClipService {
     record: MaterialClipFeishuRecord,
     ratingField: string,
     douyinField: string,
+    highlightField: string,
     index: number,
   ): MaterialClipPendingDrama | null {
     const dramaName = this.extractFieldText(record.fields["剧名"]);
@@ -1305,6 +1810,9 @@ export class MaterialClipService {
       rating: this.extractFieldText(record.fields[ratingField]),
       uploadTime,
       plannedMaterials: this.parseDouyinMaterialCount(record.fields[douyinField]),
+      highlightStartPoints: this.extractFieldMultilineText(
+        record.fields[highlightField],
+      ),
     };
   }
 
@@ -1641,6 +2149,17 @@ export class MaterialClipService {
       .map((item) => item.trim())
       .find(Boolean);
     return text || null;
+  }
+
+  private extractFieldMultilineText(value: unknown): string | null {
+    const texts = this.extractFieldTexts(value)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (texts.length === 0) {
+      return null;
+    }
+
+    return texts.join("\n");
   }
 
   private parseFeishuTimestamp(value: unknown): number | null {
@@ -2161,7 +2680,10 @@ export class MaterialClipService {
         line.includes("当前没有待剪辑的剧") ||
         line.includes("所有待剪辑的剧已处理完成")
       ) {
+        this.clearCurrentDramaDisplay("轮询中，等待下一部待剪辑剧");
         this.scheduleNextPoll();
+      } else if (line.includes("日期任务完成，立即查找其他日期的待剪辑剧")) {
+        this.clearCurrentDramaDisplay("正在查找下一部待剪辑剧");
       }
       shouldRefreshPending = true;
     }
@@ -2215,6 +2737,20 @@ export class MaterialClipService {
     }
     this.runState.completedMaterials = this.runState.totalMaterials;
     this.runState.remainingMaterials = 0;
+  }
+
+  private clearCurrentDramaDisplay(message?: string) {
+    this.runState.currentDramaName = null;
+    this.runState.currentDramaDate = null;
+    this.runState.currentDramaRating = null;
+    this.runState.currentRecordId = null;
+    this.runState.currentDramaStartedAt = null;
+    this.runState.totalMaterials = 0;
+    this.runState.completedMaterials = 0;
+    this.runState.remainingMaterials = 0;
+    if (message) {
+      this.runState.message = message;
+    }
   }
 
   private async resolveProcessorRuntime(): Promise<{
@@ -2281,6 +2817,222 @@ export class MaterialClipService {
       command: process.platform === "win32" ? "py" : "python3",
       prefixArgs: [],
     };
+  }
+
+  private async resolveAiHighlightPythonCommand(): Promise<PythonCommand> {
+    const runtime = await this.resolveProcessorRuntime();
+    if (runtime.runtimeRoot) {
+      return this.resolvePythonCommand(runtime.runtimeRoot);
+    }
+    throw new Error("未找到素材剪辑运行时 Python 环境");
+  }
+
+  private async resolveAiHighlightScriptPath(
+    config: MaterialClipConfig,
+  ): Promise<string> {
+    const runtime = await this.resolveProcessorRuntime();
+    const processorRoot = runtime.runtimeRoot;
+    if (!processorRoot) {
+      throw new Error("未找到素材剪辑运行时，无法定位内置 AI 高光脚本");
+    }
+
+    const relativeCandidates = [
+      config.ai_highlight.script_path.trim(),
+      "src/drama_processor/integrations/video_highlight_ai.py",
+    ].filter((item, index, array) => item && array.indexOf(item) === index);
+
+    for (const candidate of relativeCandidates) {
+      if (path.isAbsolute(candidate) && fs.existsSync(candidate)) {
+        return candidate;
+      }
+
+      const resolvedPath = path.join(processorRoot, candidate);
+      if (fs.existsSync(resolvedPath)) {
+        return resolvedPath;
+      }
+    }
+
+    throw new Error("运行时内未找到 AI 高光脚本，请重新导入包含完整脚本的运行时包");
+  }
+
+  private sanitizePathSegment(value: string): string {
+    return value.replace(/[\\/:*?"<>|]+/g, "_").trim() || "drama";
+  }
+
+  private async createDramaSymlink(sourceDir: string, targetPath: string) {
+    await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+    const symlinkType =
+      process.platform === "win32" ? ("junction" as fs.symlink.Type) : "dir";
+    await fsp.symlink(sourceDir, targetPath, symlinkType);
+  }
+
+  private async executeAiHighlightScript(
+    dramaName: string,
+    command: string,
+    args: string[],
+    env: NodeJS.ProcessEnv,
+  ): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(command, args, {
+        cwd: path.dirname(args[args.length - 1] || command),
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      this.aiHighlightProcess = child;
+      const flushBuffer = (buffer: string, isError: boolean) => {
+        const trimmed = buffer.trim();
+        if (trimmed) {
+          this.log(
+            `[AI高光][${dramaName}] ${isError ? "[stderr] " : ""}${trimmed}`,
+          );
+        }
+      };
+      const bindStream = (stream: NodeJS.ReadableStream, isError: boolean) => {
+        let buffer = "";
+        stream.on("data", (chunk: Buffer | string) => {
+          buffer += chunk.toString();
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) {
+              this.log(
+                `[AI高光][${dramaName}] ${isError ? "[stderr] " : ""}${trimmed}`,
+              );
+            }
+          }
+        });
+        stream.on("end", () => flushBuffer(buffer, isError));
+      };
+
+      bindStream(child.stdout, false);
+      bindStream(child.stderr, true);
+
+      child.once("error", (error) => {
+        this.aiHighlightProcess = null;
+        reject(error);
+      });
+
+      child.once("close", (code) => {
+        this.aiHighlightProcess = null;
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(`AI 脚本退出异常，exitCode=${code ?? -1}`));
+      });
+    });
+  }
+
+  private async readAiHighlightResult(
+    outputJsonPath: string,
+    dramaName: string,
+  ): Promise<Array<{ episode: number; start_time: string }>> {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(await fsp.readFile(outputJsonPath, "utf-8")) as unknown;
+    } catch (error) {
+      throw new Error(
+        `读取 AI 高光结果失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    if (!isPlainObject(raw)) {
+      throw new Error("AI 高光结果文件缺少当前剧目数据");
+    }
+
+    const dramaResult = raw[dramaName];
+    if (!isPlainObject(dramaResult)) {
+      throw new Error("AI 高光结果文件缺少当前剧目数据");
+    }
+
+    const highlights = dramaResult.highlights;
+    if (!Array.isArray(highlights)) {
+      throw new Error("AI 高光结果格式不正确");
+    }
+
+    return highlights
+      .map((item) => {
+        if (!isPlainObject(item)) {
+          return null;
+        }
+        const episode = Number(item.episode);
+        const startTime =
+          typeof item.start_time === "string" ? item.start_time.trim() : "";
+        if (!Number.isInteger(episode) || episode <= 0 || !startTime) {
+          return null;
+        }
+        return {
+          episode,
+          start_time: startTime,
+        };
+      })
+      .filter(
+        (
+          item,
+        ): item is {
+          episode: number;
+          start_time: string;
+        } => item !== null,
+      );
+  }
+
+  private formatHighlightStartPointLines(
+    highlights: Array<{ episode: number; start_time: string }>,
+  ): string {
+    return highlights
+      .map((item) => {
+        const totalSeconds = this.parseTimeTextToSeconds(item.start_time);
+        if (totalSeconds === null) {
+          return null;
+        }
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${item.episode} ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+      })
+      .filter((item): item is string => Boolean(item))
+      .join("\n");
+  }
+
+  private parseTimeTextToSeconds(value: string): number | null {
+    const parts = value.split(":").map((item) => item.trim());
+    if (parts.length < 2 || parts.length > 3) {
+      return null;
+    }
+
+    if (!parts.every((item) => /^\d+$/.test(item))) {
+      return null;
+    }
+
+    const numbers = parts.map((item) => Number(item));
+    if (numbers.some((item) => Number.isNaN(item))) {
+      return null;
+    }
+
+    if (numbers.length === 2) {
+      return numbers[0] * 60 + numbers[1];
+    }
+
+    return numbers[0] * 3600 + numbers[1] * 60 + numbers[2];
+  }
+
+  private async updateFeishuRecordFields(
+    recordId: string,
+    fields: Record<string, string>,
+    config: MaterialClipConfig,
+  ): Promise<void> {
+    const endpoint = `/open-apis/bitable/v1/apps/${config.feishu.app_token}/tables/${config.feishu.table_id}/records/${recordId}`;
+    const response = (await this.apiService.feishuRequest(
+      endpoint,
+      { fields },
+      "PUT",
+      this.configService,
+    )) as { code?: number; msg?: string };
+
+    if (response.code !== 0) {
+      throw new Error(response.msg || "飞书字段更新失败");
+    }
   }
 
   private async writeRuntimeConfig(config: MaterialClipConfig): Promise<void> {
@@ -2548,6 +3300,10 @@ export class MaterialClipService {
       return { success: false, error: "当前已有素材剪辑任务正在运行" };
     }
 
+    if (this.aiHighlightProcess) {
+      return { success: false, error: "AI 高光识别运行中，请稍后再开始剪辑" };
+    }
+
     if (!params.config.default_source_dir.trim()) {
       return { success: false, error: "请先配置本地源目录" };
     }
@@ -2599,6 +3355,8 @@ export class MaterialClipService {
     this.emitRunState();
 
     const runtimeConfig = await this.applyApiConfig(params.config);
+    runtimeConfig.highlight_start_points_by_drama =
+      await this.buildHighlightStartPointMapping(runtimeConfig);
     this.activeRunConfig = runtimeConfig;
     await this.writeRuntimeConfig(runtimeConfig);
 

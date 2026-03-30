@@ -16,9 +16,11 @@ import {
   NSelect,
   NSpace,
   NSwitch,
+  NTooltip,
   useMessage,
 } from "naive-ui";
 import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
+import { useAuthStore } from "../stores/auth";
 import { useDarenStore } from "../stores/daren";
 
 interface MaterialClipVideoConfig {
@@ -74,6 +76,7 @@ interface MaterialClipFeishuConfig {
   priority_rating_value: string;
   upload_time_sort_desc: boolean;
   douyin_material_field_name: string;
+  highlight_start_field_name: string;
   page_size: number;
   token_refresh_interval: number;
 }
@@ -95,6 +98,23 @@ interface MaterialClipDateDeduplicationConfig {
   enabled: boolean;
   storage_dir: string;
   skip_processed_by_default: boolean;
+}
+
+interface MaterialClipAiHighlightConfig {
+  enabled: boolean;
+  script_path: string;
+  only_priority_rating: boolean;
+  dashscope_api_key: string;
+  model_name: string;
+  group_count: number;
+  target_highlights_per_drama: number;
+  group_highlight_buffer: number;
+  video_fps: number;
+  analyze_first_portion_only: boolean;
+  analyze_portion_ratio: number;
+  auto_retry_insufficient_groups: boolean;
+  max_auto_retry_rounds: number;
+  use_dashscope_proxy: boolean;
 }
 
 interface MaterialClipConfig {
@@ -159,6 +179,8 @@ interface MaterialClipConfig {
   feishu_webhook_url: string | null;
   enable_feishu_notification: boolean;
   date_deduplication: MaterialClipDateDeduplicationConfig;
+  ai_highlight: MaterialClipAiHighlightConfig;
+  highlight_start_points_by_drama: Record<string, string> | null;
 }
 
 interface MaterialClipLogEntry {
@@ -198,6 +220,7 @@ interface MaterialClipRunState {
     fullDate: string | null;
     uploadTime: number | null;
     plannedMaterials: number | null;
+    highlightStartPoints: string | null;
   }>;
   processedDramas: Array<{
     order: number;
@@ -226,9 +249,38 @@ interface MaterialClipRunState {
   nextPollAt: string | null;
 }
 
+interface MaterialClipAiHighlightDrama {
+  order: number;
+  dramaName: string;
+  recordId: string;
+  date: string;
+  fullDate: string | null;
+  rating: string | null;
+  sourceDir: string | null;
+  sourceMatched: boolean;
+  highlightStartPoints: string | null;
+  status: "pending" | "running" | "success" | "failed" | "unmatched";
+  message: string;
+  highlightCount: number;
+  updatedAt: string | null;
+}
+
+interface MaterialClipAiHighlightState {
+  running: boolean;
+  status: "idle" | "running" | "completed" | "failed";
+  message: string;
+  totalPending: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  dramas: MaterialClipAiHighlightDrama[];
+  startedAt: string | null;
+  lastUpdatedAt: string | null;
+}
+
 const importingRuntime = ref(false);
 
 const message = useMessage();
+const authStore = useAuthStore();
 const darenStore = useDarenStore();
 
 const resolutionOptions = [
@@ -237,11 +289,19 @@ const resolutionOptions = [
   { label: "1080x1920（1080p 竖屏）", value: "1080x1920" },
 ];
 
+const aiModelOptions = [
+  { label: "qwen3-vl-flash", value: "qwen3-vl-flash" },
+  { label: "qwen3-vl-plus", value: "qwen3-vl-plus" },
+  { label: "qwen3-vl-max", value: "qwen3-vl-max" },
+];
+
 const envChecking = ref(true);
 const installingEnvironment = ref(false);
 const isAutoRunning = ref(false);
 const isManualRunning = ref(false);
 const refreshingPending = ref(false);
+const refreshingAiHighlight = ref(false);
+const runningAiHighlight = ref(false);
 const resolvingConfig = ref(false);
 const showLogs = ref(true);
 const dramaTablesExpanded = ref(["pending", "processed"]);
@@ -250,6 +310,17 @@ const logs = ref<MaterialClipLogEntry[]>([]);
 const config = ref<MaterialClipConfig | null>(null);
 const configEditorText = ref("");
 const environmentStatus = ref<MaterialClipEnvironmentStatus | null>(null);
+const aiHighlightState = ref<MaterialClipAiHighlightState>({
+  running: false,
+  status: "idle",
+  message: "等待开始高光识别",
+  totalPending: 0,
+  matchedCount: 0,
+  unmatchedCount: 0,
+  dramas: [],
+  startedAt: null,
+  lastUpdatedAt: null,
+});
 
 const runState = ref<MaterialClipRunState>({
   running: false,
@@ -278,6 +349,13 @@ const hasQueueData = computed(() => runState.value.pendingDramas.length > 0);
 const hasProcessedData = computed(
   () => runState.value.processedDramas.length > 0,
 );
+const showAiHighlightCard = computed(
+  () => Boolean(config.value?.ai_highlight.enabled),
+);
+const matchedAiHighlightDramas = computed(() =>
+  aiHighlightState.value.dramas.filter((item) => item.sourceMatched),
+);
+const isAiHighlightReadonly = computed(() => !authStore.isAdmin);
 const nowMs = ref(Date.now());
 
 function formatPollingTime(value: string | null): string | null {
@@ -291,6 +369,19 @@ function formatPollingTime(value: string | null): string | null {
   }
 
   return date.toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
 function formatPollInterval(seconds: number | null): string | null {
@@ -340,6 +431,23 @@ const statusSummary = computed(() => {
   }
 
   return "等待开始剪辑";
+});
+
+const aiHighlightSummary = computed(() => {
+  const state = aiHighlightState.value;
+  if (state.running) {
+    return state.message || "AI 高光识别运行中...";
+  }
+  if (state.status === "failed") {
+    return state.message || "AI 高光识别失败";
+  }
+  if (state.status === "completed") {
+    return state.message || "AI 高光识别已完成";
+  }
+  if (state.matchedCount > 0) {
+    return `已匹配 ${state.matchedCount} 部待识别剧`;
+  }
+  return state.message || "等待开始高光识别";
 });
 
 const showClipPollingMeta = computed(() => {
@@ -558,6 +666,41 @@ function formatMaterialCount(
   return "-";
 }
 
+function getAiHighlightStatusLabel(
+  status: MaterialClipAiHighlightDrama["status"],
+): string {
+  switch (status) {
+    case "running":
+      return "识别中";
+    case "success":
+      return "已写回";
+    case "failed":
+      return "失败";
+    case "unmatched":
+      return "未匹配";
+    default:
+      return "待识别";
+  }
+}
+
+function getAiHighlightStatusClass(
+  status: MaterialClipAiHighlightDrama["status"],
+): string {
+  if (status === "success") {
+    return "success";
+  }
+  if (status === "failed") {
+    return "failed";
+  }
+  if (status === "running") {
+    return "running";
+  }
+  if (status === "unmatched") {
+    return "muted";
+  }
+  return "pending";
+}
+
 const progressPercent = computed(() => {
   if (runState.value.totalMaterials <= 0) {
     return 0;
@@ -573,6 +716,7 @@ const progressPercent = computed(() => {
 
 let unsubscribeLog: (() => void) | null = null;
 let unsubscribeState: (() => void) | null = null;
+let unsubscribeAiHighlightState: (() => void) | null = null;
 let currentDramaTimer: number | null = null;
 
 const prettyConfig = computed(() => configEditorText.value.trim());
@@ -602,6 +746,22 @@ function updateConfig(updater: (draft: MaterialClipConfig) => void) {
   }
   updater(config.value);
   syncEditorFromConfig();
+}
+
+function updateAiHighlightConfig(updater: (draft: MaterialClipConfig) => void) {
+  if (isAiHighlightReadonly.value) {
+    return;
+  }
+  updateConfig(updater);
+}
+
+function ensureAiHighlightAdminAccess(): boolean {
+  if (!isAiHighlightReadonly.value) {
+    return true;
+  }
+
+  message.warning("AI 智能高光暂仅管理员可操作");
+  return false;
 }
 
 const selectedResolution = computed(() => {
@@ -825,6 +985,69 @@ async function refreshPendingQueue() {
   }
 }
 
+async function loadAiHighlightState() {
+  try {
+    aiHighlightState.value = await window.api.clipGetAiHighlightState();
+    runningAiHighlight.value = aiHighlightState.value.running;
+  } catch (error) {
+    console.error("加载 AI 高光状态失败:", error);
+  }
+}
+
+async function refreshAiHighlightQueue() {
+  if (refreshingAiHighlight.value || runningAiHighlight.value) {
+    return;
+  }
+
+  if (!ensureAiHighlightAdminAccess()) {
+    return;
+  }
+
+  refreshingAiHighlight.value = true;
+  try {
+    const resolvedConfig = await resolveEditorConfig();
+    if (!resolvedConfig) {
+      return;
+    }
+    aiHighlightState.value =
+      await window.api.clipRefreshAiHighlight(resolvedConfig);
+    message.success("AI 高光待识别列表已更新");
+  } catch (error) {
+    message.error(`刷新 AI 高光列表失败: ${error}`);
+  } finally {
+    refreshingAiHighlight.value = false;
+  }
+}
+
+async function startAiHighlightRecognition() {
+  if (runningAiHighlight.value) {
+    return;
+  }
+
+  if (!ensureAiHighlightAdminAccess()) {
+    return;
+  }
+
+  const resolvedConfig = await resolveEditorConfig();
+  if (!resolvedConfig) {
+    return;
+  }
+
+  runningAiHighlight.value = true;
+  try {
+    const result = await window.api.clipRunAiHighlight(resolvedConfig);
+    if (result.success) {
+      message.success("AI 高光识别任务已启动");
+    } else {
+      runningAiHighlight.value = false;
+      message.error(result.error || "AI 高光识别启动失败");
+    }
+  } catch (error) {
+    runningAiHighlight.value = false;
+    message.error(`AI 高光识别启动失败: ${error}`);
+  }
+}
+
 async function startAutoClip() {
   if (isAutoRunning.value) {
     return;
@@ -966,6 +1189,7 @@ onMounted(async () => {
     await loadConfig();
   }
   await loadRunState();
+  await loadAiHighlightState();
 
   unsubscribeLog = window.api.onClipLog((log) => {
     logs.value.push(log);
@@ -982,6 +1206,11 @@ onMounted(async () => {
     isManualRunning.value =
       state.status === "running" && state.mode === "manual";
   });
+
+  unsubscribeAiHighlightState = window.api.onClipAiHighlightState((state) => {
+    aiHighlightState.value = state;
+    runningAiHighlight.value = state.running;
+  });
 });
 
 onUnmounted(() => {
@@ -993,6 +1222,9 @@ onUnmounted(() => {
   }
   if (unsubscribeState) {
     unsubscribeState();
+  }
+  if (unsubscribeAiHighlightState) {
+    unsubscribeAiHighlightState();
   }
 });
 </script>
@@ -1460,6 +1692,19 @@ onUnmounted(() => {
                       "
                     />
                   </div>
+                  <div class="switch-chip">
+                    <span class="switch-chip-label">AI 智能高光</span>
+                    <NSwitch
+                      :disabled="isAiHighlightReadonly"
+                      :value="config.ai_highlight.enabled"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.enabled = value;
+                          })
+                      "
+                    />
+                  </div>
                 </div>
 
                 <div class="compact-field compact-field-wide">
@@ -1483,6 +1728,384 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+        </div>
+      </NCard>
+
+      <NCard
+        v-if="config && showAiHighlightCard"
+        class="quick-card ai-highlight-card"
+        title="AI 智能高光"
+      >
+        <template #header-extra>
+          <NSpace>
+            <NButton
+              quaternary
+              :disabled="
+                isAiHighlightReadonly || runningAiHighlight || resolvingConfig
+              "
+              :loading="refreshingAiHighlight"
+              @click="refreshAiHighlightQueue"
+            >
+              刷新待识别
+            </NButton>
+            <NButton
+              type="primary"
+              secondary
+              :loading="runningAiHighlight"
+              :disabled="isAiHighlightReadonly || resolvingConfig"
+              @click="startAiHighlightRecognition"
+            >
+              开始识别
+            </NButton>
+          </NSpace>
+        </template>
+
+        <NAlert
+          v-if="isAiHighlightReadonly"
+          type="warning"
+          :show-icon="false"
+          style="margin-bottom: 16px"
+        >
+          AI 智能高光当前仅管理员可配置和启动。
+        </NAlert>
+
+        <div class="ai-highlight-hero">
+          <div class="ai-highlight-summary">{{ aiHighlightSummary }}</div>
+        </div>
+
+        <div class="ai-highlight-stats">
+          <div class="ai-stat-chip">
+            <span class="ai-stat-label">待剪辑剧</span>
+            <span class="ai-stat-value">{{ aiHighlightState.totalPending }}</span>
+          </div>
+          <div class="ai-stat-chip">
+            <span class="ai-stat-label">已匹配本地</span>
+            <span class="ai-stat-value">{{ aiHighlightState.matchedCount }}</span>
+          </div>
+          <div class="ai-stat-chip">
+            <span class="ai-stat-label">未匹配</span>
+            <span class="ai-stat-value">{{ aiHighlightState.unmatchedCount }}</span>
+          </div>
+          <div class="ai-stat-chip ai-stat-chip-wide">
+            <span class="ai-stat-label">最近更新</span>
+            <span class="ai-stat-value">{{
+              formatDateTime(aiHighlightState.lastUpdatedAt)
+            }}</span>
+          </div>
+        </div>
+
+        <div class="ai-highlight-panels">
+          <div class="config-group-row">
+            <div class="config-group half ai-highlight-panel">
+              <div class="group-header ai-highlight-panel-header">
+                <div class="group-title">模型与鉴权</div>
+              </div>
+              <div class="compact-grid">
+                <div class="compact-field compact-field-wide">
+                  <div class="label-row">
+                    <div class="compact-label">分析模型</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      `flash` 更快，`plus` 更均衡，`max` 更偏向效果。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NSelect
+                      class="rounded-select"
+                      :disabled="isAiHighlightReadonly"
+                      :value="config.ai_highlight.model_name"
+                      :options="aiModelOptions"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.model_name = value || 'qwen3-vl-plus';
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field compact-field-wide">
+                  <div class="label-row">
+                    <div class="compact-label">API-KEY</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      用于调用 DashScope 视频理解模型；未填写时不会启动识别。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NInput
+                      :disabled="isAiHighlightReadonly"
+                      type="password"
+                      show-password-on="click"
+                      :value="config.ai_highlight.dashscope_api_key"
+                      placeholder="用于调用模型分析视频"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.dashscope_api_key = value;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="config-group half ai-highlight-panel">
+              <div class="group-header ai-highlight-panel-header">
+                <div class="group-title">识别参数</div>
+              </div>
+              <div class="compact-grid">
+                <div class="switch-grid compact-field-wide">
+                  <div class="switch-chip">
+                    <div class="switch-chip-copy">
+                      <span class="switch-chip-label">仅识别红标剧</span>
+                      <NTooltip trigger="hover">
+                        <template #trigger>
+                          <span class="tip-trigger">?</span>
+                        </template>
+                        开启后，只从飞书待剪辑且评级为红标的剧中做匹配。
+                      </NTooltip>
+                    </div>
+                    <NSwitch
+                      :disabled="isAiHighlightReadonly"
+                      :value="config.ai_highlight.only_priority_rating"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.only_priority_rating = value;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="label-row">
+                    <div class="compact-label">目标起始点数</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      最终希望每部剧保留下来的高光起始点数量。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NInput
+                      :disabled="isAiHighlightReadonly"
+                      :value="String(config.ai_highlight.target_highlights_per_drama)"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.target_highlights_per_drama =
+                              Number(value) || 1;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="label-row">
+                    <div class="compact-label">每组额外候选数</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      每组分析时会额外多要几个候选点，防止后面去重后数量不够。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NInput
+                      :disabled="isAiHighlightReadonly"
+                      :value="String(config.ai_highlight.group_highlight_buffer)"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.group_highlight_buffer =
+                              Number(value) || 0;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="label-row">
+                    <div class="compact-label">采样 FPS</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      模型看视频时的采样密度，越高越细，但识别会更慢。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NInput
+                      :disabled="isAiHighlightReadonly"
+                      :value="String(config.ai_highlight.video_fps)"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.video_fps = Number(value) || 1;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="label-row">
+                    <div class="compact-label">前段分析比例</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      仅在“只看每集前半段”开启时生效，表示每集前多少比例会送去分析。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NInput
+                      :disabled="
+                        isAiHighlightReadonly ||
+                        !config.ai_highlight.analyze_first_portion_only
+                      "
+                      :value="String(config.ai_highlight.analyze_portion_ratio)"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.analyze_portion_ratio =
+                              Number(value) || 0.3;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="compact-field">
+                  <div class="label-row">
+                    <div class="compact-label">最多补跑轮数</div>
+                    <NTooltip trigger="hover">
+                      <template #trigger>
+                        <span class="tip-trigger">?</span>
+                      </template>
+                      自动补跑开启后，如果候选点不足，最多再补跑多少轮。
+                    </NTooltip>
+                  </div>
+                  <div class="compact-control">
+                    <NInput
+                      :disabled="
+                        isAiHighlightReadonly ||
+                        !config.ai_highlight.auto_retry_insufficient_groups
+                      "
+                      :value="String(config.ai_highlight.max_auto_retry_rounds)"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.max_auto_retry_rounds =
+                              Number(value) || 0;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+                <div class="switch-grid compact-field-wide">
+                  <div class="switch-chip">
+                    <div class="switch-chip-copy">
+                      <span class="switch-chip-label">只看每集前半段</span>
+                      <NTooltip trigger="hover">
+                        <template #trigger>
+                          <span class="tip-trigger">?</span>
+                        </template>
+                        更适合短剧开场型高光，能减少上传体积并加快识别。
+                      </NTooltip>
+                    </div>
+                    <NSwitch
+                      :disabled="isAiHighlightReadonly"
+                      :value="config.ai_highlight.analyze_first_portion_only"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.analyze_first_portion_only = value;
+                          })
+                      "
+                    />
+                  </div>
+                  <div class="switch-chip">
+                    <div class="switch-chip-copy">
+                      <span class="switch-chip-label">自动补跑缺口组</span>
+                      <NTooltip trigger="hover">
+                        <template #trigger>
+                          <span class="tip-trigger">?</span>
+                        </template>
+                        某些分组返回候选点太少时，自动拆小组再补跑一轮。
+                      </NTooltip>
+                    </div>
+                    <NSwitch
+                      :disabled="isAiHighlightReadonly"
+                      :value="config.ai_highlight.auto_retry_insufficient_groups"
+                      @update:value="
+                        (value) =>
+                          updateAiHighlightConfig((draft) => {
+                            draft.ai_highlight.auto_retry_insufficient_groups =
+                              value;
+                          })
+                      "
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-container ai-highlight-table">
+          <table class="beautiful-table">
+            <thead>
+              <tr>
+                <th width="60">序号</th>
+                <th width="100">日期</th>
+                <th>剧名</th>
+                <th width="90">状态</th>
+                <th width="90">起始点数</th>
+                <th>结果 / 消息</th>
+                <th width="180">最近更新</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="matchedAiHighlightDramas.length === 0">
+                <td colspan="7" class="text-center" style="color: #8c8f97">
+                  当前没有匹配到本地源素材目录的待剪辑剧
+                </td>
+              </tr>
+              <tr
+                v-for="drama in matchedAiHighlightDramas"
+                :key="`${drama.recordId}-${drama.order}`"
+              >
+                <td class="text-center">{{ drama.order }}</td>
+                <td>
+                  {{
+                    drama.date === "未知" || drama.date === "未知日期"
+                      ? "-"
+                      : drama.date
+                  }}
+                </td>
+                <td class="font-medium">{{ drama.dramaName }}</td>
+                <td>
+                  <span
+                    class="ai-status-badge"
+                    :class="getAiHighlightStatusClass(drama.status)"
+                  >
+                    {{ getAiHighlightStatusLabel(drama.status) }}
+                  </span>
+                </td>
+                <td>{{ drama.highlightCount || "-" }}</td>
+                <td style="white-space: pre-line">
+                  {{ drama.highlightStartPoints || drama.message }}
+                </td>
+                <td>{{ formatDateTime(drama.updatedAt) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </NCard>
 
@@ -1834,11 +2457,17 @@ onUnmounted(() => {
 }
 
 .compact-label {
-  margin-bottom: 8px;
   font-size: 12px;
   font-weight: 600;
   color: #64748b;
   letter-spacing: 0.02em;
+}
+
+.label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .compact-control {
@@ -1863,17 +2492,126 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 48px;
-  padding: 0 14px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
+  min-height: 54px;
+  padding: 10px 14px;
+  border: 1px solid #e8eef6;
+  border-radius: 14px;
   background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.switch-chip-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .switch-chip-label {
   font-size: 13px;
   font-weight: 600;
   color: #334155;
+}
+
+.ai-highlight-card {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.06), transparent 22%),
+    linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+}
+
+.ai-highlight-hero {
+  margin-bottom: 18px;
+  padding: 18px 20px 16px;
+  border: 1px solid #e6edf8;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #fcfdff 0%, #f4f8ff 100%);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.04);
+}
+
+.ai-highlight-summary {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e40af;
+}
+
+.ai-highlight-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.ai-stat-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid #e8eef6;
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.035);
+}
+
+.ai-stat-chip-wide {
+  min-width: 0;
+}
+
+.ai-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ai-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.ai-highlight-panels {
+  margin-bottom: 18px;
+}
+
+.ai-highlight-panel {
+  border: 1px solid #e8eef6;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.035);
+  padding: 22px 22px 20px;
+}
+
+.ai-highlight-panel-header {
+  margin-bottom: 18px;
+}
+
+.tip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid #d8e2f0;
+  background: #f8fbff;
+  color: #7c8aa5;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease;
+}
+
+.tip-trigger:hover {
+  border-color: #93c5fd;
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.ai-highlight-table {
+  margin-top: 0;
 }
 
 /* Status Card Styles */
@@ -2099,6 +2837,55 @@ onUnmounted(() => {
   color: #10b981;
 }
 
+.ai-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-status-badge.pending {
+  background: rgba(15, 23, 42, 0.08);
+  color: #475569;
+}
+
+.ai-status-badge.running {
+  background: rgba(37, 99, 235, 0.12);
+  color: #1d4ed8;
+}
+
+.ai-status-badge.success {
+  background: rgba(24, 160, 88, 0.12);
+  color: #166534;
+}
+
+.ai-status-badge.failed {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+
+.ai-status-badge.muted {
+  background: rgba(100, 116, 139, 0.12);
+  color: #64748b;
+}
+
+.rounded-select :deep(.n-base-selection) {
+  border-radius: 12px;
+}
+
+.rounded-select :deep(.n-base-selection-label),
+.rounded-select :deep(.n-base-selection-placeholder) {
+  border-radius: 12px;
+}
+
+.rounded-select :deep(.n-base-selection) {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
 @media (max-width: 900px) {
   .hero-row,
   .manual-row {
@@ -2114,6 +2901,10 @@ onUnmounted(() => {
   .switch-grid,
   .compact-control-inline {
     grid-template-columns: 1fr;
+  }
+
+  .ai-highlight-stats {
+    grid-template-columns: 1fr 1fr;
   }
 
   .quick-grid {

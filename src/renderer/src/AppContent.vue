@@ -139,6 +139,16 @@ const channelOptions = computed(() =>
 );
 
 const currentChannelId = computed(() => sessionStore.currentChannel?.id || "");
+const currentUserChannelLabel = computed(() => {
+  const userLabel = authStore.currentUser?.label || authStore.currentUser?.id || "";
+  const channelName = sessionStore.currentChannel?.name || "";
+
+  if (userLabel && channelName) {
+    return `${userLabel}-${channelName}`;
+  }
+
+  return userLabel || channelName;
+});
 
 // 处理菜单选择
 function handleMenuSelect(key: string) {
@@ -266,11 +276,8 @@ onMounted(async () => {
           </NIcon>
         </span>
         <span class="brand-text">番茄挂载工具</span>
-        <span v-if="authStore.currentUser" class="user-info">
-          {{ authStore.currentUser.label || authStore.currentUser.id }}
-        </span>
-        <span v-if="sessionStore.currentChannel" class="user-info">
-          {{ sessionStore.currentChannel.name }}
+        <span v-if="currentUserChannelLabel" class="user-info">
+          {{ currentUserChannelLabel }}
         </span>
       </div>
       <div class="title-bar-actions" style="-webkit-app-region: no-drag">

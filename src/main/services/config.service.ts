@@ -524,6 +524,24 @@ export class ConfigService {
     return await this.webSessionService.getSession();
   }
 
+  getWebSessionHeaders(
+    extraHeaders: Record<string, string> = {},
+  ): Record<string, string> {
+    const headers: Record<string, string> = { ...extraHeaders };
+    const token = this.webSessionService.getToken().trim();
+    const channelId = this.webSessionService.getSelectedChannelId().trim();
+
+    if (token) {
+      headers["X-Studio-Token"] = token;
+    }
+
+    if (channelId) {
+      headers["X-Studio-Channel-Id"] = channelId;
+    }
+
+    return headers;
+  }
+
   async getDownloadCenterRequestConfig(
     fallbackConfig: ChangduConfig,
   ): Promise<DownloadCenterRequestConfig> {
