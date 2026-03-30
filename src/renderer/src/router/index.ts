@@ -72,10 +72,6 @@ function resolveDefaultRoute(session: SessionRuntimeData | null): string {
     return "/login";
   }
 
-  if (session.user.userType === "admin") {
-    return "/download";
-  }
-
   const menus = session.runtimeUser?.permissions?.desktopMenus;
   if (menus?.download) return "/download";
   if (menus?.materialClip) return "/material-clip";
@@ -83,6 +79,7 @@ function resolveDefaultRoute(session: SessionRuntimeData | null): string {
   if (menus?.juliangUpload) return "/juliang";
   if (menus?.uploadBuild) return "/upload-build";
   if (menus?.juliangBuild) return "/juliang-build";
+  if (session.user.userType === "admin") return "/settings";
   return "/login";
 }
 
@@ -104,7 +101,7 @@ router.beforeEach(async (to) => {
     return resolveDefaultRoute(session || null);
   }
 
-  if (!isLoggedIn || isAdmin) {
+  if (!isLoggedIn) {
     return true;
   }
 

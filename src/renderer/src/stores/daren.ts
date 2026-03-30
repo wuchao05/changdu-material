@@ -113,7 +113,7 @@ function buildSettingsStorageKey(userId: string, channelId: string) {
 export const useDarenStore = defineStore("daren", () => {
   const sessionStore = useSessionStore();
   const apiConfigStore = useApiConfigStore();
-  const { currentRuntimeUser, currentChannel, desktopMenus, currentUser, isAdmin } =
+  const { currentRuntimeUser, currentChannel, desktopMenus, currentUser } =
     storeToRefs(sessionStore);
 
   const loading = ref(false);
@@ -141,12 +141,12 @@ export const useDarenStore = defineStore("daren", () => {
     };
   });
 
-  const canUpload = computed(() => desktopMenus.value.upload || isAdmin.value);
-  const canDownload = computed(() => desktopMenus.value.download || isAdmin.value);
-  const canJuliang = computed(() => desktopMenus.value.juliangUpload || isAdmin.value);
-  const canUploadBuild = computed(() => desktopMenus.value.uploadBuild || isAdmin.value);
-  const canJuliangBuild = computed(() => desktopMenus.value.juliangBuild || isAdmin.value);
-  const canMaterialClip = computed(() => desktopMenus.value.materialClip || isAdmin.value);
+  const canUpload = computed(() => desktopMenus.value.upload);
+  const canDownload = computed(() => desktopMenus.value.download);
+  const canJuliang = computed(() => desktopMenus.value.juliangUpload);
+  const canUploadBuild = computed(() => desktopMenus.value.uploadBuild);
+  const canJuliangBuild = computed(() => desktopMenus.value.juliangBuild);
+  const canMaterialClip = computed(() => desktopMenus.value.materialClip);
 
   function loadBuildSettingsFromStorage() {
     const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";

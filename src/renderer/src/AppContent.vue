@@ -50,11 +50,8 @@ const menuOptions = computed(() => {
     icon: () => ReturnType<typeof h>;
   }> = [];
 
-  // 管理员可以看到所有菜单
-  const isAdmin = authStore.isAdmin;
-
-  // 剧目下载 - 管理员或有下载权限的达人可见
-  if (isAdmin || darenStore.canDownload) {
+  // 剧目下载 - 跟随当前渠道菜单权限
+  if (darenStore.canDownload) {
     options.push({
       label: "剧目下载",
       key: "download",
@@ -62,8 +59,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 素材剪辑 - 管理员或有素材剪辑权限的达人可见
-  if (isAdmin || darenStore.canMaterialClip) {
+  // 素材剪辑 - 跟随当前渠道菜单权限
+  if (darenStore.canMaterialClip) {
     options.push({
       label: "素材剪辑",
       key: "material-clip",
@@ -71,8 +68,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 形天上传 - 管理员或有上传权限的达人可见
-  if (isAdmin || darenStore.canUpload) {
+  // 形天上传 - 跟随当前渠道菜单权限
+  if (darenStore.canUpload) {
     options.push({
       label: "形天上传",
       key: "upload",
@@ -80,8 +77,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 巨量上传 - 管理员或有巨量上传权限的达人可见
-  if (isAdmin || darenStore.canJuliang) {
+  // 巨量上传 - 跟随当前渠道菜单权限
+  if (darenStore.canJuliang) {
     options.push({
       label: "巨量上传",
       key: "juliang",
@@ -89,8 +86,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 上传搭建 - 管理员或有上传搭建权限的达人可见
-  if (isAdmin || darenStore.canUploadBuild) {
+  // 上传搭建 - 跟随当前渠道菜单权限
+  if (darenStore.canUploadBuild) {
     options.push({
       label: "上传搭建",
       key: "upload-build",
@@ -98,8 +95,8 @@ const menuOptions = computed(() => {
     });
   }
 
-  // 巨量搭建 - 管理员或有巨量搭建权限的达人可见
-  if (isAdmin || darenStore.canJuliangBuild) {
+  // 巨量搭建 - 跟随当前渠道菜单权限
+  if (darenStore.canJuliangBuild) {
     options.push({
       label: "巨量搭建",
       key: "juliang-build",
@@ -108,7 +105,7 @@ const menuOptions = computed(() => {
   }
 
   // 系统设置 - 仅管理员可见
-  if (isAdmin) {
+  if (authStore.isAdmin) {
     options.push({
       label: "菜单配置",
       key: "settings",
@@ -121,13 +118,13 @@ const menuOptions = computed(() => {
 
 // 获取默认路由
 const defaultRoute = computed(() => {
-  if (authStore.isAdmin) return "/download";
   if (darenStore.canDownload) return "/download";
   if (darenStore.canMaterialClip) return "/material-clip";
   if (darenStore.canUpload) return "/upload";
   if (darenStore.canJuliang) return "/juliang";
   if (darenStore.canUploadBuild) return "/upload-build";
   if (darenStore.canJuliangBuild) return "/juliang-build";
+  if (authStore.isAdmin) return "/settings";
   return "/login";
 });
 

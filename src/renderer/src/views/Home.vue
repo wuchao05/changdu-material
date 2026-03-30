@@ -11,14 +11,12 @@ const darenStore = useDarenStore();
 
 onMounted(async () => {
   // 等待权限信息加载
-  if (!darenStore.currentDaren && !authStore.isAdmin) {
+  if (!darenStore.currentDaren) {
     await darenStore.loadFromServer(true);
   }
 
   // 根据权限重定向到正确的页面
-  if (authStore.isAdmin) {
-    router.replace("/download");
-  } else if (darenStore.canDownload) {
+  if (darenStore.canDownload) {
     router.replace("/download");
   } else if (darenStore.canMaterialClip) {
     router.replace("/material-clip");
@@ -30,6 +28,8 @@ onMounted(async () => {
     router.replace("/upload-build");
   } else if (darenStore.canJuliangBuild) {
     router.replace("/juliang-build");
+  } else if (authStore.isAdmin) {
+    router.replace("/settings");
   } else {
     // 没有任何权限，跳转到登录页
     router.replace("/login");

@@ -12,15 +12,6 @@ function createEmptyDesktopMenus(): DesktopMenus {
   };
 }
 
-const ADMIN_DESKTOP_MENUS: DesktopMenus = {
-  download: true,
-  materialClip: true,
-  upload: true,
-  juliangUpload: true,
-  uploadBuild: true,
-  juliangBuild: true,
-};
-
 export const useSessionStore = defineStore("session", () => {
   const session = ref<SessionRuntimeData | null>(null);
   const loading = ref(false);
@@ -32,15 +23,10 @@ export const useSessionStore = defineStore("session", () => {
   const currentRuntimeUser = computed(() => session.value?.runtimeUser || null);
   const currentChannel = computed(() => session.value?.channel || null);
   const availableChannels = computed(() => session.value?.availableChannels || []);
-  const desktopMenus = computed<DesktopMenus>(() => {
-    if (isAdmin.value) {
-      return ADMIN_DESKTOP_MENUS;
-    }
-
-    return (
-      currentRuntimeUser.value?.permissions?.desktopMenus || createEmptyDesktopMenus()
-    );
-  });
+  const desktopMenus = computed<DesktopMenus>(
+    () =>
+      currentRuntimeUser.value?.permissions?.desktopMenus || createEmptyDesktopMenus(),
+  );
 
   async function loadSession(force = false) {
     if (loading.value && !force) {
