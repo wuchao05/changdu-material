@@ -237,7 +237,7 @@ onMounted(() => {
       preset="card"
       title="选择进入渠道"
       :mask-closable="false"
-      style="width: min(560px, calc(100vw - 32px))"
+      style="width: min(480px, calc(100vw - 32px))"
       class="channel-selector-modal"
     >
       <div class="channel-selector">
