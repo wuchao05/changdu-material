@@ -1,21 +1,12 @@
 <script setup lang="ts">
-defineOptions({ name: "JuliangBuild" });
+defineOptions({ name: 'JuliangBuild' });
 
-import { computed, h, onMounted, onUnmounted, ref, watch } from "vue";
-import {
-  NButton,
-  NCard,
-  NDataTable,
-  NEmpty,
-  NSelect,
-  NSpace,
-  NTag,
-  useMessage,
-} from "naive-ui";
-import type { DataTableColumns } from "naive-ui";
-import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
-import { useDarenStore, type DarenInfo } from "../stores/daren";
-import { useApiConfigStore } from "../stores/apiConfig";
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue';
+import { NButton, NCard, NDataTable, NEmpty, NSelect, NSpace, NTag, useMessage } from 'naive-ui';
+import type { DataTableColumns } from 'naive-ui';
+import QueueRuleTooltip from '../components/QueueRuleTooltip.vue';
+import { useDarenStore, type DarenInfo } from '../stores/daren';
+import { useApiConfigStore } from '../stores/apiConfig';
 
 interface PendingDramaRecord {
   record_id: string;
@@ -25,7 +16,7 @@ interface PendingDramaRecord {
 
 interface SchedulerTaskHistory {
   dramaName: string;
-  status: "success" | "failed" | "skipped";
+  status: 'success' | 'failed' | 'skipped';
   rating?: string | null;
   date?: number | null;
   publishTime?: number | null;
@@ -44,7 +35,7 @@ interface SchedulerStatus {
     failCount: number;
   };
   currentTask: {
-    status: "running" | "building";
+    status: 'running' | 'building';
     dramaName?: string;
     startTime: string;
   } | null;
@@ -70,42 +61,35 @@ const startingScheduler = ref(false);
 const stoppingScheduler = ref(false);
 const manualBuildingId = ref<string | null>(null);
 const selectedInterval = ref<number | null>(null);
-const lastHistorySignature = ref("");
-const lastCurrentTaskKey = ref("");
+const lastHistorySignature = ref('');
+const lastCurrentTaskKey = ref('');
 
 let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const intervalOptions = [
-  { label: "10 分钟", value: 10 },
-  { label: "15 分钟", value: 15 },
-  { label: "20 分钟", value: 20 },
-  { label: "30 分钟", value: 30 },
-  { label: "40 分钟", value: 40 },
-  { label: "50 分钟", value: 50 },
-  { label: "1 小时", value: 60 },
-  { label: "1.5 小时", value: 90 },
-  { label: "2 小时", value: 120 },
+  { label: '10 分钟', value: 10 },
+  { label: '15 分钟', value: 15 },
+  { label: '20 分钟', value: 20 },
+  { label: '30 分钟', value: 30 },
+  { label: '40 分钟', value: 40 },
+  { label: '50 分钟', value: 50 },
+  { label: '1 小时', value: 60 },
+  { label: '1.5 小时', value: 90 },
+  { label: '2 小时', value: 120 },
 ];
 
 const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
-const currentTableId = computed(
-  () => currentDaren.value?.feishuDramaStatusTableId?.trim() || "",
-);
-const schedulerRunning = computed(
-  () => schedulerStatus.value?.enabled === true,
-);
-const hasRunningTask = computed(
-  () => Boolean(schedulerStatus.value?.currentTask),
-);
+const currentTableId = computed(() => currentDaren.value?.feishuDramaStatusTableId?.trim() || '');
+const schedulerRunning = computed(() => schedulerStatus.value?.enabled === true);
+const hasRunningTask = computed(() => Boolean(schedulerStatus.value?.currentTask));
 const historyRows = computed<HistoryRow[]>(() =>
   (schedulerStatus.value?.taskHistory || []).map((item) => ({
     ...item,
-    account:
-      historyAccountMap.value[buildHistoryKey(item.dramaName, item.date)] || "-",
+    account: historyAccountMap.value[buildHistoryKey(item.dramaName, item.date)] || '-',
   })),
 );
 const currentTaskDramaName = computed(
-  () => schedulerStatus.value?.currentTask?.dramaName?.trim() || "",
+  () => schedulerStatus.value?.currentTask?.dramaName?.trim() || '',
 );
 
 function normalizeAdvanceHours(value: string | number | null | undefined): number {
@@ -131,90 +115,85 @@ function formatAdvanceRuleSegment(prefix: string, hours: number): string {
 
 const advanceRuleDescription = computed(
   () =>
-    `${formatAdvanceRuleSegment("10点及之后：", advanceHoursAfterTen.value)}；${formatAdvanceRuleSegment("10点之前：", advanceHoursBeforeTen.value)}`,
+    `${formatAdvanceRuleSegment('10点及之后：', advanceHoursAfterTen.value)}；${formatAdvanceRuleSegment('10点之前：', advanceHoursBeforeTen.value)}`,
 );
 
 const buildRuleItems = computed(() => [
   {
     index: 1,
-    title: "先过可搭建时间门槛",
+    title: '先过可搭建时间门槛',
     desc: `系统会先判断这部剧现在能不能开始搭建。${advanceRuleDescription.value}。没到最早可搭建时间的剧会先跳过，这一轮不参与排序。`,
   },
   {
     index: 2,
-    title: "有红标时，先只看红标剧",
+    title: '有红标时，先只看红标剧',
     parts: [
-      { text: "已经到可搭建时间的剧里，只要存在 " },
-      { text: "红标", tone: "red" },
-      { text: "，系统就会优先只在 " },
-      { text: "红标", tone: "red" },
-      { text: " 剧里挑下一部要搭建的。" },
+      { text: '已经到可搭建时间的剧里，只要存在 ' },
+      { text: '红标', tone: 'red' },
+      { text: '，系统就会优先只在 ' },
+      { text: '红标', tone: 'red' },
+      { text: ' 剧里挑下一部要搭建的。' },
     ],
   },
   {
     index: 3,
-    title: "多个红标时，先看上架时间，再看日期",
+    title: '多个红标时，先看上架时间，再看日期',
     parts: [
-      { text: "如果 " },
-      { text: "红标", tone: "red" },
-      { text: " 剧不止一部，就先按上架时间从" },
-      { text: "晚到早", tone: "blue" },
-      { text: "排；上架时间一样，再按飞书日期从" },
-      { text: "早到晚", tone: "blue" },
-      { text: "排。" },
+      { text: '如果 ' },
+      { text: '红标', tone: 'red' },
+      { text: ' 剧不止一部，就先按上架时间从' },
+      { text: '晚到早', tone: 'blue' },
+      { text: '排；上架时间一样，再按飞书日期从' },
+      { text: '早到晚', tone: 'blue' },
+      { text: '排。' },
     ],
   },
   {
     index: 4,
-    title: "没有红标时，再排非红标剧",
+    title: '没有红标时，再排非红标剧',
     parts: [
-      { text: "如果这一轮没有 " },
-      { text: "红标", tone: "red" },
-      { text: " 剧，就回到其他剧里继续筛。先按飞书日期从" },
-      { text: "早到晚", tone: "blue" },
-      { text: "排；同一天时，" },
-      { text: "绿标", tone: "green" },
-      { text: " 优先，" },
-      { text: "黄标", tone: "yellow" },
-      { text: " 其次。" },
+      { text: '如果这一轮没有 ' },
+      { text: '红标', tone: 'red' },
+      { text: ' 剧，就回到其他剧里继续筛。先按飞书日期从' },
+      { text: '早到晚', tone: 'blue' },
+      { text: '排；同一天时，' },
+      { text: '绿标', tone: 'green' },
+      { text: ' 优先，' },
+      { text: '黄标', tone: 'yellow' },
+      { text: ' 其次。' },
     ],
   },
   {
     index: 5,
-    title: "同评级再看上架时间",
-    desc: "如果日期和评级都一样，就再按上架时间从晚到早排，越晚上架的越优先。",
+    title: '同评级再看上架时间',
+    desc: '如果日期和评级都一样，就再按上架时间从晚到早排，越晚上架的越优先。',
   },
 ]);
 
 function parseTextField(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (typeof value === 'string') return value;
   if (Array.isArray(value)) {
     const first = value[0];
-    if (
-      first &&
-      typeof first === "object" &&
-      "text" in first &&
-      typeof first.text === "string"
-    ) {
+    if (first && typeof first === 'object' && 'text' in first && typeof first.text === 'string') {
       return first.text;
     }
   }
-  return "";
+  return '';
 }
 
 function parseDateTimestamp(record: PendingDramaRecord): number | null {
-  const value = record.fields["日期"];
-  return typeof value === "number" ? value : null;
+  const value = record.fields['日期'];
+  return typeof value === 'number' ? value : null;
 }
 
 function parsePublishTimestamp(record: PendingDramaRecord): number | null {
-  const value = record.fields["上架时间"];
+  const value = record.fields['上架时间'];
   if (
     value &&
-    typeof value === "object" &&
-    "value" in value &&
+    typeof value === 'object' &&
+    'value' in value &&
     Array.isArray(value.value) &&
-    typeof value.value[0] === "number"
+    typeof value.value[0] === 'number'
   ) {
     return value.value[0];
   }
@@ -222,40 +201,36 @@ function parsePublishTimestamp(record: PendingDramaRecord): number | null {
 }
 
 function formatDate(value?: string | number | null): string {
-  if (!value) return "-";
-  const date = typeof value === "number" ? new Date(value) : new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
+  if (!value) return '-';
+  const date = typeof value === 'number' ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
 function formatDateTime(value?: string | number | null): string {
-  if (!value) return "-";
-  const date = typeof value === "number" ? new Date(value) : new Date(value);
-  if (Number.isNaN(date.getTime())) return "-";
+  if (!value) return '-';
+  const date = typeof value === 'number' ? new Date(value) : new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
   return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 function getAdvanceHours(publishTime: Date): number {
-  return publishTime.getHours() >= 10
-    ? advanceHoursAfterTen.value
-    : advanceHoursBeforeTen.value;
+  return publishTime.getHours() >= 10 ? advanceHoursAfterTen.value : advanceHoursBeforeTen.value;
 }
 
 function getEarliestBuildTime(record: PendingDramaRecord): Date | null {
   const publishTimestamp = parsePublishTimestamp(record);
   if (!publishTimestamp) return null;
   const publishTime = new Date(publishTimestamp);
-  return new Date(
-    publishTime.getTime() - getAdvanceHours(publishTime) * 60 * 60 * 1000,
-  );
+  return new Date(publishTime.getTime() - getAdvanceHours(publishTime) * 60 * 60 * 1000);
 }
 
 function canBuildDramaNow(record: PendingDramaRecord): boolean {
@@ -277,86 +252,86 @@ function getActionButtonStyle(params: {
 
   if (isBuilding) {
     return {
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      minWidth: "88px",
-      height: "30px",
-      padding: "0 12px",
-      borderRadius: "10px",
-      border: "1px solid #bbf7d0",
-      background: "#f0fdf4",
-      color: "#15803d",
-      fontSize: "13px",
-      fontWeight: "600",
-      lineHeight: "1",
-      whiteSpace: "nowrap",
-      appearance: "none",
-      WebkitAppearance: "none",
-      outline: "none",
-      boxShadow: "none",
-      cursor: "default",
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: '88px',
+      height: '30px',
+      padding: '0 12px',
+      borderRadius: '10px',
+      border: '1px solid #bbf7d0',
+      background: '#f0fdf4',
+      color: '#15803d',
+      fontSize: '13px',
+      fontWeight: '600',
+      lineHeight: '1',
+      whiteSpace: 'nowrap',
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      outline: 'none',
+      boxShadow: 'none',
+      cursor: 'default',
     };
   }
 
   if (disabled || !buildable) {
     return {
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      minWidth: "88px",
-      height: "30px",
-      padding: "0 12px",
-      borderRadius: "10px",
-      border: "1px solid #e5e7eb",
-      background: "#f9fafb",
-      color: "#9ca3af",
-      fontSize: "13px",
-      fontWeight: "600",
-      lineHeight: "1",
-      whiteSpace: "nowrap",
-      appearance: "none",
-      WebkitAppearance: "none",
-      outline: "none",
-      boxShadow: "none",
-      cursor: "not-allowed",
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minWidth: '88px',
+      height: '30px',
+      padding: '0 12px',
+      borderRadius: '10px',
+      border: '1px solid #e5e7eb',
+      background: '#f9fafb',
+      color: '#9ca3af',
+      fontSize: '13px',
+      fontWeight: '600',
+      lineHeight: '1',
+      whiteSpace: 'nowrap',
+      appearance: 'none',
+      WebkitAppearance: 'none',
+      outline: 'none',
+      boxShadow: 'none',
+      cursor: 'not-allowed',
     };
   }
 
   return {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: "88px",
-    height: "30px",
-    padding: "0 12px",
-    borderRadius: "10px",
-    border: "1px solid #bfdbfe",
-    background: "#eff6ff",
-    color: "#2563eb",
-    fontSize: "13px",
-    fontWeight: "600",
-    lineHeight: "1",
-    whiteSpace: "nowrap",
-    appearance: "none",
-    WebkitAppearance: "none",
-    outline: "none",
-    boxShadow: "none",
-    cursor: "pointer",
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '88px',
+    height: '30px',
+    padding: '0 12px',
+    borderRadius: '10px',
+    border: '1px solid #bfdbfe',
+    background: '#eff6ff',
+    color: '#2563eb',
+    fontSize: '13px',
+    fontWeight: '600',
+    lineHeight: '1',
+    whiteSpace: 'nowrap',
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    outline: 'none',
+    boxShadow: 'none',
+    cursor: 'pointer',
   };
 }
 
 function buildHistorySignature(taskHistory: SchedulerTaskHistory[]): string {
   return taskHistory
     .map((item) => `${item.dramaName}__${item.status}__${item.completedAt}`)
-    .join("|");
+    .join('|');
 }
 
 function buildCurrentTaskKey(status: SchedulerStatus | null): string {
   if (!status?.currentTask) {
-    return "";
+    return '';
   }
-  return `${status.currentTask.dramaName || ""}__${status.currentTask.startTime}`;
+  return `${status.currentTask.dramaName || ''}__${status.currentTask.startTime}`;
 }
 
 function prunePendingDramasByHistory(taskHistory: SchedulerTaskHistory[]) {
@@ -369,18 +344,17 @@ function prunePendingDramasByHistory(taskHistory: SchedulerTaskHistory[]) {
   );
 
   pendingDramas.value = pendingDramas.value.filter((record) => {
-    const dramaName = parseTextField(record.fields["剧名"]);
+    const dramaName = parseTextField(record.fields['剧名']);
     const date = parseDateTimestamp(record);
     return !completedKeys.has(buildHistoryKey(dramaName, date));
   });
 }
 
 function isDramaBuilding(record: PendingDramaRecord): boolean {
-  const dramaName = parseTextField(record.fields["剧名"]);
+  const dramaName = parseTextField(record.fields['剧名']);
   return (
     manualBuildingId.value === record.record_id ||
-    (Boolean(currentTaskDramaName.value) &&
-      currentTaskDramaName.value === dramaName)
+    (Boolean(currentTaskDramaName.value) && currentTaskDramaName.value === dramaName)
   );
 }
 
@@ -400,16 +374,14 @@ async function loadPendingDramas(showLoading = true) {
 
   try {
     await ensureBaseConfigLoaded();
-    const result = await window.api.juliangBuildGetPendingDramas(
-      currentTableId.value,
-    );
+    const result = await window.api.juliangBuildGetPendingDramas(currentTableId.value);
     pendingDramas.value = [...(result.data?.items || [])].sort((a, b) => {
       return (parseDateTimestamp(a) || 0) - (parseDateTimestamp(b) || 0);
     });
   } catch (error) {
-    console.error("加载待搭建剧集失败:", error);
+    console.error('加载待搭建剧集失败:', error);
     pendingDramas.value = [];
-    message.error(error instanceof Error ? error.message : "加载待搭建剧集失败");
+    message.error(error instanceof Error ? error.message : '加载待搭建剧集失败');
   } finally {
     if (showLoading) {
       loadingPending.value = false;
@@ -442,31 +414,31 @@ async function enrichHistoryAccounts(taskHistory: SchedulerTaskHistory[]) {
           value: string[];
         }> = [
           {
-            field_name: "剧名",
-            operator: "is",
+            field_name: '剧名',
+            operator: 'is',
             value: [item.dramaName],
           },
         ];
 
         if (item.date) {
           conditions.push({
-            field_name: "日期",
-            operator: "is",
-            value: ["ExactDate", String(item.date)],
+            field_name: '日期',
+            operator: 'is',
+            value: ['ExactDate', String(item.date)],
           });
         }
 
         const result = (await window.api.feishuRequest(
           `/open-apis/bitable/v1/apps/${appToken}/tables/${currentTableId.value}/records/search`,
           {
-            field_names: ["剧名", "账户", "日期"],
+            field_names: ['剧名', '账户', '日期'],
             page_size: 1,
             filter: {
-              conjunction: "and",
+              conjunction: 'and',
               conditions,
             },
           },
-          "POST",
+          'POST',
         )) as {
           code?: number;
           data?: {
@@ -474,11 +446,11 @@ async function enrichHistoryAccounts(taskHistory: SchedulerTaskHistory[]) {
           };
         };
 
-        const account = parseTextField(result.data?.items?.[0]?.fields?.["账户"]);
-        nextMap[buildHistoryKey(item.dramaName, item.date)] = account || "-";
+        const account = parseTextField(result.data?.items?.[0]?.fields?.['账户']);
+        nextMap[buildHistoryKey(item.dramaName, item.date)] = account || '-';
       } catch (error) {
-        console.warn("补充最近搭建记录账户信息失败:", error);
-        nextMap[buildHistoryKey(item.dramaName, item.date)] = "-";
+        console.warn('补充最近搭建记录账户信息失败:', error);
+        nextMap[buildHistoryKey(item.dramaName, item.date)] = '-';
       }
     }),
   );
@@ -534,9 +506,9 @@ async function loadSchedulerStatus(options?: {
     lastHistorySignature.value = nextHistorySignature;
     lastCurrentTaskKey.value = nextCurrentTaskKey;
   } catch (error) {
-    console.error("加载智能搭建状态失败:", error);
+    console.error('加载智能搭建状态失败:', error);
     if (!silent) {
-      message.error(error instanceof Error ? error.message : "加载智能搭建状态失败");
+      message.error(error instanceof Error ? error.message : '加载智能搭建状态失败');
     }
   } finally {
     if (showLoading) {
@@ -551,10 +523,7 @@ async function refreshAll(showLoading = true) {
   }
 
   try {
-    await Promise.all([
-      loadPendingDramas(showLoading),
-      loadSchedulerStatus({ showLoading }),
-    ]);
+    await Promise.all([loadPendingDramas(showLoading), loadSchedulerStatus({ showLoading })]);
   } finally {
     if (showLoading) {
       refreshing.value = false;
@@ -603,7 +572,7 @@ function syncStatusPollTimer() {
 
 async function handleStartScheduler() {
   if (!selectedInterval.value) {
-    message.warning("请先选择轮询间隔时间");
+    message.warning('请先选择轮询间隔时间');
     return;
   }
 
@@ -615,11 +584,11 @@ async function handleStartScheduler() {
     );
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
-    message.success(result.message || "智能搭建已启动");
+    message.success(result.message || '智能搭建已启动');
     await refreshAll(false);
   } catch (error) {
-    console.error("启动智能搭建失败:", error);
-    message.error(error instanceof Error ? error.message : "启动智能搭建失败");
+    console.error('启动智能搭建失败:', error);
+    message.error(error instanceof Error ? error.message : '启动智能搭建失败');
   } finally {
     startingScheduler.value = false;
   }
@@ -631,11 +600,11 @@ async function handleStopScheduler() {
     const result = await window.api.juliangBuildStopScheduler(currentTableId.value);
     schedulerStatus.value = result.data;
     syncStatusPollTimer();
-    message.success(result.message || "智能搭建已停止");
+    message.success(result.message || '智能搭建已停止');
     await refreshAll(false);
   } catch (error) {
-    console.error("停止智能搭建失败:", error);
-    message.error(error instanceof Error ? error.message : "停止智能搭建失败");
+    console.error('停止智能搭建失败:', error);
+    message.error(error instanceof Error ? error.message : '停止智能搭建失败');
   } finally {
     stoppingScheduler.value = false;
   }
@@ -647,12 +616,12 @@ async function handleTriggerDrama(record: PendingDramaRecord) {
     message.warning(
       earliestBuildTime
         ? `未到可搭建时间，最早可在 ${formatDateTime(earliestBuildTime.getTime())} 提交搭建`
-        : "未到可搭建时间",
+        : '未到可搭建时间',
     );
     return;
   }
 
-  const dramaName = parseTextField(record.fields["剧名"]) || "当前剧集";
+  const dramaName = parseTextField(record.fields['剧名']) || '当前剧集';
   manualBuildingId.value = record.record_id;
   message.success(`正在搭建 ${dramaName}`, { duration: 3000 });
   try {
@@ -668,78 +637,69 @@ async function handleTriggerDrama(record: PendingDramaRecord) {
     });
   } catch (error) {
     manualBuildingId.value = null;
-    console.error("触发单个剧集搭建失败:", error);
-    message.error(error instanceof Error ? error.message : "触发单个剧集搭建失败");
+    console.error('触发单个剧集搭建失败:', error);
+    message.error(error instanceof Error ? error.message : '触发单个剧集搭建失败');
   }
 }
 
 const pendingColumns: DataTableColumns<PendingDramaRecord> = [
   {
-    title: "剧名",
-    key: "drama",
+    title: '剧名',
+    key: 'drama',
     minWidth: 220,
     ellipsis: { tooltip: true },
-    render: (row) => parseTextField(row.fields["剧名"]) || "-",
+    render: (row) => parseTextField(row.fields['剧名']) || '-',
   },
   {
-    title: "账户",
-    key: "account",
+    title: '账户',
+    key: 'account',
     width: 180,
-    render: (row) => parseTextField(row.fields["账户"]) || "-",
+    render: (row) => parseTextField(row.fields['账户']) || '-',
   },
   {
-    title: "日期",
-    key: "date",
+    title: '日期',
+    key: 'date',
     width: 120,
     render: (row) => formatDate(parseDateTimestamp(row)),
   },
   {
-    title: "上架时间",
-    key: "publishTime",
+    title: '上架时间',
+    key: 'publishTime',
     width: 170,
     render: (row) => formatDateTime(parsePublishTimestamp(row)),
   },
   {
-    title: "最早可搭建时间",
-    key: "earliestBuildTime",
+    title: '最早可搭建时间',
+    key: 'earliestBuildTime',
     width: 180,
     render: (row) => {
       const earliestBuildTime = getEarliestBuildTime(row);
-      return earliestBuildTime
-        ? formatDateTime(earliestBuildTime.getTime())
-        : "-";
+      return earliestBuildTime ? formatDateTime(earliestBuildTime.getTime()) : '-';
     },
   },
   {
-    title: "当前状态",
-    key: "status",
+    title: '当前状态',
+    key: 'status',
     width: 110,
     render: (row) =>
       h(
         NTag,
-        { type: "warning", size: "small" },
-        { default: () => parseTextField(row.fields["当前状态"]) || "待搭建" },
+        { type: 'warning', size: 'small' },
+        { default: () => parseTextField(row.fields['当前状态']) || '待搭建' },
       ),
   },
   {
-    title: "操作",
-    key: "actions",
+    title: '操作',
+    key: 'actions',
     width: 150,
     render: (row) => {
       const buildable = canBuildDramaNow(row);
       const isBuilding = isDramaBuilding(row);
-      const disabled =
-        (hasRunningTask.value && !isBuilding) ||
-        !buildable ||
-        isBuilding;
-      const actionText = isBuilding
-        ? "搭建中..."
-        : buildable
-          ? "开始搭建"
-          : "未到时间";
+      const disabled = (hasRunningTask.value && !isBuilding) || !buildable || isBuilding;
+      const actionText = isBuilding ? '搭建中...' : buildable ? '开始搭建' : '未到时间';
 
       return h(
-        "button",
+        'button',
         {
           style: getActionButtonStyle({
             disabled,
@@ -747,7 +707,7 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
             buildable,
           }),
           disabled,
-          type: "button",
+          type: 'button',
           onClick: () => {
             if (!disabled) {
               void handleTriggerDrama(row);
@@ -762,58 +722,54 @@ const pendingColumns: DataTableColumns<PendingDramaRecord> = [
 
 const historyColumns: DataTableColumns<HistoryRow> = [
   {
-    title: "剧名",
-    key: "dramaName",
+    title: '剧名',
+    key: 'dramaName',
     minWidth: 220,
     ellipsis: { tooltip: true },
   },
   {
-    title: "账户",
-    key: "account",
+    title: '账户',
+    key: 'account',
     width: 180,
   },
   {
-    title: "日期",
-    key: "date",
+    title: '日期',
+    key: 'date',
     width: 120,
     render: (row) => formatDate(row.date),
   },
   {
-    title: "上架时间",
-    key: "publishTime",
+    title: '上架时间',
+    key: 'publishTime',
     width: 170,
     render: (row) => formatDateTime(row.publishTime),
   },
   {
-    title: "搭建时间",
-    key: "completedAt",
+    title: '搭建时间',
+    key: 'completedAt',
     width: 170,
     render: (row) => formatDateTime(row.completedAt),
   },
   {
-    title: "结果",
-    key: "status",
+    title: '结果',
+    key: 'status',
     width: 100,
     render: (row) => {
       const map = {
-        success: { type: "success" as const, text: "成功" },
-        failed: { type: "error" as const, text: "失败" },
-        skipped: { type: "default" as const, text: "跳过" },
+        success: { type: 'success' as const, text: '成功' },
+        failed: { type: 'error' as const, text: '失败' },
+        skipped: { type: 'default' as const, text: '跳过' },
       };
       const current = map[row.status] || map.failed;
-      return h(
-        NTag,
-        { type: current.type, size: "small" },
-        { default: () => current.text },
-      );
+      return h(NTag, { type: current.type, size: 'small' }, { default: () => current.text });
     },
   },
   {
-    title: "失败原因",
-    key: "error",
+    title: '失败原因',
+    key: 'error',
     minWidth: 220,
     ellipsis: { tooltip: true },
-    render: (row) => row.error || "-",
+    render: (row) => row.error || '-',
   },
 ];
 
@@ -863,7 +819,7 @@ onUnmounted(() => {
             :loading="refreshingPendingOnly"
             @click="refreshPendingListOnly"
           >
-            立即刷新列表
+            立即刷新
           </NButton>
           <NButton quaternary class="hero-action-btn" :loading="refreshing" @click="refreshAll()">
             刷新
@@ -876,11 +832,8 @@ onUnmounted(() => {
       <template #header>
         <div class="card-title-row">
           <span>智能搭建控制台</span>
-          <span
-            class="status-chip"
-            :class="{ running: schedulerRunning, idle: !schedulerRunning }"
-          >
-            {{ schedulerRunning ? "运行中" : "未启动" }}
+          <span class="status-chip" :class="{ running: schedulerRunning, idle: !schedulerRunning }">
+            {{ schedulerRunning ? '运行中' : '未启动' }}
           </span>
         </div>
       </template>
@@ -923,7 +876,7 @@ onUnmounted(() => {
         <div class="stat-item">
           <span class="stat-label">轮询间隔</span>
           <span class="stat-value">
-            {{ schedulerStatus?.intervalMinutes ? `${schedulerStatus.intervalMinutes} 分钟` : "-" }}
+            {{ schedulerStatus?.intervalMinutes ? `${schedulerStatus.intervalMinutes} 分钟` : '-' }}
           </span>
         </div>
         <div class="stat-item">
@@ -945,8 +898,8 @@ onUnmounted(() => {
       </div>
 
       <div v-if="schedulerStatus?.currentTask" class="current-task">
-        当前任务：{{ schedulerStatus.currentTask.dramaName || "查询中..." }}，
-        开始时间 {{ formatDateTime(schedulerStatus.currentTask.startTime) }}
+        当前任务：{{ schedulerStatus.currentTask.dramaName || '查询中...' }}， 开始时间
+        {{ formatDateTime(schedulerStatus.currentTask.startTime) }}
       </div>
     </NCard>
 

@@ -350,8 +350,8 @@ const hasQueueData = computed(() => runState.value.pendingDramas.length > 0);
 const hasProcessedData = computed(
   () => runState.value.processedDramas.length > 0,
 );
-const showAiHighlightCard = computed(
-  () => Boolean(config.value?.ai_highlight.enabled),
+const showAiHighlightCard = computed(() =>
+  Boolean(config.value?.ai_highlight.enabled),
 );
 const matchedAiHighlightDramas = computed(() =>
   aiHighlightState.value.dramas.filter((item) => item.sourceMatched),
@@ -584,7 +584,11 @@ function getRatingClass(rating: string | null | undefined): string {
 
 function getRatingTone(rating: string | null | undefined) {
   const normalized = getRatingClass(rating);
-  if (normalized === "red" || normalized === "yellow" || normalized === "green") {
+  if (
+    normalized === "red" ||
+    normalized === "yellow" ||
+    normalized === "green"
+  ) {
     return normalized;
   }
   return "blue";
@@ -1354,7 +1358,10 @@ onUnmounted(() => {
         <div class="hero-row">
           <div class="hero-title">素材剪辑</div>
           <NSpace class="hero-actions" wrap>
-            <NButton quaternary class="hero-action-btn" @click="loadEnvironmentStatus"
+            <NButton
+              quaternary
+              class="hero-action-btn"
+              @click="loadEnvironmentStatus"
               >重新检测</NButton
             >
             <NButton
@@ -1388,7 +1395,7 @@ onUnmounted(() => {
               :disabled="resolvingConfig"
               @click="startImmediateQueryClip"
             >
-              立即查询并剪辑
+              立即查询
             </NButton>
             <NButton
               v-if="!isAutoRunning"
@@ -1434,7 +1441,9 @@ onUnmounted(() => {
         </div>
       </NCard>
 
-      <template v-if="runState.status !== 'idle' || hasQueueData || hasProcessedData">
+      <template
+        v-if="runState.status !== 'idle' || hasQueueData || hasProcessedData"
+      >
         <NCard class="status-card">
           <template #header>运行状态</template>
           <template #header-extra>
@@ -1556,12 +1565,18 @@ onUnmounted(() => {
             </NCollapseItem>
 
             <NCollapseItem
-              v-if="runState.processedDramas && runState.processedDramas.length > 0"
+              v-if="
+                runState.processedDramas && runState.processedDramas.length > 0
+              "
               :title="`已处理剧目 (${runState.processedDramas.length})`"
               name="processed"
             >
               <template #header-extra>
-                <NButton quaternary size="tiny" @click.stop="clearProcessedDramas">
+                <NButton
+                  quaternary
+                  size="tiny"
+                  @click.stop="clearProcessedDramas"
+                >
                   清空
                 </NButton>
               </template>
@@ -1624,7 +1639,9 @@ onUnmounted(() => {
             <div class="config-group half">
               <div class="group-header">
                 <div class="group-title">基础路径、编码与输出</div>
-                <div class="group-desc">设置本地源目录与导出分辨率、音视频码率</div>
+                <div class="group-desc">
+                  设置本地源目录与导出分辨率、音视频码率
+                </div>
               </div>
               <div class="compact-grid">
                 <div class="compact-field compact-field-wide">
@@ -1815,15 +1832,21 @@ onUnmounted(() => {
         <div class="ai-highlight-stats">
           <div class="ai-stat-chip">
             <span class="ai-stat-label">待剪辑剧</span>
-            <span class="ai-stat-value">{{ aiHighlightState.totalPending }}</span>
+            <span class="ai-stat-value">{{
+              aiHighlightState.totalPending
+            }}</span>
           </div>
           <div class="ai-stat-chip">
             <span class="ai-stat-label">已匹配本地</span>
-            <span class="ai-stat-value">{{ aiHighlightState.matchedCount }}</span>
+            <span class="ai-stat-value">{{
+              aiHighlightState.matchedCount
+            }}</span>
           </div>
           <div class="ai-stat-chip">
             <span class="ai-stat-label">未匹配</span>
-            <span class="ai-stat-value">{{ aiHighlightState.unmatchedCount }}</span>
+            <span class="ai-stat-value">{{
+              aiHighlightState.unmatchedCount
+            }}</span>
           </div>
           <div class="ai-stat-chip ai-stat-chip-wide">
             <span class="ai-stat-label">最近更新</span>
@@ -1859,7 +1882,8 @@ onUnmounted(() => {
                       @update:value="
                         (value) =>
                           updateAiHighlightConfig((draft) => {
-                            draft.ai_highlight.model_name = value || 'qwen3-vl-plus';
+                            draft.ai_highlight.model_name =
+                              value || 'qwen3-vl-plus';
                           })
                       "
                     />
@@ -1935,7 +1959,9 @@ onUnmounted(() => {
                   <div class="compact-control">
                     <NInput
                       :disabled="isAiHighlightReadonly"
-                      :value="String(config.ai_highlight.target_highlights_per_drama)"
+                      :value="
+                        String(config.ai_highlight.target_highlights_per_drama)
+                      "
                       @update:value="
                         (value) =>
                           updateAiHighlightConfig((draft) => {
@@ -1959,7 +1985,9 @@ onUnmounted(() => {
                   <div class="compact-control">
                     <NInput
                       :disabled="isAiHighlightReadonly"
-                      :value="String(config.ai_highlight.group_highlight_buffer)"
+                      :value="
+                        String(config.ai_highlight.group_highlight_buffer)
+                      "
                       @update:value="
                         (value) =>
                           updateAiHighlightConfig((draft) => {
@@ -2064,7 +2092,8 @@ onUnmounted(() => {
                       @update:value="
                         (value) =>
                           updateAiHighlightConfig((draft) => {
-                            draft.ai_highlight.analyze_first_portion_only = value;
+                            draft.ai_highlight.analyze_first_portion_only =
+                              value;
                           })
                       "
                     />
@@ -2081,7 +2110,9 @@ onUnmounted(() => {
                     </div>
                     <NSwitch
                       :disabled="isAiHighlightReadonly"
-                      :value="config.ai_highlight.auto_retry_insufficient_groups"
+                      :value="
+                        config.ai_highlight.auto_retry_insufficient_groups
+                      "
                       @update:value="
                         (value) =>
                           updateAiHighlightConfig((draft) => {
@@ -2554,7 +2585,11 @@ onUnmounted(() => {
 
 .ai-highlight-card {
   background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.06), transparent 22%),
+    radial-gradient(
+      circle at top right,
+      rgba(59, 130, 246, 0.06),
+      transparent 22%
+    ),
     linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
 }
 
