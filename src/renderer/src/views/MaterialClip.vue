@@ -299,6 +299,7 @@ const envChecking = ref(true);
 const installingEnvironment = ref(false);
 const isAutoRunning = ref(false);
 const isManualRunning = ref(false);
+const runningImmediateQuery = ref(false);
 const refreshingPending = ref(false);
 const refreshingAiHighlight = ref(false);
 const runningAiHighlight = ref(false);
@@ -1074,6 +1075,32 @@ async function startAutoClip() {
   }
 }
 
+async function startImmediateQueryClip() {
+  if (runningImmediateQuery.value || runState.value.running) {
+    return;
+  }
+
+  const resolvedConfig = await resolveEditorConfig();
+  if (!resolvedConfig) {
+    return;
+  }
+
+  runningImmediateQuery.value = true;
+  try {
+    const result = await window.api.clipRunOnce(resolvedConfig);
+    if (result.success) {
+      message.success("已启动立即查询剪辑");
+      showLogs.value = true;
+    } else {
+      runningImmediateQuery.value = false;
+      message.error(result.error || "立即查询剪辑启动失败");
+    }
+  } catch (error) {
+    runningImmediateQuery.value = false;
+    message.error(`立即查询剪辑启动失败: ${error}`);
+  }
+}
+
 async function stopAutoClip() {
   try {
     const result = await window.api.clipStopAutoRun();
@@ -1200,6 +1227,7 @@ onMounted(async () => {
 
   unsubscribeState = window.api.onClipState((state) => {
     runState.value = state;
+    runningImmediateQuery.value = false;
     isAutoRunning.value =
       (state.status === "running" || state.status === "stopping") &&
       state.mode === "auto";
@@ -1351,6 +1379,17 @@ onUnmounted(() => {
               @click="resetConfigToDefault"
               >恢复默认配置</NButton
             >
+            <NButton
+              v-if="!runState.running"
+              type="primary"
+              secondary
+              class="hero-action-btn"
+              :loading="runningImmediateQuery"
+              :disabled="resolvingConfig"
+              @click="startImmediateQueryClip"
+            >
+              立即查询并剪辑
+            </NButton>
             <NButton
               v-if="!isAutoRunning"
               type="primary"

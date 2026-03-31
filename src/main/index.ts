@@ -303,6 +303,13 @@ function registerIpcHandlers(): void {
     return await materialClipService.runAutoClip(config);
   });
 
+  ipcMain.handle("clip:runOnce", async (_event, config) => {
+    if (mainWindow) {
+      materialClipService.setMainWindow(mainWindow);
+    }
+    return await materialClipService.runAutoClipOnce(config);
+  });
+
   ipcMain.handle(
     "clip:manualRun",
     async (_event, dramaNames: string, config) => {

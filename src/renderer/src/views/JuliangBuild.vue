@@ -65,6 +65,7 @@ const historyAccountMap = ref<Record<string, string>>({});
 const loadingPending = ref(false);
 const loadingStatus = ref(false);
 const refreshing = ref(false);
+const refreshingPendingOnly = ref(false);
 const startingScheduler = ref(false);
 const stoppingScheduler = ref(false);
 const manualBuildingId = ref<string | null>(null);
@@ -561,6 +562,19 @@ async function refreshAll(showLoading = true) {
   }
 }
 
+async function refreshPendingListOnly() {
+  if (refreshingPendingOnly.value) {
+    return;
+  }
+
+  refreshingPendingOnly.value = true;
+  try {
+    await loadPendingDramas(true);
+  } finally {
+    refreshingPendingOnly.value = false;
+  }
+}
+
 function stopStatusPollTimer() {
   if (statusPollTimer) {
     clearInterval(statusPollTimer);
@@ -843,6 +857,14 @@ onUnmounted(() => {
       <div class="hero-row">
         <div class="hero-title">巨量搭建</div>
         <NSpace class="hero-actions" wrap>
+          <NButton
+            quaternary
+            class="hero-action-btn"
+            :loading="refreshingPendingOnly"
+            @click="refreshPendingListOnly"
+          >
+            立即刷新列表
+          </NButton>
           <NButton quaternary class="hero-action-btn" :loading="refreshing" @click="refreshAll()">
             刷新
           </NButton>
