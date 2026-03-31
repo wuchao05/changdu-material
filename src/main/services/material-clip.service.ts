@@ -221,7 +221,6 @@ export interface MaterialClipRuntimeImportResult {
 }
 
 export type MaterialClipProcessMode = "idle" | "auto" | "manual";
-type MaterialClipRunVariant = "auto" | "auto-once" | "manual";
 
 export interface MaterialClipPendingDrama {
   order: number;
@@ -376,7 +375,6 @@ export class MaterialClipService {
   private aiHighlightState: MaterialClipAiHighlightState =
     this.createEmptyAiHighlightState();
   private activeRunConfig: MaterialClipConfig | null = null;
-  private activeRunVariant: MaterialClipRunVariant | null = null;
   private pendingRefreshTimer: NodeJS.Timeout | null = null;
   private pendingRefreshInFlight = false;
 
@@ -784,31 +782,8 @@ export class MaterialClipService {
 
     return this.startProcess({
       mode: "auto",
-      variant: "auto",
       config: autoConfig,
       extraArgs: ["feishu", "watch"],
-    });
-  }
-
-  async runAutoClipOnce(
-    configOverride?: unknown,
-  ): Promise<MaterialClipRunResult> {
-    const config = await this.getConfig(configOverride);
-    if (!config.feishu.table_id.trim()) {
-      return { success: false, error: "请先配置飞书 table_id" };
-    }
-
-    const autoConfig: MaterialClipConfig = {
-      ...config,
-      enable_feishu_features: true,
-      output_dir: "",
-    };
-
-    return this.startProcess({
-      mode: "auto",
-      variant: "auto-once",
-      config: autoConfig,
-      extraArgs: ["feishu", "watch", "--run-once"],
     });
   }
 
@@ -828,7 +803,6 @@ export class MaterialClipService {
     const config = await this.getConfig(configOverride);
     return this.startProcess({
       mode: "manual",
-      variant: "manual",
       config,
       extraArgs: [
         "process",
@@ -884,6 +858,40 @@ export class MaterialClipService {
         error: message,
       };
     }
+  }
+
+  async triggerAutoPollNow(): Promise<{ success: boolean; error?: string }> {
+    if (!this.runningProcess || this.runState.mode !== "auto") {
+      return { success: false, error: "当前没有自动剪辑任务在运行" };
+    }
+
+    if (this.runState.status === "stopping") {
+      return { success: false, error: "轮询剪辑正在停止，请稍后再试" };
+    }
+
+    const runtime = await this.resolveProcessorRuntime();
+    const processorRoot = runtime.runtimeRoot;
+    if (!processorRoot) {
+      return { success: false, error: "未找到素材剪辑运行时" };
+    }
+
+    const stateDir =
+      this.activeRunConfig?.feishu_watcher.state_dir?.trim() ||
+      "history/feishu_watcher";
+    const wakeSignalPath = path.isAbsolute(stateDir)
+      ? path.join(stateDir, "wake-now.signal")
+      : path.join(processorRoot, stateDir, "wake-now.signal");
+
+    await fsp.mkdir(path.dirname(wakeSignalPath), { recursive: true });
+    await fsp.writeFile(wakeSignalPath, new Date().toISOString(), "utf-8");
+
+    this.log(`已触发立即查询：${wakeSignalPath}`);
+    this.runState.message = "已触发立即查询，等待飞书马上开始本轮查询";
+    this.runState.nextPollAt = new Date().toISOString();
+    this.touchRunState();
+    this.emitRunState();
+
+    return { success: true };
   }
 
   async getEnvironmentStatus(): Promise<MaterialClipEnvironmentStatus> {
@@ -3450,7 +3458,6 @@ export class MaterialClipService {
 
   private async startProcess(params: {
     mode: "auto" | "manual";
-    variant: MaterialClipRunVariant;
     config: MaterialClipConfig;
     extraArgs: string[];
   }): Promise<MaterialClipRunResult> {
@@ -3514,11 +3521,9 @@ export class MaterialClipService {
       lastPollAt: null,
       nextPollAt: null,
       message:
-        params.variant === "auto-once"
-          ? `立即查询准备启动，当前待处理 ${pendingDramas.length} 部剧`
-          : params.mode === "auto"
-            ? `轮询剪辑准备启动，当前待处理 ${pendingDramas.length} 部剧`
-            : "手动剪辑准备开始",
+        params.mode === "auto"
+          ? `轮询剪辑准备启动，当前待处理 ${pendingDramas.length} 部剧`
+          : "手动剪辑准备开始",
     };
     this.emitRunState();
 
@@ -3526,7 +3531,6 @@ export class MaterialClipService {
     runtimeConfig.highlight_start_points_by_drama =
       await this.buildHighlightStartPointMapping(runtimeConfig);
     this.activeRunConfig = runtimeConfig;
-    this.activeRunVariant = params.variant;
     await this.writeRuntimeConfig(runtimeConfig);
 
     const pythonCommand = this.resolvePythonCommand(processorRoot);
@@ -3547,7 +3551,7 @@ export class MaterialClipService {
     });
 
     this.log(
-      `${params.variant === "auto-once" ? "立即查询剪辑" : params.mode === "auto" ? "自动剪辑" : "手动剪辑"}启动：${pythonCommand.command} ${args.join(" ")}`,
+      `${params.mode === "auto" ? "自动剪辑" : "手动剪辑"}启动：${pythonCommand.command} ${args.join(" ")}`,
     );
 
     const child = spawn(pythonCommand.command, args, {
@@ -3594,7 +3598,6 @@ export class MaterialClipService {
         this.runState.mode = "idle";
         this.runState.status = "failed";
         this.runState.pid = null;
-        this.activeRunVariant = null;
         this.runState.message = `素材剪辑进程启动失败：${error.message}`;
         this.touchRunState();
         this.emitRunState();
@@ -3622,23 +3625,19 @@ export class MaterialClipService {
 
     const wasStopping = this.runState.status === "stopping";
     const activeConfig = this.activeRunConfig;
-    const activeVariant = this.activeRunVariant;
     this.runState.running = false;
     this.runState.pid = null;
     this.runState.currentDramaStartedAt = null;
     this.clearPollingSchedule();
-    this.activeRunVariant = null;
 
     if (wasStopping) {
       this.runState.mode = "idle";
       this.runState.status = "stopped";
-      this.runState.message =
-        activeVariant === "auto-once" ? "立即查询剪辑已停止" : "轮询剪辑已停止";
+      this.runState.message = "轮询剪辑已停止";
     } else if (code === 0) {
       this.runState.mode = "idle";
       this.runState.status = "completed";
-      this.runState.message =
-        activeVariant === "auto-once" ? "立即查询剪辑已结束" : "轮询剪辑已结束";
+      this.runState.message = "轮询剪辑已结束";
     } else {
       this.runState.mode = "idle";
       this.runState.status = "failed";

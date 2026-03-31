@@ -187,7 +187,7 @@ const api = {
   clipRunAiHighlight: (config: unknown) =>
     ipcRenderer.invoke("clip:runAiHighlight", config),
   clipAutoRun: (config: unknown) => ipcRenderer.invoke("clip:autoRun", config),
-  clipRunOnce: (config: unknown) => ipcRenderer.invoke("clip:runOnce", config),
+  clipTriggerPollNow: () => ipcRenderer.invoke("clip:triggerPollNow"),
   clipManualRun: (dramaNames: string, config: unknown) =>
     ipcRenderer.invoke("clip:manualRun", dramaNames, config),
   clipGetRunState: (): Promise<MaterialClipRunState> =>

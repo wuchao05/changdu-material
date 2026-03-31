@@ -589,7 +589,7 @@ interface Api {
     config: unknown,
   ) => Promise<{ success: boolean; error?: string }>;
   clipAutoRun: (config: unknown) => Promise<MaterialClipRunResult>;
-  clipRunOnce: (config: unknown) => Promise<MaterialClipRunResult>;
+  clipTriggerPollNow: () => Promise<{ success: boolean; error?: string }>;
   clipManualRun: (
     dramaNames: string,
     config: unknown,

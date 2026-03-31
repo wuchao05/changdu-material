@@ -303,11 +303,11 @@ function registerIpcHandlers(): void {
     return await materialClipService.runAutoClip(config);
   });
 
-  ipcMain.handle("clip:runOnce", async (_event, config) => {
+  ipcMain.handle("clip:triggerPollNow", async () => {
     if (mainWindow) {
       materialClipService.setMainWindow(mainWindow);
     }
-    return await materialClipService.runAutoClipOnce(config);
+    return await materialClipService.triggerAutoPollNow();
   });
 
   ipcMain.handle(
