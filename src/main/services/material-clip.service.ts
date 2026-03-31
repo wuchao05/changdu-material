@@ -1125,10 +1125,10 @@ export class MaterialClipService {
         runtimeConfig?.runtimeUser?.account?.trim() ||
         runtimeConfig?.user?.account?.trim() ||
         "";
-      return account || "xl";
+      return account || "xh";
     } catch (error) {
-      console.warn("[MaterialClip] 获取当前账号失败，回退默认素材标识 xl:", error);
-      return "xl";
+      console.warn("[MaterialClip] 获取当前账号失败，回退默认素材标识 xh:", error);
+      return "xh";
     }
   }
 
@@ -1258,7 +1258,7 @@ export class MaterialClipService {
     return normalized;
   }
 
-  private createFallbackDefaultConfig(materialCode = "xl"): MaterialClipConfig {
+  private createFallbackDefaultConfig(materialCode = "xh"): MaterialClipConfig {
     return {
       target_fps: 30,
       smart_fps: true,
