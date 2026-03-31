@@ -1100,15 +1100,36 @@ export class MaterialClipService {
   }
 
   private async createDefaultConfig(): Promise<MaterialClipConfig> {
-    const fallbackConfig = this.createFallbackDefaultConfig();
+    const fallbackConfig = this.createFallbackDefaultConfig(
+      await this.resolveDefaultMaterialCode(),
+    );
     const yamlConfig = await this.loadDefaultConfigFromYaml();
     if (!yamlConfig) {
       return fallbackConfig;
     }
 
     const mergedConfig = deepMerge(fallbackConfig, yamlConfig);
+    mergedConfig.material_code =
+      typeof mergedConfig.material_code === "string" &&
+      mergedConfig.material_code.trim()
+        ? mergedConfig.material_code.trim()
+        : fallbackConfig.material_code;
     mergedConfig.enable_feishu_features = true;
     return this.normalizeMaterialClipConfig(mergedConfig);
+  }
+
+  private async resolveDefaultMaterialCode(): Promise<string> {
+    try {
+      const runtimeConfig = await this.configService.getCurrentRuntimeConfig();
+      const account =
+        runtimeConfig?.runtimeUser?.account?.trim() ||
+        runtimeConfig?.user?.account?.trim() ||
+        "";
+      return account || "xl";
+    } catch (error) {
+      console.warn("[MaterialClip] 获取当前账号失败，回退默认素材标识 xl:", error);
+      return "xl";
+    }
   }
 
   private async loadDefaultConfigFromYaml(): Promise<unknown | null> {
@@ -1237,7 +1258,7 @@ export class MaterialClipService {
     return normalized;
   }
 
-  private createFallbackDefaultConfig(): MaterialClipConfig {
+  private createFallbackDefaultConfig(materialCode = "xl"): MaterialClipConfig {
     return {
       target_fps: 30,
       smart_fps: true,
@@ -1247,7 +1268,7 @@ export class MaterialClipService {
       min_duration: 480,
       max_duration: 900,
       count: 1,
-      material_code: "xl",
+      material_code: materialCode,
       date_str: null,
       exclude_last_episodes: 8,
       title_font_size: 24,
