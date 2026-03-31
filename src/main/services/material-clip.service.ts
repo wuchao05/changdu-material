@@ -3136,6 +3136,24 @@ export class MaterialClipService {
       };
     }
 
+    if (process.platform === "win32") {
+      const wingetLinkPath = path.join(
+        process.env.LOCALAPPDATA || "",
+        "Microsoft",
+        "WinGet",
+        "Links",
+        "ffmpeg.exe",
+      );
+      if (wingetLinkPath && fs.existsSync(wingetLinkPath)) {
+        return {
+          key: "ffmpeg",
+          label: "FFmpeg",
+          passed: true,
+          detail: `检测到 WinGet FFmpeg：${wingetLinkPath}`,
+        };
+      }
+    }
+
     const command = process.platform === "win32" ? "where" : "which";
     const args = process.platform === "win32" ? ["ffmpeg"] : ["ffmpeg"];
     const result = await this.runCommand(command, args, processorRoot);
@@ -3228,6 +3246,51 @@ export class MaterialClipService {
     return error.message;
   }
 
+  private buildCommandEnv(extraEnv?: Record<string, string>): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...extraEnv,
+    };
+
+    if (process.platform !== "win32") {
+      return env;
+    }
+
+    const pathKey =
+      Object.keys(env).find((key) => key.toLowerCase() === "path") || "Path";
+    const currentPath = env[pathKey] || "";
+    const extraPathEntries = [
+      path.join(
+        process.env.LOCALAPPDATA || "",
+        "Microsoft",
+        "WinGet",
+        "Links",
+      ),
+    ].filter((entry) => entry && fs.existsSync(entry));
+
+    if (extraPathEntries.length === 0) {
+      return env;
+    }
+
+    const existingEntries = currentPath
+      .split(";")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const existingSet = new Set(existingEntries.map((entry) => entry.toLowerCase()));
+
+    for (const entry of extraPathEntries) {
+      const normalized = entry.toLowerCase();
+      if (existingSet.has(normalized)) {
+        continue;
+      }
+      existingEntries.push(entry);
+      existingSet.add(normalized);
+    }
+
+    env[pathKey] = existingEntries.join(";");
+    return env;
+  }
+
   private async runCommand(
     command: string,
     args: string[],
@@ -3237,10 +3300,7 @@ export class MaterialClipService {
     return await new Promise((resolve) => {
       const child = spawn(command, args, {
         cwd,
-        env: {
-          ...process.env,
-          ...extraEnv,
-        },
+        env: this.buildCommandEnv(extraEnv),
         stdio: ["ignore", "pipe", "pipe"],
       });
 
