@@ -3256,6 +3256,9 @@ export class MaterialClipService {
       return env;
     }
 
+    env.PYTHONUTF8 = env.PYTHONUTF8 || "1";
+    env.PYTHONIOENCODING = env.PYTHONIOENCODING || "utf-8";
+
     const pathKey =
       Object.keys(env).find((key) => key.toLowerCase() === "path") || "Path";
     const currentPath = env[pathKey] || "";
@@ -3357,7 +3360,7 @@ export class MaterialClipService {
 
     const child = spawn(params.command, params.args, {
       cwd: params.cwd,
-      env: process.env,
+      env: this.buildCommandEnv(),
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -3485,13 +3488,12 @@ export class MaterialClipService {
       ...params.extraArgs,
     ];
     const pythonPath = path.join(processorRoot, "src");
-    const env = {
-      ...process.env,
+    const env = this.buildCommandEnv({
       PYTHONPATH: process.env.PYTHONPATH
         ? `${pythonPath}${path.delimiter}${process.env.PYTHONPATH}`
         : pythonPath,
       DRAMA_PROCESSOR_DEV_BYPASS: "1",
-    };
+    });
 
     this.log(
       `${params.mode === "auto" ? "自动剪辑" : "手动剪辑"}启动：${pythonCommand.command} ${args.join(" ")}`,
