@@ -3196,6 +3196,32 @@ export class MaterialClipService {
     };
   }
 
+  private decodeCommandBuffer(buffer: Buffer): string {
+    if (buffer.length === 0) {
+      return "";
+    }
+
+    const utf8Text = buffer.toString("utf8");
+    if (process.platform !== "win32" || !utf8Text.includes("�")) {
+      return utf8Text;
+    }
+
+    try {
+      const gbkText = new TextDecoder("gbk").decode(buffer);
+      return gbkText || utf8Text;
+    } catch {
+      return utf8Text;
+    }
+  }
+
+  private formatCommandSpawnError(command: string, error: NodeJS.ErrnoException) {
+    if (error.code === "ENOENT") {
+      return `未找到命令：${command}`;
+    }
+
+    return error.message;
+  }
+
   private async runCommand(
     command: string,
     args: string[],
@@ -3212,26 +3238,33 @@ export class MaterialClipService {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
-      let stdout = "";
-      let stderr = "";
+      const stdoutChunks: Buffer[] = [];
+      const stderrChunks: Buffer[] = [];
 
       child.stdout.on("data", (chunk) => {
-        stdout += chunk.toString();
+        stdoutChunks.push(
+          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+        );
       });
 
       child.stderr.on("data", (chunk) => {
-        stderr += chunk.toString();
+        stderrChunks.push(
+          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+        );
       });
 
       child.once("error", (error) => {
+        const stdout = this.decodeCommandBuffer(Buffer.concat(stdoutChunks));
         resolve({
           success: false,
           output: stdout.trim(),
-          error: error.message,
+          error: this.formatCommandSpawnError(command, error),
         });
       });
 
       child.once("close", (code) => {
+        const stdout = this.decodeCommandBuffer(Buffer.concat(stdoutChunks));
+        const stderr = this.decodeCommandBuffer(Buffer.concat(stderrChunks));
         if (code === 0) {
           resolve({
             success: true,
