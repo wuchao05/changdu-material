@@ -3061,20 +3061,26 @@ export class MaterialClipService {
 
   private attachLineLogger(stream: NodeJS.ReadableStream, isError = false) {
     let buffer = "";
+    let lastLoggedLine = "";
     stream.on("data", (chunk: Buffer | string) => {
-      buffer += chunk.toString();
-      const lines = buffer.split(/\r?\n/);
+      const text = Buffer.isBuffer(chunk)
+        ? this.decodeCommandBuffer(chunk)
+        : chunk;
+      buffer += text;
+      const lines = buffer.split(/\r\n|\r|\n/);
       buffer = lines.pop() || "";
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
+        if (trimmed === lastLoggedLine) continue;
+        lastLoggedLine = trimmed;
         this.log(isError ? `[stderr] ${trimmed}` : trimmed);
         this.updateRunStateFromLine(trimmed);
       }
     });
     stream.on("end", () => {
       const trimmed = buffer.trim();
-      if (trimmed) {
+      if (trimmed && trimmed !== lastLoggedLine) {
         this.log(isError ? `[stderr] ${trimmed}` : trimmed);
         this.updateRunStateFromLine(trimmed);
       }
