@@ -68,7 +68,7 @@ export class DownloadService {
     url: string,
     savePath: string,
     dramaName: string,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: DownloadProgress) => void,
   ): Promise<DownloadResult> {
     console.log("[DownloadService] 开始下载文件");
     console.log("[DownloadService] URL:", url);
@@ -89,7 +89,11 @@ export class DownloadService {
         console.log("[DownloadService] ✓ 目录创建成功");
       } catch (error) {
         console.error("[DownloadService] ✗ 目录创建失败:", error);
-        return { success: false, filePath: savePath, error: `创建目录失败: ${error}` };
+        return {
+          success: false,
+          filePath: savePath,
+          error: `创建目录失败: ${error}`,
+        };
       }
     } else {
       console.log("[DownloadService] ✓ 目录已存在");
@@ -101,29 +105,41 @@ export class DownloadService {
       const stats = fs.statSync(savePath);
       startByte = stats.size;
       console.log(`[DownloadService] 发现已存在文件，大小: ${startByte} bytes`);
-      
+
       // 先发送一个 HEAD 请求检查文件总大小
       try {
         const totalSize = await this.getFileSize(url);
         console.log(`[DownloadService] 服务器文件大小: ${totalSize} bytes`);
-        
+
         if (totalSize > 0 && startByte >= totalSize) {
           console.log(`[DownloadService] 文件已完整下载，无需重新下载`);
           return { success: true, filePath: savePath };
         } else if (startByte > 0 && startByte < totalSize) {
-          console.log(`[DownloadService] 将尝试断点续传，从 ${startByte} 字节开始`);
+          console.log(
+            `[DownloadService] 将尝试断点续传，从 ${startByte} 字节开始`,
+          );
         } else if (startByte > totalSize) {
           console.log(`[DownloadService] 本地文件大小异常，删除后重新下载`);
           fs.unlinkSync(savePath);
           startByte = 0;
         }
       } catch (error) {
-        console.warn(`[DownloadService] 无法获取文件大小，将尝试断点续传:`, error);
+        console.warn(
+          `[DownloadService] 无法获取文件大小，将尝试断点续传:`,
+          error,
+        );
       }
     }
 
     // 带自动重试的下载
-    return this.downloadWithRetry(url, savePath, dramaName, startByte, onProgress, 0);
+    return this.downloadWithRetry(
+      url,
+      savePath,
+      dramaName,
+      startByte,
+      onProgress,
+      0,
+    );
   }
 
   // 带自动重试的下载方法
@@ -133,33 +149,49 @@ export class DownloadService {
     dramaName: string,
     startByte: number,
     onProgress: (progress: DownloadProgress) => void,
-    retryCount: number
+    retryCount: number,
   ): Promise<DownloadResult> {
-    console.log(`[DownloadService] downloadWithRetry 开始，重试次数: ${retryCount}，起始字节: ${startByte}`);
-    
+    console.log(
+      `[DownloadService] downloadWithRetry 开始，重试次数: ${retryCount}，起始字节: ${startByte}`,
+    );
+
     try {
-      const result = await this.downloadFileInternal(url, savePath, dramaName, startByte, onProgress);
-      console.log(`[DownloadService] downloadFileInternal 完成，结果:`, result.success ? '成功' : `失败: ${result.error}`);
+      const result = await this.downloadFileInternal(
+        url,
+        savePath,
+        dramaName,
+        startByte,
+        onProgress,
+      );
+      console.log(
+        `[DownloadService] downloadFileInternal 完成，结果:`,
+        result.success ? "成功" : `失败: ${result.error}`,
+      );
       return result;
     } catch (error) {
       console.log(`[DownloadService] downloadWithRetry 捕获到错误:`, error);
       const errorCode = (error as any).code;
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.log(`[DownloadService] 错误代码: ${errorCode}, 错误信息: ${errorMessage}`);
-      
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.log(
+        `[DownloadService] 错误代码: ${errorCode}, 错误信息: ${errorMessage}`,
+      );
+
       // 检查是否被用户取消
       if (this.cancelledDownloads.has(dramaName)) {
-        console.log(`[DownloadService] 下载已被用户取消，不再重试: ${dramaName}`);
+        console.log(
+          `[DownloadService] 下载已被用户取消，不再重试: ${dramaName}`,
+        );
         this.cancelledDownloads.delete(dramaName);
         return { success: false, filePath: savePath, error: "已取消" };
       }
-      
+
       // 检查是否是用户暂停
       if (this.pausedDownloads.has(dramaName)) {
         console.log(`[DownloadService] 下载已被用户暂停: ${dramaName}`);
         return { success: false, filePath: savePath, error: "已暂停" };
       }
-      
+
       // 判断是否是可重试的网络错误
       const isRetryableError =
         errorCode === "ECONNRESET" ||
@@ -183,14 +215,16 @@ export class DownloadService {
         // 继续使用 startByte 作为已下载字节数
       }
 
-      console.log(`[DownloadService] 是否可重试: ${isRetryableError}, 当前重试次数: ${retryCount}, 最大重试次数: ${AUTO_RETRY_MAX}`);
-      
+      console.log(
+        `[DownloadService] 是否可重试: ${isRetryableError}, 当前重试次数: ${retryCount}, 最大重试次数: ${AUTO_RETRY_MAX}`,
+      );
+
       if (isRetryableError && retryCount < AUTO_RETRY_MAX) {
         const nextRetry = retryCount + 1;
         console.log(
-          `[DownloadService] 网络错误 (${errorCode || errorMessage})，${AUTO_RETRY_DELAY / 1000}秒后自动重试 (${nextRetry}/${AUTO_RETRY_MAX})，已下载: ${currentDownloadedBytes} bytes`
+          `[DownloadService] 网络错误 (${errorCode || errorMessage})，${AUTO_RETRY_DELAY / 1000}秒后自动重试 (${nextRetry}/${AUTO_RETRY_MAX})，已下载: ${currentDownloadedBytes} bytes`,
         );
-        
+
         // 通知前端正在重试
         onProgress({
           dramaName,
@@ -201,30 +235,38 @@ export class DownloadService {
         });
 
         // 等待后重试
-        await new Promise(resolve => setTimeout(resolve, AUTO_RETRY_DELAY));
-        
+        await new Promise((resolve) => setTimeout(resolve, AUTO_RETRY_DELAY));
+
         // 再次检查是否被取消
         if (this.cancelledDownloads.has(dramaName)) {
           console.log(`[DownloadService] 等待期间下载被取消: ${dramaName}`);
           this.cancelledDownloads.delete(dramaName);
           return { success: false, filePath: savePath, error: "已取消" };
         }
-        
+
         // 从文件当前大小继续下载
-        return this.downloadWithRetry(url, savePath, dramaName, currentDownloadedBytes, onProgress, nextRetry);
+        return this.downloadWithRetry(
+          url,
+          savePath,
+          dramaName,
+          currentDownloadedBytes,
+          onProgress,
+          nextRetry,
+        );
       }
 
       // 不可重试或重试次数用尽
       console.error(
-        `[DownloadService] 下载失败，已重试 ${retryCount} 次: ${errorMessage}`
+        `[DownloadService] 下载失败，已重试 ${retryCount} 次: ${errorMessage}`,
       );
-      
+
       return {
         success: false,
         filePath: savePath,
-        error: retryCount >= AUTO_RETRY_MAX 
-          ? `下载失败（已重试${AUTO_RETRY_MAX}次）: ${errorMessage}`
-          : errorMessage,
+        error:
+          retryCount >= AUTO_RETRY_MAX
+            ? `下载失败（已重试${AUTO_RETRY_MAX}次）: ${errorMessage}`
+            : errorMessage,
       };
     }
   }
@@ -235,11 +277,12 @@ export class DownloadService {
     savePath: string,
     dramaName: string,
     startByte: number,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: DownloadProgress) => void,
   ): Promise<DownloadResult> {
     return new Promise((resolve, reject) => {
+      let settled = false;
       const client = url.startsWith("https") ? https : http;
-      
+
       // 根据是否断点续传决定写入模式
       const fileFlags = startByte > 0 ? "a" : "w";
       const file = fs.createWriteStream(savePath, {
@@ -253,6 +296,55 @@ export class DownloadService {
       let lastSpeed = 0;
       let isPaused = false;
       let totalBytes = 0;
+      let responseEnded = false;
+
+      const safeResolve = (result: DownloadResult) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+
+      const safeReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
+
+      const closeFile = (target: fs.WriteStream) => {
+        if (!target.closed) {
+          target.close();
+        }
+      };
+
+      const resolveCancelled = (target: fs.WriteStream, source: string) => {
+        console.log(`[DownloadService] 下载已取消（${source}）: ${dramaName}`);
+        closeFile(target);
+        this.activeDownloads.delete(dramaName);
+        safeResolve({ success: false, filePath: savePath, error: "已取消" });
+      };
+
+      const resolvePaused = (target: fs.WriteStream, source: string) => {
+        isPaused = true;
+        console.log(`[DownloadService] 下载已暂停（${source}）: ${dramaName}`);
+        closeFile(target);
+        this.activeDownloads.delete(dramaName);
+        const state = this.downloadStates.get(dramaName);
+        if (state) {
+          state.paused = true;
+          state.downloadedBytes = downloadedBytes;
+        }
+        safeResolve({ success: false, filePath: savePath, error: "已暂停" });
+      };
+
+      const resolveSuccess = (target: fs.WriteStream, source: string) => {
+        console.log(`[DownloadService] 下载完成（${source}）: ${dramaName}`);
+        closeFile(target);
+        this.activeDownloads.delete(dramaName);
+        this.downloadStates.delete(dramaName);
+        this.pausedDownloads.delete(dramaName);
+        this.cancelledDownloads.delete(dramaName);
+        safeResolve({ success: true, filePath: savePath });
+      };
 
       // 设置请求选项和请求头
       const isHttps = url.startsWith("https");
@@ -264,26 +356,29 @@ export class DownloadService {
         "Accept-Encoding": "identity",
         Connection: "keep-alive",
       };
-      
+
       // 如果有断点，添加 Range 请求头
       if (startByte > 0) {
         headers["Range"] = `bytes=${startByte}-`;
         console.log(`[DownloadService] 断点续传，从 ${startByte} 字节开始`);
       }
-      
+
       const requestOptions: https.RequestOptions = {
         headers,
         timeout: 0,
         agent: isHttps ? httpsAgent : httpAgent,
       };
 
-      console.log("[DownloadService] 请求头:", JSON.stringify(requestOptions.headers, null, 2));
+      console.log(
+        "[DownloadService] 请求头:",
+        JSON.stringify(requestOptions.headers, null, 2),
+      );
 
       const request = client.get(url, requestOptions, (response) => {
         console.log("[DownloadService] 响应状态码:", response.statusCode);
         console.log(
           "[DownloadService] 响应头:",
-          JSON.stringify(response.headers, null, 2)
+          JSON.stringify(response.headers, null, 2),
         );
 
         // 处理重定向
@@ -304,7 +399,7 @@ export class DownloadService {
             savePath,
             dramaName,
             0,
-            onProgress
+            onProgress,
           )
             .then(resolve)
             .catch(reject);
@@ -315,50 +410,54 @@ export class DownloadService {
         if (response.statusCode === 416) {
           console.log("[DownloadService] 收到 416 响应，文件可能已完整下载");
           file.close();
-          
+
           // 验证本地文件大小是否匹配
           if (fs.existsSync(savePath)) {
             const stats = fs.statSync(savePath);
             console.log(`[DownloadService] 本地文件大小: ${stats.size} bytes`);
-            
+
             // 尝试从响应头中获取文件总大小
             const contentRange = response.headers["content-range"];
             if (contentRange) {
               const match = contentRange.match(/bytes \*\/(\d+)/);
               if (match) {
                 const serverSize = parseInt(match[1], 10);
-                console.log(`[DownloadService] 服务器文件大小: ${serverSize} bytes`);
-                
+                console.log(
+                  `[DownloadService] 服务器文件大小: ${serverSize} bytes`,
+                );
+
                 if (stats.size >= serverSize) {
                   console.log("[DownloadService] ✓ 文件已完整下载");
-                  resolve({ success: true, filePath: savePath });
+                  safeResolve({ success: true, filePath: savePath });
                   return;
                 }
               }
             }
           }
-          
-          reject(new Error(`下载失败，状态码: 416（Range Not Satisfiable）`));
+
+          safeReject(
+            new Error(`下载失败，状态码: 416（Range Not Satisfiable）`),
+          );
           return;
         }
-        
+
         if (response.statusCode !== 200 && response.statusCode !== 206) {
           console.error(
             "[DownloadService] 下载失败，状态码:",
-            response.statusCode
+            response.statusCode,
           );
           file.close();
           if (fs.existsSync(savePath)) {
             fs.unlinkSync(savePath);
           }
-          reject(new Error(`下载失败，状态码: ${response.statusCode}`));
+          safeReject(new Error(`下载失败，状态码: ${response.statusCode}`));
           return;
         }
 
         // 解析文件总大小
         let useNewFile = false;
         let newFile: fs.WriteStream | null = null;
-        
+
         if (response.statusCode === 206) {
           // 断点续传响应，从 Content-Range 获取总大小
           const contentRange = response.headers["content-range"];
@@ -370,7 +469,7 @@ export class DownloadService {
           }
         } else if (response.statusCode === 200) {
           totalBytes = parseInt(response.headers["content-length"] || "0", 10);
-          
+
           // 服务器不支持断点续传，需要从头开始
           if (startByte > 0) {
             console.log("[DownloadService] 服务器不支持断点续传，从头开始下载");
@@ -390,7 +489,7 @@ export class DownloadService {
           "[DownloadService] 文件大小:",
           totalBytes,
           "bytes",
-          `(${(totalBytes / 1024 / 1024).toFixed(2)} MB)`
+          `(${(totalBytes / 1024 / 1024).toFixed(2)} MB)`,
         );
 
         // 保存下载状态
@@ -412,7 +511,7 @@ export class DownloadService {
             request.destroy();
             return;
           }
-          
+
           // 检查是否被暂停
           if (this.pausedDownloads.has(dramaName)) {
             request.destroy();
@@ -436,9 +535,13 @@ export class DownloadService {
             lastTime = now;
             lastDownloadedBytes = downloadedBytes;
 
+            const percentNumber =
+              totalBytes > 0 ? (downloadedBytes / totalBytes) * 100 : 0;
             const percent =
               totalBytes > 0
-                ? ((downloadedBytes / totalBytes) * 100).toFixed(2)
+                ? Math.min(percentNumber, responseEnded ? 100 : 99.99).toFixed(
+                    2,
+                  )
                 : "0";
 
             onProgress({
@@ -456,40 +559,115 @@ export class DownloadService {
 
         activeFile.on("finish", () => {
           if (isPaused) return;
-          activeFile.close();
-          this.activeDownloads.delete(dramaName);
-          this.downloadStates.delete(dramaName);
-          this.pausedDownloads.delete(dramaName);
-          resolve({ success: true, filePath: savePath });
+          if (this.cancelledDownloads.has(dramaName)) {
+            resolveCancelled(activeFile, "文件写入完成");
+            return;
+          }
+          if (this.pausedDownloads.has(dramaName)) {
+            resolvePaused(activeFile, "文件写入完成");
+            return;
+          }
+          resolveSuccess(activeFile, "文件写入完成");
+        });
+
+        activeFile.on("close", () => {
+          if (settled || isPaused) return;
+          if (this.cancelledDownloads.has(dramaName)) {
+            resolveCancelled(activeFile, "文件流关闭");
+            return;
+          }
+          if (this.pausedDownloads.has(dramaName)) {
+            resolvePaused(activeFile, "文件流关闭");
+            return;
+          }
+          if (
+            responseEnded &&
+            (totalBytes === 0 || downloadedBytes >= totalBytes)
+          ) {
+            resolveSuccess(activeFile, "文件流关闭");
+          }
         });
 
         activeFile.on("error", (err) => {
           console.error("[DownloadService] 文件写入错误:", err);
-          activeFile.close();
-          reject(err);
+          closeFile(activeFile);
+          safeReject(err);
         });
 
         response.on("error", (err) => {
           console.error("[DownloadService] 响应流错误:", err);
 
-          if (this.pausedDownloads.has(dramaName)) {
-            isPaused = true;
-            console.log(`[DownloadService] 下载已暂停（响应流）`);
-            activeFile.close();
-            this.activeDownloads.delete(dramaName);
-            const state = this.downloadStates.get(dramaName);
-            if (state) {
-              state.paused = true;
-              state.downloadedBytes = downloadedBytes;
-            }
-            resolve({ success: false, filePath: savePath, error: "已暂停" });
+          if (this.cancelledDownloads.has(dramaName)) {
+            resolveCancelled(activeFile, "响应流错误");
             return;
           }
 
-          activeFile.close();
+          if (this.pausedDownloads.has(dramaName)) {
+            resolvePaused(activeFile, "响应流错误");
+            return;
+          }
+
+          closeFile(activeFile);
           this.activeDownloads.delete(dramaName);
           // 不删除文件，保留用于断点续传
-          reject(err);
+          safeReject(err);
+        });
+
+        response.on("aborted", () => {
+          if (this.cancelledDownloads.has(dramaName)) {
+            resolveCancelled(activeFile, "响应中止");
+            return;
+          }
+
+          if (this.pausedDownloads.has(dramaName)) {
+            resolvePaused(activeFile, "响应中止");
+          }
+        });
+
+        response.on("end", () => {
+          responseEnded = true;
+
+          if (totalBytes > 0) {
+            onProgress({
+              dramaName,
+              downloadedBytes,
+              totalBytes,
+              percent: "100.00",
+              speed: 0,
+            });
+          }
+
+          if (!activeFile.writableEnded) {
+            activeFile.end();
+          }
+        });
+
+        response.on("close", () => {
+          if (settled) return;
+
+          if (this.cancelledDownloads.has(dramaName)) {
+            resolveCancelled(activeFile, "响应关闭");
+            return;
+          }
+
+          if (this.pausedDownloads.has(dramaName)) {
+            resolvePaused(activeFile, "响应关闭");
+            return;
+          }
+
+          if (
+            responseEnded &&
+            (totalBytes === 0 || downloadedBytes >= totalBytes)
+          ) {
+            if (!activeFile.closed && !activeFile.writableEnded) {
+              activeFile.end();
+            }
+            return;
+          }
+
+          closeFile(activeFile);
+          this.activeDownloads.delete(dramaName);
+          safeReject(new Error("下载连接已关闭"));
         });
       });
 
@@ -498,23 +676,20 @@ export class DownloadService {
         console.error("[DownloadService] 错误代码:", (err as any).code);
         console.error("[DownloadService] 已下载字节数:", downloadedBytes);
 
+        if (this.cancelledDownloads.has(dramaName)) {
+          resolveCancelled(file, "请求错误");
+          return;
+        }
+
         // 检查是否是用户暂停导致的
         if (this.pausedDownloads.has(dramaName)) {
-          isPaused = true;
           console.log(`[DownloadService] 下载已暂停，保留文件: ${savePath}`);
-          file.close();
-          this.activeDownloads.delete(dramaName);
-          const state = this.downloadStates.get(dramaName);
-          if (state) {
-            state.paused = true;
-            state.downloadedBytes = downloadedBytes;
-          }
-          resolve({ success: false, filePath: savePath, error: "已暂停" });
+          resolvePaused(file, "请求错误");
           return;
         }
 
         // 关闭文件流但不删除文件（保留用于断点续传）
-        file.close();
+        closeFile(file);
         this.activeDownloads.delete(dramaName);
 
         // 保存当前状态用于重试
@@ -525,7 +700,7 @@ export class DownloadService {
 
         // 抛出错误，让外层处理重试逻辑
         const error = err as NodeJS.ErrnoException;
-        reject(error);
+        safeReject(error);
       });
 
       // 保存下载引用以便取消
@@ -535,20 +710,20 @@ export class DownloadService {
 
   cancelDownload(dramaName: string): boolean {
     console.log(`[DownloadService] 取消下载: ${dramaName}`);
-    
+
     // 设置取消标记，阻止重试
     this.cancelledDownloads.add(dramaName);
-    
+
     const download = this.activeDownloads.get(dramaName);
     if (download) {
-      download.request.destroy();
+      download.request.destroy(new Error("已取消"));
       this.activeDownloads.delete(dramaName);
     }
-    
+
     // 清理状态
     this.downloadStates.delete(dramaName);
     this.pausedDownloads.delete(dramaName);
-    
+
     return true;
   }
 
@@ -576,7 +751,7 @@ export class DownloadService {
     items: Array<{ url: string; savePath: string; dramaName: string }>,
     concurrency: number,
     onProgress: (dramaName: string, progress: DownloadProgress) => void,
-    onComplete: (dramaName: string, result: DownloadResult) => void
+    onComplete: (dramaName: string, result: DownloadResult) => void,
   ): Promise<void> {
     const queue = [...items];
     const active: Promise<void>[] = [];
@@ -591,7 +766,7 @@ export class DownloadService {
           item.url,
           item.savePath,
           item.dramaName,
-          (progress) => onProgress(item.dramaName, progress)
+          (progress) => onProgress(item.dramaName, progress),
         );
         onComplete(item.dramaName, result);
       } catch (error) {
@@ -633,7 +808,7 @@ export class DownloadService {
       console.log(`[DownloadService] 暂停下载: ${dramaName}`);
       download.paused = true;
       this.pausedDownloads.add(dramaName);
-      download.request.destroy();
+      download.request.destroy(new Error("已暂停"));
       return true;
     }
     return false;
@@ -642,18 +817,20 @@ export class DownloadService {
   // 继续下载（从断点处）
   async resumeDownload(
     dramaName: string,
-    onProgress: (progress: DownloadProgress) => void
+    onProgress: (progress: DownloadProgress) => void,
   ): Promise<DownloadResult> {
     const state = this.downloadStates.get(dramaName);
     if (!state) {
       // 如果没有内存中的状态，尝试从文件大小恢复
-      console.log(`[DownloadService] 未找到内存状态，尝试从文件恢复: ${dramaName}`);
+      console.log(
+        `[DownloadService] 未找到内存状态，尝试从文件恢复: ${dramaName}`,
+      );
       throw new Error("未找到下载状态，请重新开始下载");
     }
 
     console.log(`[DownloadService] 继续下载: ${dramaName}`);
     console.log(
-      `[DownloadService] 已下载: ${state.downloadedBytes} / ${state.totalBytes}`
+      `[DownloadService] 已下载: ${state.downloadedBytes} / ${state.totalBytes}`,
     );
 
     // 清除暂停标记
@@ -667,7 +844,7 @@ export class DownloadService {
       dramaName,
       state.downloadedBytes,
       onProgress,
-      0
+      0,
     );
   }
 
@@ -686,11 +863,12 @@ export class DownloadService {
     return new Promise((resolve, reject) => {
       const client = url.startsWith("https") ? https : http;
       const isHttps = url.startsWith("https");
-      
+
       const requestOptions: https.RequestOptions = {
-        method: 'HEAD',
+        method: "HEAD",
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
           Referer: "https://www.changdunovel.com/",
         },
         timeout: 10000,
@@ -699,16 +877,28 @@ export class DownloadService {
 
       const request = client.request(url, requestOptions, (response) => {
         // 处理重定向
-        if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-          this.getFileSize(response.headers.location).then(resolve).catch(reject);
+        if (
+          response.statusCode &&
+          response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          response.headers.location
+        ) {
+          this.getFileSize(response.headers.location)
+            .then(resolve)
+            .catch(reject);
           return;
         }
 
         if (response.statusCode === 200) {
-          const contentLength = parseInt(response.headers["content-length"] || "0", 10);
+          const contentLength = parseInt(
+            response.headers["content-length"] || "0",
+            10,
+          );
           resolve(contentLength);
         } else {
-          reject(new Error(`HEAD request failed with status ${response.statusCode}`));
+          reject(
+            new Error(`HEAD request failed with status ${response.statusCode}`),
+          );
         }
       });
 
@@ -717,7 +907,7 @@ export class DownloadService {
         request.destroy();
         reject(new Error("HEAD request timeout"));
       });
-      
+
       request.end();
     });
   }

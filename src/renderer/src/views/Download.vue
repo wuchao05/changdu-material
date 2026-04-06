@@ -40,6 +40,7 @@ interface DownloadTask {
   status:
     | "pending"
     | "downloading"
+    | "extracting"
     | "paused"
     | "success"
     | "error"
@@ -68,7 +69,7 @@ const autoDownloadTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 const lastAutoDownloadTime = ref<string>("");
 const nextAutoDownloadTime = ref<string>("");
 // 默认保存路径（从 localStorage 加载）
-const savePath = ref(localStorage.getItem('download-save-path') || "");
+const savePath = ref(localStorage.getItem("download-save-path") || "");
 // 并行下载数量
 const concurrentDownloads = ref(3);
 // 自动下载轮询间隔（分钟）
@@ -78,7 +79,9 @@ const showHelpModal = ref(false);
 
 // 计算是否有正在下载的任务
 const hasDownloadingTasks = computed(() => {
-  return downloadTasks.value.some((t) => t.status === "downloading");
+  return downloadTasks.value.some(
+    (t) => t.status === "downloading" || t.status === "extracting",
+  );
 });
 
 const showAutoDownloadPollingMeta = computed(() => {
@@ -100,11 +103,11 @@ const downloadingCount = computed(() => {
 const stats = computed(() => {
   const total = downloadTasks.value.length;
   const downloaded = downloadTasks.value.filter(
-    (t) => t.status === "success"
+    (t) => t.status === "success",
   ).length;
   const failed = downloadTasks.value.filter((t) => t.status === "error").length;
   const pending = downloadTasks.value.filter(
-    (t) => t.status === "pending"
+    (t) => t.status === "pending",
   ).length;
 
   return { total, downloaded, failed, pending };
@@ -159,12 +162,12 @@ async function fetchPendingDownloads(): Promise<boolean> {
     console.log("[Download] 飞书请求 URL:", feishuUrl);
     console.log(
       "[Download] 飞书请求参数:",
-      JSON.stringify(feishuPayload, null, 2)
+      JSON.stringify(feishuPayload, null, 2),
     );
 
     const feishuResult = (await window.api.feishuRequest(
       feishuUrl,
-      feishuPayload
+      feishuPayload,
     )) as {
       data?: {
         items?: Array<{ fields: Record<string, unknown>; record_id: string }>;
@@ -194,7 +197,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
     // 查询单个剧集的函数（带重试机制）
     const queryChangduTask = async (
       cleanDramaName: string,
-      retryCount = 0
+      retryCount = 0,
     ): Promise<any> => {
       const maxRetries = 3;
       const changduPayload = {
@@ -205,7 +208,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
       };
 
       console.log(
-        `[Download] 查询常读任务: ${cleanDramaName}${retryCount > 0 ? ` (重试 ${retryCount}/${maxRetries})` : ""}`
+        `[Download] 查询常读任务: ${cleanDramaName}${retryCount > 0 ? ` (重试 ${retryCount}/${maxRetries})` : ""}`,
       );
 
       try {
@@ -213,8 +216,8 @@ async function fetchPendingDownloads(): Promise<boolean> {
           "/node/api/platform/distributor/download_center/task_list/",
           changduPayload,
           undefined,
-          'sanrou', // 剧集下载统一使用散柔配置
-          undefined
+          "sanrou", // 剧集下载统一使用散柔配置
+          undefined,
         )) as {
           code?: number;
           message?: string;
@@ -282,7 +285,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
         ) {
           // 如果有多个任务，选择 task_name 最长的（通常是最完整的版本）
           const sortedTasks = changduResult.data.sort(
-            (a, b) => (b.task_name?.length || 0) - (a.task_name?.length || 0)
+            (a, b) => (b.task_name?.length || 0) - (a.task_name?.length || 0),
           );
           const changduTask = sortedTasks[0];
 
@@ -364,8 +367,8 @@ async function getDownloadUrl(imagexUri: string): Promise<string> {
         imagex_uri: imagexUri,
       },
       undefined,
-      'sanrou', // 剧集下载统一使用散柔配置
-      undefined
+      "sanrou", // 剧集下载统一使用散柔配置
+      undefined,
     ) as Promise<{ download_url?: string }>;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -385,7 +388,10 @@ async function getDownloadUrl(imagexUri: string): Promise<string> {
 }
 
 // 检查已存在的 zip 文件是否完整
-async function checkExistingZip(dramaFolderPath: string, zipPath: string): Promise<{ exists: boolean; valid: boolean }> {
+async function checkExistingZip(
+  dramaFolderPath: string,
+  zipPath: string,
+): Promise<{ exists: boolean; valid: boolean }> {
   try {
     const result = await window.api.checkZipFile(zipPath);
     return result;
@@ -395,8 +401,119 @@ async function checkExistingZip(dramaFolderPath: string, zipPath: string): Promi
   }
 }
 
+function getDramaFolderPath(dramaName: string) {
+  const normalizedSavePath =
+    savePath.value.endsWith("/") || savePath.value.endsWith("\\")
+      ? savePath.value
+      : savePath.value + "/";
+
+  return `${normalizedSavePath}${dramaName}`;
+}
+
+async function processDownloadedArchive(
+  task: DownloadTask,
+  zipPath: string,
+  taskStartTime: number,
+  verifyMp4Count = false,
+) {
+  task.progress = 100;
+  task.status = "extracting";
+  task.speed = 0;
+
+  const dramaFolderPath = getDramaFolderPath(task.dramaName);
+  const maxExtractRetries = 3;
+
+  const markArchiveForRetry = async (reason: string) => {
+    console.error(`[Download] ✗ 解压后校验失败: ${reason}`);
+    console.log(`[Download] 删除损坏的 zip 文件并重新下载: ${task.dramaName}`);
+
+    try {
+      await window.api.deleteFolder(dramaFolderPath);
+      console.log(`[Download] ✓ 已删除损坏的文件: ${dramaFolderPath}`);
+    } catch (deleteError) {
+      console.error(`[Download] 删除目录失败:`, deleteError);
+    }
+
+    task.retryCount = (task.retryCount || 0) + 1;
+
+    if (task.retryCount <= maxExtractRetries) {
+      task.status = "pending";
+      task.progress = 0;
+      task.error = undefined;
+      task.downloadUrl = "";
+
+      await updateFeishuStatus(task, "待下载");
+
+      console.log(
+        `[Download] ${task.dramaName} 解压失败，已删除损坏文件，标记为待下载重试 (${task.retryCount}/${maxExtractRetries})`,
+      );
+      message.warning(
+        `${task.dramaName} 解压失败，已重新排队下载 (${task.retryCount}/${maxExtractRetries})`,
+      );
+      return;
+    }
+
+    task.status = "error";
+    task.error = `解压失败（重试 ${task.retryCount - 1} 次后仍失败）: ${reason}`;
+
+    await updateFeishuStatus(task, "下载失败");
+    message.error(`${task.dramaName} 解压失败且重试次数用尽，已标记为下载失败`);
+  };
+
+  try {
+    console.log(`[Download] 开始解压: ${zipPath}`);
+    const extractResult = await window.api.extractZip(zipPath, undefined, true);
+
+    if (!extractResult.success) {
+      await markArchiveForRetry(extractResult.error || "解压失败");
+      return;
+    }
+
+    if (verifyMp4Count) {
+      const mp4Count = await window.api.countMp4Files(dramaFolderPath);
+      console.log(
+        `[Download] ${task.dramaName} 解压后发现 ${mp4Count} 个 mp4 文件`,
+      );
+
+      if (mp4Count < 40) {
+        await markArchiveForRetry(`视频文件不完整（${mp4Count}/40）`);
+        return;
+      }
+    }
+
+    console.log(`[Download] ✓ 解压成功: ${extractResult.extractedPath}`);
+    console.log(
+      `[Download] 下载完成，准备更新飞书状态，task.id = ${task.id}, task.tableId = ${task.tableId}`,
+    );
+    task.status = "success";
+    task.localPath = extractResult.extractedPath;
+
+    await updateFeishuStatus(task, "待剪辑");
+    console.log(
+      `[Download] ✓ 飞书状态更新调用完成: ${task.dramaName} -> 待剪辑`,
+    );
+
+    const duration = ((Date.now() - taskStartTime) / 1000).toFixed(1);
+    console.log(`[Download] ${task.dramaName} 完成，耗时 ${duration}秒`);
+    message.success(`${task.dramaName} 下载并解压成功`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "解压失败";
+    console.error(`[Download] ${task.dramaName} 解压阶段异常:`, error);
+    task.status = "pending";
+    task.progress = 0;
+    task.error = errorMessage;
+    task.downloadUrl = "";
+    await updateFeishuStatus(task, "待下载");
+    message.warning(`${task.dramaName} 解压异常，已恢复为待下载`);
+  }
+}
+
 // 下载单个任务（进度停滞检测 + 绝对超时检测）
-async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
+async function downloadSingleTask(
+  task: DownloadTask,
+  queue?: DownloadTask[],
+  onArchiveReady?: (promise: Promise<void>) => void,
+) {
   const STALL_TIMEOUT = 120 * 1000; // 2分钟无进度更新则判定为停滞
   const ABSOLUTE_TIMEOUT = 30 * 60 * 1000; // 30分钟绝对超时
   const MAX_RETRIES = 3; // 最多重试3次
@@ -408,7 +525,7 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
   }
 
   console.log(
-    `[Download] 开始下载任务: ${task.dramaName}${task.retryCount > 0 ? ` (重试 ${task.retryCount}/${MAX_RETRIES})` : ""}`
+    `[Download] 开始下载任务: ${task.dramaName}${task.retryCount > 0 ? ` (重试 ${task.retryCount}/${MAX_RETRIES})` : ""}`,
   );
 
   try {
@@ -447,66 +564,40 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     const existingZipCheck = await checkExistingZip(dramaFolderPath, fullPath);
     if (existingZipCheck.valid) {
       // zip 存在且完整，直接使用
-      console.log(`[Download] ${task.dramaName} 发现已存在的完整 zip 文件，直接解压`);
+      console.log(
+        `[Download] ${task.dramaName} 发现已存在的完整 zip 文件，直接解压`,
+      );
       message.info(`${task.dramaName} 发现已下载文件，正在解压...`);
 
-      task.progress = 50;
+      task.progress = 100;
 
-      // 尝试解压
-      const extractResult = await window.api.extractZip(fullPath, undefined, true);
-
-      if (extractResult.success) {
-        // 解压成功，检查 mp4 文件数量
-        const mp4Count = await window.api.countMp4Files(dramaFolderPath);
-        console.log(`[Download] ${task.dramaName} 解压后发现 ${mp4Count} 个 mp4 文件`);
-
-        if (mp4Count >= 40) {
-          // mp4 文件数量足够
-          task.progress = 100;
-          task.status = "success";
-          task.localPath = extractResult.extractedPath;
-
-          await updateFeishuStatus(task, "待剪辑");
-          message.success(`${task.dramaName} 解压成功（${mp4Count} 个视频）`);
-          return;
-        } else {
-          // mp4 文件数量不够，删除目录重新下载
-          console.warn(`[Download] ${task.dramaName} 解压后只有 ${mp4Count} 个 mp4 文件，不足 40 个，删除重新下载`);
-          message.warning(`${task.dramaName} 视频文件不完整（${mp4Count}/40），删除重新下载`);
-
-          const deleteResult = await window.api.deleteFolder(dramaFolderPath);
-          if (deleteResult.success) {
-            console.log(`[Download] ${task.dramaName} 目录已删除，准备重新下载`);
-          } else {
-            console.error(`[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`);
-          }
-
-          // 继续正常下载流程
-        }
-      } else {
-        // 解压失败，删除目录重新下载
-        console.warn(`[Download] ${task.dramaName} 解压失败: ${extractResult.error}，删除重新下载`);
-        message.warning(`${task.dramaName} 解压失败，删除重新下载`);
-
-        const deleteResult = await window.api.deleteFolder(dramaFolderPath);
-        if (deleteResult.success) {
-          console.log(`[Download] ${task.dramaName} 目录已删除，准备重新下载`);
-        } else {
-          console.error(`[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`);
-        }
-
-        // 继续正常下载流程
+      const archivePromise = processDownloadedArchive(
+        task,
+        fullPath,
+        taskStartTime,
+        true,
+      );
+      if (onArchiveReady) {
+        onArchiveReady(archivePromise);
+        return;
       }
+
+      await archivePromise;
+      return;
     } else if (existingZipCheck.exists) {
       // zip 存在但不完整或损坏，删除后重新下载
-      console.warn(`[Download] ${task.dramaName} 发现不完整的 zip 文件，删除重新下载`);
+      console.warn(
+        `[Download] ${task.dramaName} 发现不完整的 zip 文件，删除重新下载`,
+      );
       message.warning(`${task.dramaName} 发现不完整文件，删除重新下载`);
 
       const deleteResult = await window.api.deleteFolder(dramaFolderPath);
       if (deleteResult.success) {
         console.log(`[Download] ${task.dramaName} 目录已删除，准备重新下载`);
       } else {
-        console.error(`[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`);
+        console.error(
+          `[Download] ${task.dramaName} 目录删除失败: ${deleteResult.error}`,
+        );
       }
 
       // 继续正常下载流程
@@ -525,7 +616,7 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         task.status === "downloading"
       ) {
         console.warn(
-          `[Download] ${task.dramaName} 检测到停滞 (${(timeSinceLastUpdate / 1000).toFixed(0)}秒无进度更新)`
+          `[Download] ${task.dramaName} 检测到停滞 (${(timeSinceLastUpdate / 1000).toFixed(0)}秒无进度更新)`,
         );
         isStalled = true;
         clearInterval(checkInterval);
@@ -535,7 +626,7 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
       const elapsedTime = Date.now() - taskStartTime;
       if (elapsedTime > ABSOLUTE_TIMEOUT && task.status === "downloading") {
         console.warn(
-          `[Download] ${task.dramaName} 检测到绝对超时 (${(elapsedTime / 1000 / 60).toFixed(1)}分钟)`
+          `[Download] ${task.dramaName} 检测到绝对超时 (${(elapsedTime / 1000 / 60).toFixed(1)}分钟)`,
         );
         isAbsoluteTimeout = true;
         clearInterval(checkInterval);
@@ -548,7 +639,7 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     const downloadPromise = window.api.downloadVideo(
       task.downloadUrl,
       fullPath,
-      task.dramaName
+      task.dramaName,
     );
 
     // 超时检测 Promise
@@ -567,8 +658,12 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         if (isAbsoluteTimeout) {
           clearInterval(checkTimer);
           clearInterval(checkInterval);
-          const elapsedMin = ((Date.now() - taskStartTime) / 1000 / 60).toFixed(1);
-          console.log(`[Download] ${task.dramaName} 绝对超时触发（${elapsedMin}分钟），取消下载...`);
+          const elapsedMin = ((Date.now() - taskStartTime) / 1000 / 60).toFixed(
+            1,
+          );
+          console.log(
+            `[Download] ${task.dramaName} 绝对超时触发（${elapsedMin}分钟），取消下载...`,
+          );
           window.api.cancelDownload(task.dramaName).catch((err) => {
             console.error(`[Download] 取消下载失败:`, err);
           });
@@ -584,81 +679,19 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     clearInterval(checkInterval);
 
     if (result.success) {
-      task.progress = 100;
-
-      // 解压 zip 文件
-      console.log(`[Download] 开始解压: ${result.filePath}`);
-      const extractResult = await window.api.extractZip(
+      const archivePromise = processDownloadedArchive(
+        task,
         result.filePath,
-        undefined, // 解压到 zip 所在目录
-        true // 解压后删除 zip
+        taskStartTime,
       );
 
-      if (extractResult.success) {
-        console.log(`[Download] ✓ 解压成功: ${extractResult.extractedPath}`);
-        console.log(
-          `[Download] 下载完成，准备更新飞书状态，task.id = ${task.id}, task.tableId = ${task.tableId}`
-        );
-        task.status = "success";
-        task.localPath = extractResult.extractedPath;
-
-        // 更新飞书状态
-        await updateFeishuStatus(task, "待剪辑");
-        console.log(`[Download] ✓ 飞书状态更新调用完成: ${task.dramaName} -> 待剪辑`);
-
-        const duration = ((Date.now() - taskStartTime) / 1000).toFixed(1);
-        console.log(`[Download] ${task.dramaName} 完成，耗时 ${duration}秒`);
-        message.success(`${task.dramaName} 下载并解压成功`);
-      } else {
-        // 解压失败：删除损坏的 zip 并重新下载
-        console.error(`[Download] ✗ 解压失败: ${extractResult.error}`);
-        console.log(`[Download] 删除损坏的 zip 文件并重新下载: ${task.dramaName}`);
-
-        // 删除损坏的 zip 文件所在目录
-        const dramaFolderPath = `${savePath.value.endsWith("/") || savePath.value.endsWith("\\") ? savePath.value : savePath.value + "/"}${task.dramaName}`;
-        try {
-          await window.api.deleteFolder(dramaFolderPath);
-          console.log(`[Download] ✓ 已删除损坏的文件: ${dramaFolderPath}`);
-        } catch (deleteError) {
-          console.error(`[Download] 删除目录失败:`, deleteError);
-        }
-
-        // 检查重试次数
-        task.retryCount = (task.retryCount || 0) + 1;
-        const MAX_RETRIES = 3;
-
-        if (task.retryCount <= MAX_RETRIES) {
-          // 重新加入下载队列
-          task.status = "pending";
-          task.progress = 0;
-          task.error = undefined;
-          task.downloadUrl = ""; // 清空下载链接，需要重新获取
-
-          // 更新飞书状态为"待下载"
-          await updateFeishuStatus(task, "待下载");
-
-          console.log(`[Download] ${task.dramaName} 解压失败，已删除损坏文件，加入队列重新下载 (${task.retryCount}/${MAX_RETRIES})`);
-
-          if (queue) {
-            queue.push(task);
-          }
-
-          message.warning(
-            `${task.dramaName} 解压失败，已删除损坏文件，重新下载 (${task.retryCount}/${MAX_RETRIES})`
-          );
-        } else {
-          // 重试次数用尽
-          task.status = "error";
-          task.error = `解压失败（重试 ${task.retryCount - 1} 次后仍失败）: ${extractResult.error}`;
-
-          // 更新飞书状态为"下载失败"
-          await updateFeishuStatus(task, "下载失败");
-
-          message.error(`${task.dramaName} 解压失败且重试次数用尽，已标记为下载失败`);
-        }
-
-        return; // 不继续执行后续逻辑
+      if (onArchiveReady) {
+        onArchiveReady(archivePromise);
+        return;
       }
+
+      await archivePromise;
+      return;
     } else {
       // 下载失败，使用返回的错误信息
       throw new Error(result.error || "下载失败");
@@ -683,7 +716,8 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     const isStallError = errorMessage.includes("下载停滞");
 
     // 检查是否是绝对超时错误
-    const isAbsoluteTimeoutError = errorMessage.includes("下载超时") || errorMessage.includes("超过30分钟");
+    const isAbsoluteTimeoutError =
+      errorMessage.includes("下载超时") || errorMessage.includes("超过30分钟");
 
     // 检查是否是网络错误（可以断点续传）
     const isNetworkError =
@@ -696,33 +730,40 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
     if (!isUserAction) {
       const duration = ((Date.now() - taskStartTime) / 1000).toFixed(1);
       console.error(
-        `[Download] ${task.dramaName} 失败，耗时 ${duration}秒，错误: ${errorMessage}`
+        `[Download] ${task.dramaName} 失败，耗时 ${duration}秒，错误: ${errorMessage}`,
       );
 
       // 如果是网络错误、停滞错误或绝对超时且还有重试次数，尝试重试
-      if ((isNetworkError || isStallError || isAbsoluteTimeoutError) && task.retryCount! < MAX_RETRIES) {
+      if (
+        (isNetworkError || isStallError || isAbsoluteTimeoutError) &&
+        task.retryCount! < MAX_RETRIES
+      ) {
         task.retryCount!++;
-        
+
         // 如果是网络错误且有进度，尝试断点续传
         if (isNetworkError && task.progress > 0) {
           console.log(
-            `[Download] ${task.dramaName} 网络错误，尝试断点续传，当前进度: ${task.progress.toFixed(1)}%，重试次数: ${task.retryCount}/${MAX_RETRIES}`
+            `[Download] ${task.dramaName} 网络错误，尝试断点续传，当前进度: ${task.progress.toFixed(1)}%，重试次数: ${task.retryCount}/${MAX_RETRIES}`,
           );
           message.warning(
-            `${task.dramaName} 网络中断 (${task.progress.toFixed(1)}%)，正在尝试断点续传 (${task.retryCount}/${MAX_RETRIES})`
+            `${task.dramaName} 网络中断 (${task.progress.toFixed(1)}%)，正在尝试断点续传 (${task.retryCount}/${MAX_RETRIES})`,
           );
-          
+
           // 等待3秒后尝试续传
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+
           try {
             task.status = "downloading";
             const result = await window.api.resumeDownload(task.dramaName);
-            
+
             if (result.success) {
               task.progress = 100;
-              const extractResult = await window.api.extractZip(result.filePath, undefined, true);
-              
+              const extractResult = await window.api.extractZip(
+                result.filePath,
+                undefined,
+                true,
+              );
+
               if (extractResult.success) {
                 task.status = "success";
                 task.localPath = extractResult.extractedPath;
@@ -732,10 +773,13 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
               }
             }
           } catch (resumeError) {
-            console.error(`[Download] ${task.dramaName} 断点续传失败:`, resumeError);
+            console.error(
+              `[Download] ${task.dramaName} 断点续传失败:`,
+              resumeError,
+            );
           }
         }
-        
+
         // 断点续传失败或是停滞错误，重新排队
         task.status = "pending";
         task.progress = 0;
@@ -747,17 +791,17 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
         if (queue) {
           queue.push(task);
           console.log(
-            `[Download] ${task.dramaName} 加入队列末尾重试，重试次数: ${task.retryCount}/${MAX_RETRIES}，当前队列长度: ${queue.length}`
+            `[Download] ${task.dramaName} 加入队列末尾重试，重试次数: ${task.retryCount}/${MAX_RETRIES}，当前队列长度: ${queue.length}`,
           );
           message.warning(
-            `${task.dramaName} 重新排队等待重试 (${task.retryCount}/${MAX_RETRIES})`
+            `${task.dramaName} 重新排队等待重试 (${task.retryCount}/${MAX_RETRIES})`,
           );
         } else {
           console.log(
-            `[Download] ${task.dramaName} 标记为pending等待重试: ${task.retryCount}/${MAX_RETRIES}`
+            `[Download] ${task.dramaName} 标记为pending等待重试: ${task.retryCount}/${MAX_RETRIES}`,
           );
           message.warning(
-            `${task.dramaName} 已重新排队 (重试 ${task.retryCount}/${MAX_RETRIES})`
+            `${task.dramaName} 已重新排队 (重试 ${task.retryCount}/${MAX_RETRIES})`,
           );
         }
         return; // 返回，不标记为失败
@@ -772,7 +816,7 @@ async function downloadSingleTask(task: DownloadTask, queue?: DownloadTask[]) {
       // 更新飞书状态为"待下载"（下次轮询会继续尝试）
       await updateFeishuStatus(task, "待下载");
       console.log(
-        `[Download] ${task.dramaName} 本轮重试次数用尽，恢复为待下载状态，下次轮询将继续尝试`
+        `[Download] ${task.dramaName} 本轮重试次数用尽，恢复为待下载状态，下次轮询将继续尝试`,
       );
       message.warning(`${task.dramaName} 本轮下载失败，已恢复为待下载`);
     } else {
@@ -800,7 +844,7 @@ async function startDownload() {
   }
 
   const pendingTasks = downloadTasks.value.filter(
-    (t) => t.status === "pending"
+    (t) => t.status === "pending",
   );
   if (pendingTasks.length === 0) {
     message.info("没有待下载的任务");
@@ -809,86 +853,105 @@ async function startDownload() {
 
   downloading.value = true;
   const concurrency = concurrentDownloads.value;
+  const archiveTasks = new Set<Promise<void>>();
 
   try {
-    // 使用并行下载队列（共享队列，支持动态添加任务）
-    const queue = [...pendingTasks];
-    console.log(
-      `[Download] 开始并行下载，待下载任务数: ${queue.length}，并发数: ${concurrency}`
-    );
+    const registerArchiveTask = (promise: Promise<void>) => {
+      archiveTasks.add(promise);
+      promise.finally(() => {
+        archiveTasks.delete(promise);
+      });
+    };
 
-    // 工作线程函数
-    const worker = async (workerId: number, queue: DownloadTask[]) => {
-      console.log(`[Download] Worker ${workerId} 启动`);
-      let taskCount = 0;
+    let round = 0;
+    while (true) {
+      const roundPendingTasks = downloadTasks.value.filter(
+        (t) => t.status === "pending",
+      );
 
-      while (queue.length > 0) {
-        const task = queue.shift();
-        if (task) {
+      if (roundPendingTasks.length === 0) {
+        break;
+      }
+
+      round++;
+      const queue = [...roundPendingTasks];
+      console.log(
+        `[Download] 开始第 ${round} 轮并行下载，待下载任务数: ${queue.length}，并发数: ${concurrency}`,
+      );
+
+      const worker = async (workerId: number, workerQueue: DownloadTask[]) => {
+        console.log(`[Download] Worker ${workerId} 启动`);
+        let taskCount = 0;
+
+        while (workerQueue.length > 0) {
+          const task = workerQueue.shift();
+          if (!task) continue;
+
           taskCount++;
           console.log(
-            `[Download] Worker ${workerId} 开始处理第 ${taskCount} 个任务: ${task.dramaName}，队列剩余: ${queue.length}`
+            `[Download] Worker ${workerId} 开始处理第 ${taskCount} 个任务: ${task.dramaName}，队列剩余: ${workerQueue.length}`,
           );
 
           try {
-            await downloadSingleTask(task, queue);
+            await downloadSingleTask(task, workerQueue, registerArchiveTask);
             console.log(
-              `[Download] Worker ${workerId} 完成任务: ${task.dramaName}，状态: ${task.status}`
+              `[Download] Worker ${workerId} 完成任务: ${task.dramaName}，状态: ${task.status}`,
             );
           } catch (error) {
             console.error(
               `[Download] Worker ${workerId} 处理任务 ${task.dramaName} 异常:`,
-              error
+              error,
             );
-            
-            // 如果任务异常且状态不是已取消/已暂停，恢复为待下载（留待下次轮询）
+
             if (task.status !== "cancelled" && task.status !== "paused") {
               task.status = "pending";
               task.progress = 0;
               task.error = error instanceof Error ? error.message : "下载失败";
-              task.retryCount = 0; // 重置重试次数
-              
-              // 更新飞书状态为"待下载"（下次轮询会继续尝试）
+              task.retryCount = 0;
+
               try {
                 await updateFeishuStatus(task, "待下载");
                 console.log(
-                  `[Download] Worker ${workerId} ${task.dramaName} 异常，已恢复为待下载状态`
+                  `[Download] Worker ${workerId} ${task.dramaName} 异常，已恢复为待下载状态`,
                 );
               } catch (updateError) {
                 console.error(
                   `[Download] Worker ${workerId} 更新飞书状态失败:`,
-                  updateError
+                  updateError,
                 );
               }
             }
           }
         }
+
+        console.log(
+          `[Download] Worker ${workerId} 完成，共处理 ${taskCount} 个任务`,
+        );
+      };
+
+      const workerCount = Math.min(concurrency, roundPendingTasks.length);
+      const workers: Promise<void>[] = [];
+
+      for (let i = 0; i < workerCount; i++) {
+        workers.push(worker(i + 1, queue));
       }
 
-      console.log(
-        `[Download] Worker ${workerId} 完成，共处理 ${taskCount} 个任务`
-      );
-    };
+      await Promise.all(workers);
 
-    // 启动并行工作线程
-    const workerCount = Math.min(concurrency, pendingTasks.length);
-    const workers: Promise<void>[] = [];
-
-    for (let i = 0; i < workerCount; i++) {
-      workers.push(worker(i + 1, queue));
+      if (archiveTasks.size > 0) {
+        console.log(`[Download] 等待 ${archiveTasks.size} 个解压任务完成...`);
+        await Promise.allSettled(Array.from(archiveTasks));
+      }
     }
 
-    // 等待所有工作线程完成
-    await Promise.all(workers);
-
     const successCount = downloadTasks.value.filter(
-      (t) => t.status === "success"
+      (t) => t.status === "success",
     ).length;
     const errorCount = downloadTasks.value.filter(
-      (t) => t.status === "error"
+      (t) => t.status === "error",
     ).length;
     console.log(
-      `[Download] 所有下载任务完成，成功: ${successCount}，失败: ${errorCount}`
+      `[Download] 所有下载任务完成，成功: ${successCount}，失败: ${errorCount}`,
     );
 
     message.success(`下载完成！成功 ${successCount} 个，失败 ${errorCount} 个`);
@@ -908,7 +971,7 @@ async function startDownload() {
 async function updateFeishuStatus(
   task: DownloadTask,
   status: string,
-  retryCount = 5
+  retryCount = 5,
 ) {
   // 检查 task.id 是否有效
   if (!task.id) {
@@ -919,7 +982,8 @@ async function updateFeishuStatus(
 
   const appToken = apiConfigStore.config.feishuAppToken;
   // 优先使用任务中保存的 tableId（查询时确定的），否则使用当前达人配置
-  const tableId = task.tableId || darenStore.currentDaren?.feishuDramaStatusTableId;
+  const tableId =
+    task.tableId || darenStore.currentDaren?.feishuDramaStatusTableId;
 
   console.log("[Download] 飞书配置检查:", {
     appToken: appToken ? `${appToken.substring(0, 10)}...` : "未配置",
@@ -953,20 +1017,20 @@ async function updateFeishuStatus(
   for (let attempt = 1; attempt <= retryCount; attempt++) {
     try {
       console.log(
-        `[Download] 更新飞书状态: ${task.dramaName} -> ${status} (尝试 ${attempt}/${retryCount})`
+        `[Download] 更新飞书状态: ${task.dramaName} -> ${status} (尝试 ${attempt}/${retryCount})`,
       );
 
       // 给飞书请求加超时控制
       const requestPromise = window.api.feishuRequest(
         `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/${task.id}`,
         { fields },
-        "PUT"
+        "PUT",
       ) as Promise<{ code?: number; msg?: string; data?: unknown }>;
 
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
           reject(
-            new Error(`飞书请求超时（超过${FEISHU_REQUEST_TIMEOUT / 1000}秒）`)
+            new Error(`飞书请求超时（超过${FEISHU_REQUEST_TIMEOUT / 1000}秒）`),
           );
         }, FEISHU_REQUEST_TIMEOUT);
       });
@@ -976,20 +1040,20 @@ async function updateFeishuStatus(
       // 检查飞书 API 返回的 code
       if (result.code !== 0) {
         console.error(
-          `[Download] ✗ 飞书 API 返回错误: code=${result.code}, msg=${result.msg}`
+          `[Download] ✗ 飞书 API 返回错误: code=${result.code}, msg=${result.msg}`,
         );
         throw new Error(`飞书 API 错误: ${result.msg || result.code}`);
       }
 
       console.log(
         `[Download] ✓ 飞书状态更新成功: ${task.dramaName} -> ${status}`,
-        result
+        result,
       );
       return; // 成功则返回
     } catch (error) {
       console.error(
         `[Download] ✗ 更新飞书状态失败 (尝试 ${attempt}/${retryCount}):`,
-        error
+        error,
       );
 
       if (attempt < retryCount) {
@@ -1014,7 +1078,7 @@ function scheduleNextDownloadCheck() {
   nextAutoDownloadTime.value = next.toLocaleTimeString();
 
   console.log(
-    `[Download] 调度下一次检查，${autoDownloadIntervalMinutes.value} 分钟后`
+    `[Download] 调度下一次检查，${autoDownloadIntervalMinutes.value} 分钟后`,
   );
 
   autoDownloadTimeout.value = setTimeout(() => {
@@ -1038,11 +1102,11 @@ async function runAutoDownloadCycle() {
   if (hasNewTasks) {
     // 有新任务，开始下载（下载完成后会自动触发新一轮查询）
     const pendingTasks = downloadTasks.value.filter(
-      (t) => t.status === "pending"
+      (t) => t.status === "pending",
     );
     if (pendingTasks.length > 0) {
       console.log(
-        `[Download] 找到 ${pendingTasks.length} 个待下载任务，开始下载`
+        `[Download] 找到 ${pendingTasks.length} 个待下载任务，开始下载`,
       );
       await startDownload();
       // startDownload 完成后会调用 runAutoDownloadCycle()
@@ -1065,10 +1129,10 @@ function toggleAutoDownload(enabled: boolean) {
 
   if (enabled) {
     console.log(
-      `[Download] 开启自动下载，轮询间隔: ${autoDownloadIntervalMinutes.value} 分钟`
+      `[Download] 开启自动下载，轮询间隔: ${autoDownloadIntervalMinutes.value} 分钟`,
     );
     message.success(
-      `自动下载已开启，每 ${autoDownloadIntervalMinutes.value} 分钟检查一次`
+      `自动下载已开启，每 ${autoDownloadIntervalMinutes.value} 分钟检查一次`,
     );
 
     // 立即开始第一次循环
@@ -1111,7 +1175,7 @@ async function selectSavePath() {
     savePath.value =
       path.endsWith("/") || path.endsWith("\\") ? path : path + "/";
     // 保存到 localStorage
-    localStorage.setItem('download-save-path', savePath.value);
+    localStorage.setItem("download-save-path", savePath.value);
     console.log("[Download] 选择保存路径:", savePath.value);
   }
 }
@@ -1134,7 +1198,7 @@ async function pauseDownload(task: DownloadTask) {
       // 更新飞书状态为"已暂停下载"
       await updateFeishuStatus(task, "已暂停下载");
       message.info(
-        `已暂停下载: ${task.dramaName}，进度 ${task.progress.toFixed(1)}%`
+        `已暂停下载: ${task.dramaName}，进度 ${task.progress.toFixed(1)}%`,
       );
     }
   } catch (error) {
@@ -1160,20 +1224,22 @@ async function resumeDownload(task: DownloadTask) {
     .then(async (result) => {
       if (result.success) {
         task.progress = 100;
+        task.status = "extracting";
+        task.speed = 0;
 
         // 解压 zip 文件
         console.log(`[Download] 开始解压: ${result.filePath}`);
         const extractResult = await window.api.extractZip(
           result.filePath,
           undefined,
-          true
+          true,
         );
 
         if (extractResult.success) {
           task.status = "success";
           task.localPath = extractResult.extractedPath;
           console.log(
-            `[Download] 继续下载完成，准备更新飞书状态: ${task.dramaName}`
+            `[Download] 继续下载完成，准备更新飞书状态: ${task.dramaName}`,
           );
           await updateFeishuStatus(task, "待剪辑");
           message.success(`${task.dramaName} 下载并解压成功`);
@@ -1182,7 +1248,7 @@ async function resumeDownload(task: DownloadTask) {
           task.localPath = result.filePath;
           task.error = `解压失败: ${extractResult.error}`;
           console.log(
-            `[Download] 继续下载完成（解压失败），准备更新飞书状态: ${task.dramaName}`
+            `[Download] 继续下载完成（解压失败），准备更新飞书状态: ${task.dramaName}`,
           );
           await updateFeishuStatus(task, "待剪辑");
           message.warning(`${task.dramaName} 下载成功，但解压失败`);
@@ -1279,20 +1345,22 @@ async function retryDownload(task: DownloadTask) {
     .then(async (result) => {
       if (result.success) {
         task.progress = 100;
+        task.status = "extracting";
+        task.speed = 0;
 
         // 解压 zip 文件
         console.log(`[Download] 开始解压: ${result.filePath}`);
         const extractResult = await window.api.extractZip(
           result.filePath,
           undefined,
-          true
+          true,
         );
 
         if (extractResult.success) {
           task.status = "success";
           task.localPath = extractResult.extractedPath;
           console.log(
-            `[Download] 重试下载完成，准备更新飞书状态: ${task.dramaName}`
+            `[Download] 重试下载完成，准备更新飞书状态: ${task.dramaName}`,
           );
           await updateFeishuStatus(task, "待剪辑");
           message.success(`${task.dramaName} 下载并解压成功`);
@@ -1301,7 +1369,7 @@ async function retryDownload(task: DownloadTask) {
           task.localPath = result.filePath;
           task.error = `解压失败: ${extractResult.error}`;
           console.log(
-            `[Download] 重试下载完成（解压失败），准备更新飞书状态: ${task.dramaName}`
+            `[Download] 重试下载完成（解压失败），准备更新飞书状态: ${task.dramaName}`,
           );
           await updateFeishuStatus(task, "待剪辑");
           message.warning(`${task.dramaName} 下载成功，但解压失败`);
@@ -1338,7 +1406,7 @@ onMounted(async () => {
   // 监听下载进度
   unsubscribeProgress = window.api.onDownloadProgress((progress) => {
     const task = downloadTasks.value.find(
-      (t) => t.dramaName === progress.dramaName
+      (t) => t.dramaName === progress.dramaName,
     );
     if (task) {
       const oldProgress = task.progress;
@@ -1400,6 +1468,7 @@ const columns: DataTableColumns<DownloadTask> = [
       > = {
         pending: "default",
         downloading: "info",
+        extracting: "warning",
         paused: "warning",
         success: "success",
         error: "error",
@@ -1408,6 +1477,7 @@ const columns: DataTableColumns<DownloadTask> = [
       const textMap: Record<string, string> = {
         pending: "待下载",
         downloading: "下载中",
+        extracting: "解压中",
         paused: "已暂停",
         success: "已完成",
         error: "失败",
@@ -1416,7 +1486,7 @@ const columns: DataTableColumns<DownloadTask> = [
       return h(
         NTag,
         { type: typeMap[row.status] },
-        { default: () => textMap[row.status] }
+        { default: () => textMap[row.status] },
       );
     },
   },
@@ -1443,7 +1513,7 @@ const columns: DataTableColumns<DownloadTask> = [
       return h(NProgress, {
         percentage: row.progress,
         indicatorPlacement: "inside",
-        processing: row.status === "downloading",
+        processing: row.status === "downloading" || row.status === "extracting",
       });
     },
   },
@@ -1483,7 +1553,7 @@ const columns: DataTableColumns<DownloadTask> = [
                   type: "warning",
                   onClick: () => pauseDownload(row),
                 },
-                { default: () => "暂停" }
+                { default: () => "暂停" },
               ),
               h(
                 NButton,
@@ -1492,10 +1562,17 @@ const columns: DataTableColumns<DownloadTask> = [
                   type: "error",
                   onClick: () => cancelDownload(row),
                 },
-                { default: () => "取消" }
+                { default: () => "取消" },
               ),
             ],
-          }
+          },
+        );
+      }
+      if (row.status === "extracting") {
+        return h(
+          NTag,
+          { type: "warning", size: "small" },
+          { default: () => "解压中" },
         );
       }
       // 已暂停：显示继续和取消按钮
@@ -1516,7 +1593,7 @@ const columns: DataTableColumns<DownloadTask> = [
                   disabled: isMaxConcurrency,
                   onClick: () => resumeDownload(row),
                 },
-                { default: () => isMaxConcurrency ? "等待空位" : "继续" }
+                { default: () => (isMaxConcurrency ? "等待空位" : "继续") },
               ),
               h(
                 NButton,
@@ -1525,10 +1602,10 @@ const columns: DataTableColumns<DownloadTask> = [
                   type: "error",
                   onClick: () => cancelDownload(row),
                 },
-                { default: () => "取消" }
+                { default: () => "取消" },
               ),
             ],
-          }
+          },
         );
       }
       // 失败或已取消：显示重试按钮
@@ -1544,7 +1621,7 @@ const columns: DataTableColumns<DownloadTask> = [
             disabled: isMaxConcurrency,
             onClick: () => retryDownload(row),
           },
-          { default: () => isMaxConcurrency ? "等待空位" : "重新下载" }
+          { default: () => (isMaxConcurrency ? "等待空位" : "重新下载") },
         );
       }
       // 成功：显示打开目录按钮
@@ -1555,7 +1632,7 @@ const columns: DataTableColumns<DownloadTask> = [
             size: "small",
             onClick: () => openFolder(row.localPath!),
           },
-          { default: () => "打开目录" }
+          { default: () => "打开目录" },
         );
       }
       return null;
@@ -1570,7 +1647,11 @@ const columns: DataTableColumns<DownloadTask> = [
       <div class="hero-row">
         <div class="hero-title">剧目下载</div>
         <NSpace class="hero-actions" wrap>
-          <button type="button" class="hero-help-btn" @click="showHelpModal = true">
+          <button
+            type="button"
+            class="hero-help-btn"
+            @click="showHelpModal = true"
+          >
             <NIcon size="18" color="#64748b">
               <HelpCircleOutline />
             </NIcon>
@@ -1660,7 +1741,9 @@ const columns: DataTableColumns<DownloadTask> = [
       type="info"
       class="auto-download-alert"
     >
-      <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap">
+      <div
+        style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap"
+      >
         <span>状态：等待下一轮轮询下载</span>
         <span>轮询时间：{{ autoDownloadIntervalText }}</span>
         <span v-if="lastAutoDownloadTime" style="color: #1890ff">
