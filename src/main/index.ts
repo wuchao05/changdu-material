@@ -82,6 +82,14 @@ const materialClipService = new MaterialClipService(configService, apiService);
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
+fileService.setExtractStatusNotifier((status) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.send("file:extractStatus", status);
+});
+
 function createWindow(): void {
   // Create the browser window.
   mainWindow = new BrowserWindow({
@@ -392,11 +400,20 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "file:extractZip",
-    async (_event, zipPath, targetDir, deleteAfterExtract) => {
+    async (
+      _event,
+      zipPath,
+      targetDir,
+      deleteAfterExtract,
+      taskId,
+      dramaName,
+    ) => {
       return await fileService.extractZip(
         zipPath,
         targetDir,
         deleteAfterExtract,
+        taskId,
+        dramaName,
       );
     },
   );
@@ -516,25 +533,57 @@ function registerIpcHandlers(): void {
     return await apiService.submitToMaterialLibrary(materials, configService);
   });
 
-  ipcMain.handle("juliang-build:getPendingDramas", async (_event, tableId?: string) => {
-    return await apiService.getRemotePendingBuildDramas(configService, tableId);
-  });
+  ipcMain.handle(
+    "juliang-build:getPendingDramas",
+    async (_event, tableId?: string) => {
+      return await apiService.getRemotePendingBuildDramas(
+        configService,
+        tableId,
+      );
+    },
+  );
 
-  ipcMain.handle("juliang-build:getSchedulerStatus", async (_event, tableId?: string) => {
-    return await apiService.getRemoteDailyBuildSchedulerStatus(configService, tableId);
-  });
+  ipcMain.handle(
+    "juliang-build:getSchedulerStatus",
+    async (_event, tableId?: string) => {
+      return await apiService.getRemoteDailyBuildSchedulerStatus(
+        configService,
+        tableId,
+      );
+    },
+  );
 
-  ipcMain.handle("juliang-build:startScheduler", async (_event, intervalMinutes: number, tableId?: string) => {
-    return await apiService.startRemoteDailyBuildScheduler(intervalMinutes, configService, tableId);
-  });
+  ipcMain.handle(
+    "juliang-build:startScheduler",
+    async (_event, intervalMinutes: number, tableId?: string) => {
+      return await apiService.startRemoteDailyBuildScheduler(
+        intervalMinutes,
+        configService,
+        tableId,
+      );
+    },
+  );
 
-  ipcMain.handle("juliang-build:stopScheduler", async (_event, tableId?: string) => {
-    return await apiService.stopRemoteDailyBuildScheduler(configService, tableId);
-  });
+  ipcMain.handle(
+    "juliang-build:stopScheduler",
+    async (_event, tableId?: string) => {
+      return await apiService.stopRemoteDailyBuildScheduler(
+        configService,
+        tableId,
+      );
+    },
+  );
 
-  ipcMain.handle("juliang-build:triggerScheduler", async (_event, dramaId?: string, tableId?: string) => {
-    return await apiService.triggerRemoteDailyBuildScheduler(dramaId, configService, tableId);
-  });
+  ipcMain.handle(
+    "juliang-build:triggerScheduler",
+    async (_event, dramaId?: string, tableId?: string) => {
+      return await apiService.triggerRemoteDailyBuildScheduler(
+        dramaId,
+        configService,
+        tableId,
+      );
+    },
+  );
 
   // ==================== TOS 上传 ====================
   ipcMain.handle("tos:uploadFile", async (event, filePath) => {

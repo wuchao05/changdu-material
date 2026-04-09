@@ -4,7 +4,6 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import crypto from "crypto";
 import extract from "extract-zip";
-import type { ConfigService } from "./config.service";
 
 const execFileAsync = promisify(execFile);
 
@@ -33,18 +32,58 @@ export interface RenameVideosResult {
   error?: string;
 }
 
+export interface ExtractQueueStatus {
+  taskId?: string;
+  dramaName?: string;
+  status: "queued" | "extracting" | "completed" | "failed";
+  queueLength: number;
+  activeCount: number;
+  error?: string;
+}
+
 export class FileService {
-  private defaultBasePath = "D:\\短剧剪辑\\";
-  
   // 解压队列控制
   private extractQueue: Array<{
     zipPath: string;
     targetDir?: string;
     deleteAfterExtract: boolean;
-    resolve: (value: { success: boolean; error?: string; extractedPath: string }) => void;
+    taskId?: string;
+    dramaName?: string;
+    resolve: (value: {
+      success: boolean;
+      error?: string;
+      extractedPath: string;
+    }) => void;
     reject: (reason?: any) => void;
   }> = [];
-  private isExtracting = false;
+  private activeExtractCount = 0;
+  private readonly maxConcurrentExtracts = 2;
+  private extractStatusNotifier?: (status: ExtractQueueStatus) => void;
+
+  setExtractStatusNotifier(
+    notifier?: (status: ExtractQueueStatus) => void,
+  ): void {
+    this.extractStatusNotifier = notifier;
+  }
+
+  private notifyExtractStatus(
+    task: { taskId?: string; dramaName?: string },
+    status: ExtractQueueStatus["status"],
+    error?: string,
+  ): void {
+    if (!this.extractStatusNotifier) {
+      return;
+    }
+
+    this.extractStatusNotifier({
+      taskId: task.taskId,
+      dramaName: task.dramaName,
+      status,
+      queueLength: this.extractQueue.length,
+      activeCount: this.activeExtractCount,
+      error,
+    });
+  }
 
   /**
    * 列出指定目录下所有以"导出"结尾的子目录名
@@ -103,7 +142,7 @@ export class FileService {
       }
 
       console.log(
-        `[FileService] 扫描完成，找到 ${materials.length} 个视频文件`
+        `[FileService] 扫描完成，找到 ${materials.length} 个视频文件`,
       );
       return materials;
     } catch (error) {
@@ -115,63 +154,64 @@ export class FileService {
   async renameVideosByTemplate(
     basePath: string,
     template: string,
-    dateValue?: string
+    dateValue?: string,
   ): Promise<RenameVideosResult> {
     try {
-      const normalizedTemplate = template.trim()
-      const resolvedDateValue = this.resolveMaterialDateValue(dateValue)
+      const normalizedTemplate = template.trim();
+      const resolvedDateValue = this.resolveMaterialDateValue(dateValue);
       if (!normalizedTemplate) {
-        throw new Error("素材名称模板不能为空")
+        throw new Error("素材名称模板不能为空");
       }
       if (
         !normalizedTemplate.includes("{剧名}") ||
         !normalizedTemplate.includes("{序号}")
       ) {
-        throw new Error("素材名称模板必须包含 {剧名} 和 {序号}")
+        throw new Error("素材名称模板必须包含 {剧名} 和 {序号}");
       }
       if (!fs.existsSync(basePath)) {
-        throw new Error("素材目录不存在")
+        throw new Error("素材目录不存在");
       }
 
       const dramaFolders = fs
         .readdirSync(basePath, { withFileTypes: true })
-        .filter((dirent) => dirent.isDirectory())
+        .filter((dirent) => dirent.isDirectory());
 
-      let dramaCount = 0
-      let renamedCount = 0
-      let skippedCount = 0
+      let dramaCount = 0;
+      let renamedCount = 0;
+      let skippedCount = 0;
 
       for (const folder of dramaFolders) {
-        const dramaName = folder.name
-        const dramaPath = path.join(basePath, dramaName)
+        const dramaName = folder.name;
+        const dramaPath = path.join(basePath, dramaName);
         const files = fs
           .readdirSync(dramaPath, { withFileTypes: true })
           .filter(
             (dirent) =>
-              dirent.isFile() && path.extname(dirent.name).toLowerCase() === ".mp4"
+              dirent.isFile() &&
+              path.extname(dirent.name).toLowerCase() === ".mp4",
           )
           .map((dirent) => dirent.name)
-          .sort((a, b) => this.compareFileNames(a, b))
+          .sort((a, b) => this.compareFileNames(a, b));
 
         if (files.length === 0) {
-          continue
+          continue;
         }
 
-        dramaCount += 1
+        dramaCount += 1;
         const plans = files.map((fileName, index) => {
-          const oldPath = path.join(dramaPath, fileName)
-          const sequence = String(index + 1).padStart(2, "0")
-          const extension = path.extname(fileName) || ".mp4"
+          const oldPath = path.join(dramaPath, fileName);
+          const sequence = String(index + 1).padStart(2, "0");
+          const extension = path.extname(fileName) || ".mp4";
           let targetName = this.normalizeTemplateFileName(
             normalizedTemplate
               .replaceAll("{剧名}", dramaName)
               .replaceAll("{日期}", resolvedDateValue)
               .replaceAll("{简称}", "")
-              .replaceAll("{序号}", sequence)
-          )
+              .replaceAll("{序号}", sequence),
+          );
 
           if (!path.extname(targetName)) {
-            targetName += extension
+            targetName += extension;
           }
 
           return {
@@ -179,47 +219,53 @@ export class FileService {
             oldPath,
             targetName,
             targetPath: path.join(dramaPath, targetName),
-          }
-        })
+          };
+        });
 
-        const targetNameSet = new Set<string>()
+        const targetNameSet = new Set<string>();
         for (const plan of plans) {
-          const lowerTargetName = plan.targetName.toLowerCase()
+          const lowerTargetName = plan.targetName.toLowerCase();
           if (targetNameSet.has(lowerTargetName)) {
-            throw new Error(`《${dramaName}》重命名后文件名重复：${plan.targetName}`)
+            throw new Error(
+              `《${dramaName}》重命名后文件名重复：${plan.targetName}`,
+            );
           }
-          targetNameSet.add(lowerTargetName)
+          targetNameSet.add(lowerTargetName);
         }
 
-        const originalPathSet = new Set(plans.map((plan) => plan.oldPath))
+        const originalPathSet = new Set(plans.map((plan) => plan.oldPath));
         for (const plan of plans) {
           if (
             plan.oldPath !== plan.targetPath &&
             fs.existsSync(plan.targetPath) &&
             !originalPathSet.has(plan.targetPath)
           ) {
-            throw new Error(`《${dramaName}》目标文件已存在：${plan.targetName}`)
+            throw new Error(
+              `《${dramaName}》目标文件已存在：${plan.targetName}`,
+            );
           }
         }
 
-        const changedPlans = plans.filter((plan) => plan.fileName !== plan.targetName)
-        skippedCount += plans.length - changedPlans.length
+        const changedPlans = plans.filter(
+          (plan) => plan.fileName !== plan.targetName,
+        );
+        skippedCount += plans.length - changedPlans.length;
 
         for (let index = 0; index < changedPlans.length; index += 1) {
-          const plan = changedPlans[index]
+          const plan = changedPlans[index];
           const tempPath = path.join(
             dramaPath,
             `.__rename_tmp__${Date.now()}_${index}_${Math.random()
               .toString(36)
-              .slice(2, 8)}${path.extname(plan.fileName)}`
-          )
-          await fs.promises.rename(plan.oldPath, tempPath)
-          plan.oldPath = tempPath
+              .slice(2, 8)}${path.extname(plan.fileName)}`,
+          );
+          await fs.promises.rename(plan.oldPath, tempPath);
+          plan.oldPath = tempPath;
         }
 
         for (const plan of changedPlans) {
-          await fs.promises.rename(plan.oldPath, plan.targetPath)
-          renamedCount += 1
+          await fs.promises.rename(plan.oldPath, plan.targetPath);
+          renamedCount += 1;
         }
       }
 
@@ -228,7 +274,7 @@ export class FileService {
         dramaCount,
         renamedCount,
         skippedCount,
-      }
+      };
     } catch (error) {
       return {
         success: false,
@@ -236,7 +282,7 @@ export class FileService {
         renamedCount: 0,
         skippedCount: 0,
         error: error instanceof Error ? error.message : String(error),
-      }
+      };
     }
   }
 
@@ -259,26 +305,28 @@ export class FileService {
     return a.localeCompare(b, "zh-Hans-CN", {
       numeric: true,
       sensitivity: "base",
-    })
+    });
   }
 
   private resolveMaterialDateValue(dateValue?: string): string {
-    const normalizedDateValue = String(dateValue || "").trim()
+    const normalizedDateValue = String(dateValue || "").trim();
     if (normalizedDateValue) {
-      return normalizedDateValue
+      return normalizedDateValue;
     }
 
     const formatter = new Intl.DateTimeFormat("zh-CN", {
       timeZone: "Asia/Shanghai",
       month: "numeric",
       day: "numeric",
-    })
-    const parts = formatter.formatToParts(new Date())
+    });
+    const parts = formatter.formatToParts(new Date());
     const month =
-      parts.find((part) => part.type === "month")?.value || String(new Date().getMonth() + 1)
+      parts.find((part) => part.type === "month")?.value ||
+      String(new Date().getMonth() + 1);
     const day =
-      parts.find((part) => part.type === "day")?.value || String(new Date().getDate())
-    return `${month}.${day}`
+      parts.find((part) => part.type === "day")?.value ||
+      String(new Date().getDate());
+    return `${month}.${day}`;
   }
 
   private normalizeTemplateFileName(fileName: string): string {
@@ -286,12 +334,12 @@ export class FileService {
       .replace(/-{2,}/g, "-")
       .replace(/-+\./g, ".")
       .replace(/^-+/g, "")
-      .trim()
+      .trim();
   }
 
   async getVideoInfo(filePath: string, maxRetry = 3): Promise<VideoInfo> {
     let isEmptyJsonError = false;
-    
+
     for (let attempt = 1; attempt <= maxRetry; attempt++) {
       try {
         // 使用 ffprobe 获取视频信息，设置 UTF-8 编码环境
@@ -314,7 +362,7 @@ export class FileService {
               // Windows 上设置 UTF-8 代码页
               LANG: "en_US.UTF-8",
             },
-          }
+          },
         );
 
         // 检查输出是否为空
@@ -331,7 +379,7 @@ export class FileService {
         }
 
         const videoStream = videoData.streams.find(
-          (stream: { codec_type: string }) => stream.codec_type === "video"
+          (stream: { codec_type: string }) => stream.codec_type === "video",
         );
         const format = videoData.format;
 
@@ -348,17 +396,17 @@ export class FileService {
         // 如果是空 JSON 错误，只在第一次打印简短日志
         if (isEmptyJsonError && attempt === 1) {
           console.warn(
-            `[FileService] ⚠️ 文件可能被占用或路径有问题，将使用默认值: ${filePath}`
+            `[FileService] ⚠️ 文件可能被占用或路径有问题，将使用默认值: ${filePath}`,
           );
           // 空 JSON 错误不重试，直接返回默认值
           return { width: 1280, height: 720, duration: 0 };
         }
-        
+
         // 其他错误只在第一次和最后一次打印详细日志
         if (attempt === 1 || attempt === maxRetry) {
           console.error(
             `[FileService] 获取视频信息失败 (尝试 ${attempt}/${maxRetry}):`,
-            error
+            error,
           );
           console.error(`[FileService] 文件路径: ${filePath}`);
         }
@@ -370,7 +418,7 @@ export class FileService {
           } else {
             const stats = fs.statSync(filePath);
             console.error(
-              `[FileService] 文件信息: 大小=${stats.size} bytes, 修改时间=${stats.mtime}`
+              `[FileService] 文件信息: 大小=${stats.size} bytes, 修改时间=${stats.mtime}`,
             );
           }
 
@@ -379,9 +427,7 @@ export class FileService {
         }
 
         // 等待后重试，每次等待时间递增
-        await new Promise((resolve) =>
-          setTimeout(resolve, 1000 * attempt)
-        );
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
     }
 
@@ -425,7 +471,9 @@ export class FileService {
   async extractZip(
     zipPath: string,
     targetDir?: string,
-    deleteAfterExtract = true
+    deleteAfterExtract = true,
+    taskId?: string,
+    dramaName?: string,
   ): Promise<{ success: boolean; error?: string; extractedPath: string }> {
     // 添加到队列
     return new Promise((resolve, reject) => {
@@ -433,13 +481,16 @@ export class FileService {
         zipPath,
         targetDir,
         deleteAfterExtract,
+        taskId,
+        dramaName,
         resolve,
         reject,
       });
 
       console.log(
-        `[FileService] 解压任务已加入队列，当前队列长度: ${this.extractQueue.length}`
+        `[FileService] 解压任务已加入队列，当前队列长度: ${this.extractQueue.length}`,
       );
+      this.notifyExtractStatus({ taskId, dramaName }, "queued");
 
       // 尝试处理队列
       this.processExtractQueue();
@@ -447,46 +498,131 @@ export class FileService {
   }
 
   /**
-   * 处理解压队列（确保一次只解压一个文件）
+   * 处理解压队列（限制最大并发解压数）
    */
-  private async processExtractQueue(): Promise<void> {
-    // 如果正在解压或队列为空，直接返回
-    if (this.isExtracting || this.extractQueue.length === 0) {
+  private processExtractQueue(): void {
+    if (this.extractQueue.length === 0) {
       console.log(
-        `[FileService] processExtractQueue 检查: isExtracting=${this.isExtracting}, queueLength=${this.extractQueue.length}`
+        `[FileService] processExtractQueue 检查: activeCount=${this.activeExtractCount}, queueLength=${this.extractQueue.length}`,
       );
       return;
     }
 
-    this.isExtracting = true;
-    const task = this.extractQueue.shift()!;
+    while (
+      this.activeExtractCount < this.maxConcurrentExtracts &&
+      this.extractQueue.length > 0
+    ) {
+      const task = this.extractQueue.shift()!;
+      this.activeExtractCount += 1;
 
-    console.log(
-      `[FileService] 开始处理解压任务: ${path.basename(task.zipPath)}, 剩余队列: ${this.extractQueue.length}`
-    );
+      console.log(
+        `[FileService] 开始处理解压任务: ${path.basename(task.zipPath)}, 当前解压中: ${this.activeExtractCount}, 剩余队列: ${this.extractQueue.length}`,
+      );
+      this.notifyExtractStatus(task, "extracting");
 
-    try {
-      const result = await this.extractZipInternal(
+      void this.extractZipInternal(
         task.zipPath,
         task.targetDir,
-        task.deleteAfterExtract
-      );
-      task.resolve(result);
-    } catch (error) {
-      task.reject(error);
-    } finally {
-      this.isExtracting = false;
-      console.log(
-        `[FileService] 解压任务完成，继续处理队列 (剩余: ${this.extractQueue.length})`
-      );
-      
-      // 使用 setImmediate 确保异步继续处理队列
-      if (this.extractQueue.length > 0) {
-        setImmediate(() => {
-          this.processExtractQueue().catch(error => {
-            console.error('[FileService] 处理解压队列时发生错误:', error);
-          });
+        task.deleteAfterExtract,
+      )
+        .then((result) => {
+          this.notifyExtractStatus(
+            task,
+            result.success ? "completed" : "failed",
+            result.error,
+          );
+          task.resolve(result);
+        })
+        .catch((error) => {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.notifyExtractStatus(task, "failed", errorMessage);
+          task.reject(error);
+        })
+        .finally(() => {
+          this.activeExtractCount = Math.max(0, this.activeExtractCount - 1);
+          console.log(
+            `[FileService] 解压任务完成，继续处理队列 (当前解压中: ${this.activeExtractCount}, 剩余: ${this.extractQueue.length})`,
+          );
+
+          if (this.extractQueue.length > 0) {
+            setImmediate(() => {
+              this.processExtractQueue();
+            });
+          }
         });
+    }
+  }
+
+  private escapePowerShellLiteral(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  private async extractZipWithPowerShell(
+    zipPath: string,
+    extractDir: string,
+    timeoutMs = 10 * 60 * 1000,
+  ): Promise<void> {
+    const escapedZipPath = this.escapePowerShellLiteral(zipPath);
+    const escapedExtractDir = this.escapePowerShellLiteral(extractDir);
+    const command = [
+      "$ErrorActionPreference = 'Stop'",
+      `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`,
+      `if (!(Test-Path -LiteralPath '${escapedExtractDir}')) { New-Item -ItemType Directory -Path '${escapedExtractDir}' -Force | Out-Null }`,
+      `Expand-Archive -LiteralPath '${escapedZipPath}' -DestinationPath '${escapedExtractDir}' -Force`,
+    ].join("; ");
+
+    await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        command,
+      ],
+      {
+        encoding: "utf8",
+        timeout: timeoutMs,
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+      },
+    );
+  }
+
+  private async extractZipWithLibrary(
+    zipPath: string,
+    extractDir: string,
+    maxRetries = 3,
+    timeoutMs = 10 * 60 * 1000,
+  ): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await Promise.race([
+          extract(zipPath, { dir: path.resolve(extractDir) }),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new Error(`extract-zip 解压超时（${timeoutMs / 1000}秒）`),
+              );
+            }, timeoutMs);
+          }),
+        ]);
+        return;
+      } catch (extractError: unknown) {
+        const errCode = (extractError as NodeJS.ErrnoException).code;
+        if (
+          (errCode === "EPERM" || errCode === "EBUSY") &&
+          attempt < maxRetries
+        ) {
+          console.log(
+            `[FileService] 解压时文件被占用 (${errCode})，${attempt}/${maxRetries} 次重试，等待 2 秒...`,
+          );
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          throw extractError;
+        }
       }
     }
   }
@@ -497,7 +633,7 @@ export class FileService {
   private async extractZipInternal(
     zipPath: string,
     targetDir?: string,
-    deleteAfterExtract = true
+    deleteAfterExtract = true,
   ): Promise<{ success: boolean; error?: string; extractedPath: string }> {
     try {
       console.log("[FileService] 开始解压:", zipPath);
@@ -510,7 +646,7 @@ export class FileService {
       // 获取文件大小用于验证
       const stats = await fs.promises.stat(zipPath);
       console.log(
-        `[FileService] zip 文件大小: ${stats.size} bytes (${(stats.size / 1024 / 1024).toFixed(2)} MB)`
+        `[FileService] zip 文件大小: ${stats.size} bytes (${(stats.size / 1024 / 1024).toFixed(2)} MB)`,
       );
 
       // 验证是否为有效的 zip 文件（检查文件头，带重试机制应对 EPERM）
@@ -527,13 +663,20 @@ export class FileService {
           break;
         } catch (openError: unknown) {
           if (fileHandle) {
-            try { await fileHandle.close(); } catch { /* ignore */ }
+            try {
+              await fileHandle.close();
+            } catch {
+              /* ignore */
+            }
             fileHandle = null;
           }
           const errCode = (openError as NodeJS.ErrnoException).code;
-          if ((errCode === "EPERM" || errCode === "EBUSY") && attempt < maxRetries) {
+          if (
+            (errCode === "EPERM" || errCode === "EBUSY") &&
+            attempt < maxRetries
+          ) {
             console.log(
-              `[FileService] 文件被占用 (${errCode})，${attempt}/${maxRetries} 次重试，等待 2 秒...`
+              `[FileService] 文件被占用 (${errCode})，${attempt}/${maxRetries} 次重试，等待 2 秒...`,
             );
             await new Promise((r) => setTimeout(r, 2000));
           } else {
@@ -545,11 +688,13 @@ export class FileService {
       const isPKZip =
         headerBuffer[0] === 0x50 &&
         headerBuffer[1] === 0x4b &&
-        (headerBuffer[2] === 0x03 || headerBuffer[2] === 0x05 || headerBuffer[2] === 0x07);
+        (headerBuffer[2] === 0x03 ||
+          headerBuffer[2] === 0x05 ||
+          headerBuffer[2] === 0x07);
 
       if (!isPKZip) {
         throw new Error(
-          `文件不是有效的 zip 格式（文件头: ${headerBuffer.toString("hex")}）`
+          `文件不是有效的 zip 格式（文件头: ${headerBuffer.toString("hex")}）`,
         );
       }
 
@@ -563,22 +708,30 @@ export class FileService {
 
       console.log("[FileService] 解压目标目录:", extractDir);
 
-      // 使用 extract-zip 库解压（带重试机制应对文件占用）
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const resolvedExtractDir = path.resolve(extractDir);
+
+      // Windows 下优先使用系统 PowerShell 解压，规避 extract-zip 在部分机器上的卡死问题
+      if (process.platform === "win32") {
         try {
-          await extract(zipPath, { dir: path.resolve(extractDir) });
-          break;
-        } catch (extractError: unknown) {
-          const errCode = (extractError as NodeJS.ErrnoException).code;
-          if ((errCode === "EPERM" || errCode === "EBUSY") && attempt < maxRetries) {
-            console.log(
-              `[FileService] 解压时文件被占用 (${errCode})，${attempt}/${maxRetries} 次重试，等待 2 秒...`
-            );
-            await new Promise((r) => setTimeout(r, 2000));
-          } else {
-            throw extractError;
-          }
+          console.log("[FileService] Windows 环境，优先使用 PowerShell 解压");
+          await this.extractZipWithPowerShell(zipPath, resolvedExtractDir);
+        } catch (powerShellError) {
+          console.error(
+            "[FileService] PowerShell 解压失败，回退 extract-zip:",
+            powerShellError,
+          );
+          await this.extractZipWithLibrary(
+            zipPath,
+            resolvedExtractDir,
+            maxRetries,
+          );
         }
+      } else {
+        await this.extractZipWithLibrary(
+          zipPath,
+          resolvedExtractDir,
+          maxRetries,
+        );
       }
 
       console.log("[FileService] ✓ 解压成功");
@@ -586,16 +739,16 @@ export class FileService {
       // 验证解压结果：检查目标目录中是否有文件
       const extractedFiles = await fs.promises.readdir(extractDir);
       const videoFiles = extractedFiles.filter((file) =>
-        /\.(mp4|mov|avi|mkv|flv|wmv|webm)$/i.test(file)
+        /\.(mp4|mov|avi|mkv|flv|wmv|webm)$/i.test(file),
       );
 
       console.log(
-        `[FileService] 解压后文件统计: 总计 ${extractedFiles.length} 个文件/目录, 其中视频文件 ${videoFiles.length} 个`
+        `[FileService] 解压后文件统计: 总计 ${extractedFiles.length} 个文件/目录, 其中视频文件 ${videoFiles.length} 个`,
       );
 
       if (videoFiles.length > 0) {
         console.log(
-          `[FileService] 视频文件列表: ${videoFiles.slice(0, 5).join(", ")}${videoFiles.length > 5 ? "..." : ""}`
+          `[FileService] 视频文件列表: ${videoFiles.slice(0, 5).join(", ")}${videoFiles.length > 5 ? "..." : ""}`,
         );
       }
 
@@ -630,7 +783,7 @@ export class FileService {
   // 删除目录（递归删除，带重试机制）
   async deleteFolder(
     folderPath: string,
-    maxRetry = 3
+    maxRetry = 3,
   ): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`[FileService] 开始删除目录: ${folderPath}`);
@@ -664,7 +817,7 @@ export class FileService {
           if (fs.existsSync(folderPath)) {
             const remainingFiles = this.listFilesInDirectory(folderPath);
             console.warn(
-              `[FileService] ⚠️ 目录仍然存在，有 ${remainingFiles.length} 个文件未被删除:`
+              `[FileService] ⚠️ 目录仍然存在，有 ${remainingFiles.length} 个文件未被删除:`,
             );
             remainingFiles.forEach((file) => {
               console.warn(`  - ${file}`);
@@ -673,7 +826,7 @@ export class FileService {
             // 如果还有剩余文件，尝试逐个删除
             if (remainingFiles.length > 0 && attempt < maxRetry) {
               console.log(
-                `[FileService] 尝试逐个删除剩余文件 (尝试 ${attempt + 1}/${maxRetry})...`
+                `[FileService] 尝试逐个删除剩余文件 (尝试 ${attempt + 1}/${maxRetry})...`,
               );
 
               for (const file of remainingFiles) {
@@ -717,7 +870,7 @@ export class FileService {
             // 最后一次尝试还有剩余文件
             if (attempt === maxRetry) {
               throw new Error(
-                `无法完全删除目录，还有 ${remainingFiles.length} 个文件`
+                `无法完全删除目录，还有 ${remainingFiles.length} 个文件`,
               );
             }
           } else {
@@ -727,7 +880,7 @@ export class FileService {
         } catch (error) {
           console.error(
             `[FileService] 删除目录失败 (尝试 ${attempt}/${maxRetry}):`,
-            error
+            error,
           );
 
           if (attempt === maxRetry) {
@@ -735,7 +888,7 @@ export class FileService {
             if (fs.existsSync(folderPath)) {
               const remainingFiles = this.listFilesInDirectory(folderPath);
               console.error(
-                `[FileService] 以下文件未能删除 (共 ${remainingFiles.length} 个):`
+                `[FileService] 以下文件未能删除 (共 ${remainingFiles.length} 个):`,
               );
               remainingFiles.forEach((file) => {
                 console.error(`  - ${file}`);
@@ -755,7 +908,10 @@ export class FileService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      console.error(`[FileService] 删除目录最终失败: ${folderPath}`, errorMessage);
+      console.error(
+        `[FileService] 删除目录最终失败: ${folderPath}`,
+        errorMessage,
+      );
       return {
         success: false,
         error: errorMessage,
@@ -843,7 +999,11 @@ export class FileService {
    * @param zipPath zip 文件路径
    * @returns { exists: boolean, valid: boolean, size?: number }
    */
-  checkZipFile(zipPath: string): { exists: boolean; valid: boolean; size?: number } {
+  checkZipFile(zipPath: string): {
+    exists: boolean;
+    valid: boolean;
+    size?: number;
+  } {
     try {
       // 检查 zip 文件是否存在
       if (!fs.existsSync(zipPath)) {
@@ -855,7 +1015,9 @@ export class FileService {
 
       // 文件大小太小（小于 1MB），认为不完整
       if (fileSize < 1024 * 1024) {
-        console.warn(`[FileService] zip 文件太小: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+        console.warn(
+          `[FileService] zip 文件太小: ${(fileSize / 1024 / 1024).toFixed(2)} MB`,
+        );
         return { exists: true, valid: false, size: fileSize };
       }
 
@@ -866,22 +1028,28 @@ export class FileService {
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          fd = fs.openSync(zipPath, 'r');
+          fd = fs.openSync(zipPath, "r");
           fs.readSync(fd, buffer, 0, 4, 0);
           fs.closeSync(fd);
           fd = null;
           break;
         } catch (openError: any) {
           if (fd !== null) {
-            try { fs.closeSync(fd); } catch {}
+            try {
+              fs.closeSync(fd);
+            } catch {}
             fd = null;
           }
-          if (openError.code === 'EPERM' && attempt < maxRetries) {
-            console.warn(`[FileService] zip 文件被占用，${attempt}/${maxRetries} 次重试...`);
+          if (openError.code === "EPERM" && attempt < maxRetries) {
+            console.warn(
+              `[FileService] zip 文件被占用，${attempt}/${maxRetries} 次重试...`,
+            );
             // 同步等待
             const waitMs = 2000 * attempt;
             const start = Date.now();
-            while (Date.now() - start < waitMs) { /* busy wait */ }
+            while (Date.now() - start < waitMs) {
+              /* busy wait */
+            }
             continue;
           }
           console.warn(`[FileService] 无法读取 zip 文件头:`, openError.message);
@@ -892,16 +1060,18 @@ export class FileService {
       // 检查是否是有效的 zip 文件头（PK\x03\x04, PK\x05\x06, 或 PK\x07\x08）
       const isPKZip =
         buffer[0] === 0x50 &&
-        buffer[1] === 0x4B &&
+        buffer[1] === 0x4b &&
         (buffer[2] === 0x03 || buffer[2] === 0x05 || buffer[2] === 0x07);
 
       if (!isPKZip) {
-        console.warn(`[FileService] zip 文件头无效: ${buffer.toString('hex')}`);
+        console.warn(`[FileService] zip 文件头无效: ${buffer.toString("hex")}`);
         return { exists: true, valid: false, size: fileSize };
       }
 
       // zip 文件存在且看起来完整
-      console.log(`[FileService] 发现完整的 zip 文件: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+      console.log(
+        `[FileService] 发现完整的 zip 文件: ${(fileSize / 1024 / 1024).toFixed(2)} MB`,
+      );
       return { exists: true, valid: true, size: fileSize };
     } catch (error) {
       console.error(`[FileService] 检查 zip 文件失败:`, error);

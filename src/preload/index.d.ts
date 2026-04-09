@@ -8,6 +8,15 @@ interface DownloadProgress {
   speed?: number;
 }
 
+interface ExtractQueueStatus {
+  taskId?: string;
+  dramaName?: string;
+  status: "queued" | "extracting" | "completed" | "failed";
+  queueLength: number;
+  activeCount: number;
+  error?: string;
+}
+
 interface UploadProgress {
   fileName: string;
   uploadedBytes: number;
@@ -552,7 +561,10 @@ interface MaterialClipRunState {
 }
 
 interface Api {
-  sessionLogin: (account: string, password: string) => Promise<SessionRuntimeData>;
+  sessionLogin: (
+    account: string,
+    password: string,
+  ) => Promise<SessionRuntimeData>;
   sessionGet: () => Promise<SessionRuntimeData | null>;
   sessionSwitchChannel: (channelId: string) => Promise<SessionRuntimeData>;
   sessionLogout: () => Promise<{ success: boolean }>;
@@ -618,6 +630,13 @@ interface Api {
     folderPath: string,
   ) => Promise<{ success: boolean; error?: string }>;
   selectFolder: () => Promise<string | null>;
+  extractZip: (
+    zipPath: string,
+    targetDir?: string,
+    deleteAfterExtract?: boolean,
+    taskId?: string,
+    dramaName?: string,
+  ) => Promise<{ success: boolean; error?: string; extractedPath: string }>;
 
   // 下载
   downloadVideo: (
@@ -634,6 +653,9 @@ interface Api {
   getDownloadState: (dramaName: string) => Promise<any>;
   onDownloadProgress: (
     callback: (progress: DownloadProgress) => void,
+  ) => () => void;
+  onExtractStatus: (
+    callback: (status: ExtractQueueStatus) => void,
   ) => () => void;
 
   // API 代理
@@ -757,9 +779,7 @@ interface Api {
     error?: string;
     needLogin?: boolean;
   }>;
-  juliangBuildGetPendingDramas: (
-    tableId?: string,
-  ) => Promise<{
+  juliangBuildGetPendingDramas: (tableId?: string) => Promise<{
     code: number;
     msg?: string;
     message?: string;
@@ -770,7 +790,10 @@ interface Api {
     message?: string;
     data: JuliangBuildSchedulerStatus;
   }>;
-  juliangBuildStartScheduler: (intervalMinutes: number, tableId?: string) => Promise<{
+  juliangBuildStartScheduler: (
+    intervalMinutes: number,
+    tableId?: string,
+  ) => Promise<{
     code: number;
     message?: string;
     data: JuliangBuildSchedulerStatus;
@@ -780,7 +803,10 @@ interface Api {
     message?: string;
     data: JuliangBuildSchedulerStatus;
   }>;
-  juliangBuildTriggerScheduler: (dramaId?: string, tableId?: string) => Promise<{
+  juliangBuildTriggerScheduler: (
+    dramaId?: string,
+    tableId?: string,
+  ) => Promise<{
     code: number;
     message?: string;
     timedOut?: boolean;

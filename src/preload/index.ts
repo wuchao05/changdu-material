@@ -10,6 +10,15 @@ interface DownloadProgress {
   speed?: number;
 }
 
+interface ExtractQueueStatus {
+  taskId?: string;
+  dramaName?: string;
+  status: "queued" | "extracting" | "completed" | "failed";
+  queueLength: number;
+  activeCount: number;
+  error?: string;
+}
+
 interface UploadProgress {
   fileName: string;
   uploadedBytes: number;
@@ -171,7 +180,8 @@ const api = {
   syncRemoteConfig: () => ipcRenderer.invoke("config:syncFromRemote"),
   pushRemoteConfig: () => ipcRenderer.invoke("config:pushToRemote"),
 
-  getClipConfig: (config?: unknown) => ipcRenderer.invoke("clip:getConfig", config),
+  getClipConfig: (config?: unknown) =>
+    ipcRenderer.invoke("clip:getConfig", config),
   getClipEnvironmentStatus: (): Promise<MaterialClipEnvironmentStatus> =>
     ipcRenderer.invoke("clip:getEnvironmentStatus"),
   installClipEnvironment: (): Promise<MaterialClipInstallResult> =>
@@ -195,7 +205,8 @@ const api = {
   clipStopAutoRun: () => ipcRenderer.invoke("clip:stopAutoRun"),
   clipGetLogs: () => ipcRenderer.invoke("clip:getLogs"),
   clipClearLogs: () => ipcRenderer.invoke("clip:clearLogs"),
-  clipClearProcessedDramas: () => ipcRenderer.invoke("clip:clearProcessedDramas"),
+  clipClearProcessedDramas: () =>
+    ipcRenderer.invoke("clip:clearProcessedDramas"),
   onClipLog: (callback: (log: MaterialClipLog) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, log: MaterialClipLog) =>
       callback(log);
@@ -251,12 +262,16 @@ const api = {
     zipPath: string,
     targetDir?: string,
     deleteAfterExtract?: boolean,
+    taskId?: string,
+    dramaName?: string,
   ) =>
     ipcRenderer.invoke(
       "file:extractZip",
       zipPath,
       targetDir,
       deleteAfterExtract,
+      taskId,
+      dramaName,
     ),
 
   // ==================== 下载 ====================
@@ -279,6 +294,14 @@ const api = {
     ) => callback(progress);
     ipcRenderer.on("download:progress", handler);
     return () => ipcRenderer.removeListener("download:progress", handler);
+  },
+  onExtractStatus: (callback: (status: ExtractQueueStatus) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      status: ExtractQueueStatus,
+    ) => callback(status);
+    ipcRenderer.on("file:extractStatus", handler);
+    return () => ipcRenderer.removeListener("file:extractStatus", handler);
   },
 
   // ==================== API 代理 ====================
@@ -388,7 +411,11 @@ const api = {
   juliangBuildGetSchedulerStatus: (tableId?: string) =>
     ipcRenderer.invoke("juliang-build:getSchedulerStatus", tableId),
   juliangBuildStartScheduler: (intervalMinutes: number, tableId?: string) =>
-    ipcRenderer.invoke("juliang-build:startScheduler", intervalMinutes, tableId),
+    ipcRenderer.invoke(
+      "juliang-build:startScheduler",
+      intervalMinutes,
+      tableId,
+    ),
   juliangBuildStopScheduler: (tableId?: string) =>
     ipcRenderer.invoke("juliang-build:stopScheduler", tableId),
   juliangBuildTriggerScheduler: (dramaId?: string, tableId?: string) =>
