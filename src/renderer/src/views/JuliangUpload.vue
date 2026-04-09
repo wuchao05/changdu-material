@@ -114,6 +114,7 @@ const completedTasks = ref<
 const uploadStartTime = ref<number | null>(null);
 const uploadElapsedSeconds = ref(0);
 let uploadTimerInterval: ReturnType<typeof setInterval> | null = null;
+let statusPollingInterval: ReturnType<typeof setInterval> | null = null;
 
 // 进度监听器
 let unsubscribeProgress: (() => void) | null = null;
@@ -455,6 +456,27 @@ function stopUploadTimer() {
   }
 }
 
+function startStatusPolling() {
+  if (statusPollingInterval) {
+    return;
+  }
+
+  statusPollingInterval = setInterval(() => {
+    if (needLogin.value) {
+      void refreshLoginStatus();
+    }
+    void refreshSchedulerStatus();
+    void refreshCompletedTasks();
+  }, 3000);
+}
+
+function stopStatusPolling() {
+  if (statusPollingInterval) {
+    clearInterval(statusPollingInterval);
+    statusPollingInterval = null;
+  }
+}
+
 // 加载历史日志
 async function loadAllLogs() {
   try {
@@ -519,6 +541,40 @@ function formatPollingTime(value: string | null): string | null {
   return date.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
+function getCompletedTaskResultType(
+  status: "completed" | "failed" | "skipped",
+) {
+  if (status === "completed") {
+    return "success" as const;
+  }
+  if (status === "failed") {
+    return "error" as const;
+  }
+  return "warning" as const;
+}
+
+function getCompletedTaskResultText(
+  status: "completed" | "failed" | "skipped",
+) {
+  if (status === "completed") {
+    return "成功";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  return "跳过";
+}
+
+function getCompletedTaskReason(task: {
+  status: "completed" | "failed" | "skipped";
+  error?: string;
+}) {
+  if (!task.error) {
+    return task.status === "completed" ? "-" : "未记录原因";
+  }
+  return task.error;
+}
+
 const hasActiveUploadTask = computed(() => {
   if (!currentTask.value) {
     return false;
@@ -529,7 +585,9 @@ const hasActiveUploadTask = computed(() => {
 
 const statusSummary = computed(() => {
   if (hasActiveUploadTask.value && currentTask.value) {
-    return currentTask.value.message || `正在上传《${currentTask.value.drama}》`;
+    return (
+      currentTask.value.message || `正在上传《${currentTask.value.drama}》`
+    );
   }
 
   if (schedulerStatus.value === "running") {
@@ -660,18 +718,15 @@ onMounted(async () => {
     void refreshSchedulerStatus();
   });
 
-  // 定时刷新调度器状态和已完成任务
-  setInterval(() => {
-    refreshLoginStatus();
-    refreshSchedulerStatus();
-    refreshCompletedTasks();
-  }, 5000);
+  // 定时刷新调度器状态；登录检测仅在需要登录时继续轮询
+  startStatusPolling();
 });
 
 onUnmounted(() => {
   if (unsubscribeProgress) unsubscribeProgress();
   if (unsubscribeLog) unsubscribeLog();
   if (unsubscribeSchedulerLog) unsubscribeSchedulerLog();
+  stopStatusPolling();
   stopUploadTimer();
 });
 </script>
@@ -735,7 +790,9 @@ onUnmounted(() => {
         </div>
         <div v-if="schedulerPollIntervalText" class="progress-chip">
           <span class="progress-chip-label">轮询时间</span>
-          <span class="progress-chip-value">{{ schedulerPollIntervalText }}</span>
+          <span class="progress-chip-value">{{
+            schedulerPollIntervalText
+          }}</span>
         </div>
         <div v-if="schedulerLastPollText" class="progress-chip">
           <span class="progress-chip-label">上一轮轮询</span>
@@ -810,13 +867,17 @@ onUnmounted(() => {
             <div class="progress-chip">
               <span class="progress-chip-label">批次</span>
               <span class="progress-chip-value"
-                >{{ currentTask.currentBatch }}/{{ currentTask.totalBatches }}</span
+                >{{ currentTask.currentBatch }}/{{
+                  currentTask.totalBatches
+                }}</span
               >
             </div>
             <div class="progress-chip">
               <span class="progress-chip-label">文件</span>
               <span class="progress-chip-value"
-                >{{ currentTask.successCount }}/{{ currentTask.totalFiles }}</span
+                >{{ currentTask.successCount }}/{{
+                  currentTask.totalFiles
+                }}</span
               >
             </div>
             <div v-if="uploadStartTime" class="progress-chip">
@@ -831,7 +892,8 @@ onUnmounted(() => {
                 width: `${
                   currentTask.totalFiles > 0
                     ? Math.round(
-                        (currentTask.successCount / currentTask.totalFiles) * 100,
+                        (currentTask.successCount / currentTask.totalFiles) *
+                          100,
                       )
                     : 0
                 }%`,
@@ -845,10 +907,7 @@ onUnmounted(() => {
         v-if="pendingTasks.length > 0 || completedTasks.length > 0"
         class="status-collapse"
       >
-        <NCollapseItem
-          v-if="pendingTasks.length > 0"
-          name="pending"
-        >
+        <NCollapseItem v-if="pendingTasks.length > 0" name="pending">
           <template #header>
             <div class="queue-header">
               <span>待上传列表 ({{ pendingTasks.length }})</span>
@@ -907,7 +966,7 @@ onUnmounted(() => {
                   <th>剧名</th>
                   <th>飞书日期</th>
                   <th>素材数</th>
-                  <th>状态</th>
+                  <th>结果</th>
                   <th>完成时间</th>
                   <th>上传时长</th>
                 </tr>
@@ -917,20 +976,18 @@ onUnmounted(() => {
                   <td>{{ task.drama }}</td>
                   <td>{{ task.date }}</td>
                   <td>{{ task.fileCount }}</td>
-                  <td>
-                    <NTag
-                      v-if="task.status === 'completed'"
-                      type="success"
-                      size="small"
-                      >成功</NTag
-                    >
-                    <NTag
-                      v-else-if="task.status === 'failed'"
-                      type="error"
-                      size="small"
-                      >失败</NTag
-                    >
-                    <NTag v-else type="warning" size="small">跳过</NTag>
+                  <td class="completed-result-cell">
+                    <div class="completed-result">
+                      <NTag
+                        :type="getCompletedTaskResultType(task.status)"
+                        size="small"
+                      >
+                        {{ getCompletedTaskResultText(task.status) }}
+                      </NTag>
+                      <span class="completed-reason">
+                        {{ getCompletedTaskReason(task) }}
+                      </span>
+                    </div>
                   </td>
                   <td>{{ formatCompletedAt(task.completedAt) }}</td>
                   <td>{{ task.duration }}</td>
@@ -962,7 +1019,9 @@ onUnmounted(() => {
                   />
                   <NButton @click="selectLocalRootDir">选择目录</NButton>
                 </div>
-                <div class="config-hint">目录结构: 根目录/M.D导出/剧名/视频文件</div>
+                <div class="config-hint">
+                  目录结构: 根目录/M.D导出/剧名/视频文件
+                </div>
               </div>
             </div>
           </div>
@@ -1031,7 +1090,9 @@ onUnmounted(() => {
                 style="width: 120px"
                 @update:value="saveConfig"
               />
-              <span class="config-desc">单批失败后最多额外重试的次数</span>
+              <span class="config-desc"
+                >单批失败后最多额外重试的次数，30 秒无进度条也走这里</span
+              >
             </div>
             <div class="config-row">
               <span class="config-label">超时轮回次数</span>
@@ -1350,6 +1411,24 @@ onUnmounted(() => {
 
 .completed-table tr:hover td {
   background: #f9f9f9;
+}
+
+.completed-result-cell {
+  min-width: 240px;
+}
+
+.completed-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.completed-reason {
+  color: #475569;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .login-alert {

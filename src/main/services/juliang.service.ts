@@ -61,6 +61,7 @@ interface JuliangBatchResult {
   success: boolean;
   successCount: number;
   observedSuccessCount?: number;
+  failureType?: "no-progress-timeout";
   skipped?: boolean;
   error?: string;
   remainingFiles?: string[];
@@ -781,25 +782,63 @@ export class JuliangService {
     isLoggedIn: boolean;
     needLogin: boolean;
   }> {
-    if (!this.page) {
+    if (!this.page && !this.context) {
       return { isLoggedIn: false, needLogin: true };
     }
 
     try {
-      // 获取当前页面 URL
-      const currentUrl = this.page.url();
-      this.log(`当前页面 URL: ${currentUrl}`);
+      const currentUrl =
+        this.page && !this.page.isClosed() ? this.page.url() : "";
+      if (currentUrl) {
+        this.log(`当前页面 URL: ${currentUrl}`);
+      }
 
-      // 如果 URL 包含 login 或 sso，说明未登录（被重定向到登录页）
-      const needLogin =
-        currentUrl.includes("login") || currentUrl.includes("sso");
-      const isLoggedIn = !needLogin;
+      let needLogin = this.isJuliangLoginUrl(currentUrl);
+      let isLoggedIn = !needLogin;
+
+      if (needLogin && this.context) {
+        const sessionUrl = await this.resolveSessionStatusUrl();
+        if (sessionUrl) {
+          this.log(`后台会话检测 URL: ${sessionUrl}`);
+          needLogin = this.isJuliangLoginUrl(sessionUrl);
+          isLoggedIn = !needLogin;
+        }
+      }
 
       this.log(`登录状态: ${isLoggedIn ? "已登录" : "需要登录"}`);
       return { isLoggedIn, needLogin };
     } catch (error) {
       console.error(`[Juliang] 检查登录状态失败: ${error}`);
       return { isLoggedIn: false, needLogin: true };
+    }
+  }
+
+  private isJuliangLoginUrl(url: string): boolean {
+    const normalizedUrl = String(url || "").toLowerCase();
+    if (!normalizedUrl) {
+      return true;
+    }
+
+    return normalizedUrl.includes("login") || normalizedUrl.includes("sso");
+  }
+
+  private async resolveSessionStatusUrl(): Promise<string | null> {
+    if (!this.context) {
+      return null;
+    }
+
+    try {
+      const response = await this.context.request.get(
+        "https://ad.oceanengine.com/",
+        {
+          failOnStatusCode: false,
+          timeout: 15000,
+        },
+      );
+      return response.url();
+    } catch (error) {
+      console.warn("[Juliang] 后台会话检测失败:", error);
+      return null;
     }
   }
 
@@ -1060,7 +1099,10 @@ export class JuliangService {
 
             // 重试前刷新页面，确保页面状态干净
             this.log("刷新页面以清理状态...");
-            await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
+            await this.page.reload({
+              waitUntil: "networkidle",
+              timeout: 60000,
+            });
             this.log("页面刷新完成，等待 5 秒后重试");
             await this.page.waitForTimeout(5000);
           }
@@ -1105,6 +1147,31 @@ export class JuliangService {
             );
             shouldContinuePartialRound = true;
             break;
+          }
+
+          if (result.failureType === "no-progress-timeout") {
+            const stallError = result.error || "上传卡死：30 秒内未出现进度条";
+
+            if (attempt < maxAttempts) {
+              this.log(
+                `第 ${batchIndex}/${totalBatches} 批上传卡死（剩余 ${currentFiles.length} 个素材 ${stallError}），准备进行第 ${retry + 1} 次重试（最多重试 ${maxRetries} 次）...`,
+              );
+              continue;
+            }
+
+            const exhaustedError =
+              maxRetries > 0
+                ? `${stallError}，重试 ${maxRetries} 次后仍未恢复`
+                : `${stallError}，当前未配置批次重试，已跳过当前任务`;
+            this.log(
+              `第 ${batchIndex}/${totalBatches} 批上传卡死，${maxRetries > 0 ? `重试 ${maxRetries} 次后仍未恢复，` : ""}跳过当前任务`,
+            );
+            return {
+              success: false,
+              skipped: true,
+              successCount: committedSuccessCount + result.successCount,
+              error: exhaustedError,
+            };
           }
 
           if (result.skipped) {
@@ -1280,7 +1347,7 @@ export class JuliangService {
               return {
                 success: false,
                 successCount: 0,
-                skipped: true,
+                failureType: "no-progress-timeout",
                 error: stallError,
               };
             }
@@ -1321,7 +1388,9 @@ export class JuliangService {
 
           this.log(`找到 ${progressCount} 个进度条（期望 ${files.length} 个）`);
 
-          const successCount = snapshot.rows.filter((row) => row.isSuccess).length;
+          const successCount = snapshot.rows.filter(
+            (row) => row.isSuccess,
+          ).length;
           const errorCount = snapshot.rows.filter((row) => row.hasError).length;
 
           this.log(
@@ -1357,19 +1426,44 @@ export class JuliangService {
             }
 
             if (successCount < minimumRequiredProgressCount) {
+              const successNames = snapshot.rows
+                .filter((row) => row.isSuccess && row.fileName)
+                .map((row) => row.fileName);
+              const { remainingFiles } = this.splitFilesByUploadedNames(
+                files,
+                successNames,
+              );
+              const failedNames = remainingFiles.map((file) => basename(file));
+
               this.log(
-                `当前批次已结束，但成功数不足：成功 ${successCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，点击确定后跳过任务，不再重试`,
+                `当前批次已结束，但成功数不足：成功 ${successCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，先提交已成功素材，再仅重传失败素材`,
+              );
+              this.log(
+                `第 ${batchIndex}/${totalBatches} 批检测到失败素材 ${failedNames.length} 个: ${this.formatFileNamesForLog(
+                  failedNames,
+                )}`,
               );
               await this.randomDelay(1000, 2000);
 
               this.log("点击确定按钮");
-              await this.clickConfirmButton();
+              try {
+                await this.clickConfirmButton();
+              } catch (confirmError) {
+                this.log(
+                  `提交已成功素材失败: ${confirmError instanceof Error ? confirmError.message : String(confirmError)}`,
+                );
+                return {
+                  success: false,
+                  successCount: 0,
+                  observedSuccessCount: successCount,
+                };
+              }
 
               return {
                 success: false,
                 successCount,
-                skipped: true,
-                error: `成功 ${successCount}/${files.length}，低于最低要求 ${minimumRequiredProgressCount}`,
+                observedSuccessCount: successCount,
+                remainingFiles,
               };
             }
 

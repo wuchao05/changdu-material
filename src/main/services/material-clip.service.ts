@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog } from "electron";
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
-import { spawn, type ChildProcessByStdio } from "child_process";
+import { execFileSync, spawn, type ChildProcessByStdio } from "child_process";
 import type { Readable } from "stream";
 import { load } from "js-yaml";
 import type { ApiService } from "./api.service";
@@ -3192,20 +3192,16 @@ export class MaterialClipService {
     }
 
     if (process.platform === "win32") {
-      const wingetLinkPath = path.join(
-        process.env.LOCALAPPDATA || "",
-        "Microsoft",
-        "WinGet",
-        "Links",
-        "ffmpeg.exe",
-      );
-      if (wingetLinkPath && fs.existsSync(wingetLinkPath)) {
-        return {
-          key: "ffmpeg",
-          label: "FFmpeg",
-          passed: true,
-          detail: `检测到 WinGet FFmpeg：${wingetLinkPath}`,
-        };
+      for (const entry of this.getWindowsPathEntries()) {
+        const candidatePath = path.join(entry, "ffmpeg.exe");
+        if (fs.existsSync(candidatePath)) {
+          return {
+            key: "ffmpeg",
+            label: "FFmpeg",
+            passed: true,
+            detail: `检测到系统 FFmpeg：${candidatePath}`,
+          };
+        }
       }
     }
 
@@ -3316,37 +3312,92 @@ export class MaterialClipService {
 
     const pathKey =
       Object.keys(env).find((key) => key.toLowerCase() === "path") || "Path";
-    const currentPath = env[pathKey] || "";
-    const extraPathEntries = [
-      path.join(
-        process.env.LOCALAPPDATA || "",
-        "Microsoft",
-        "WinGet",
-        "Links",
+    env[pathKey] = this.getWindowsPathEntries(env).join(";");
+    return env;
+  }
+
+  private getWindowsPathEntries(env: NodeJS.ProcessEnv = process.env): string[] {
+    const registryPathEntries = [
+      ...this.readWindowsRegistryPath(
+        "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
       ),
-    ].filter((entry) => entry && fs.existsSync(entry));
-
-    if (extraPathEntries.length === 0) {
-      return env;
-    }
-
-    const existingEntries = currentPath
+      ...this.readWindowsRegistryPath("HKEY_CURRENT_USER\\Environment"),
+    ];
+    const processPathKey =
+      Object.keys(env).find((key) => key.toLowerCase() === "path") || "Path";
+    const processPathEntries = (env[processPathKey] || "")
       .split(";")
       .map((entry) => entry.trim())
       .filter(Boolean);
-    const existingSet = new Set(existingEntries.map((entry) => entry.toLowerCase()));
+    const wingetLinksPath = path.join(
+      process.env.LOCALAPPDATA || "",
+      "Microsoft",
+      "WinGet",
+      "Links",
+    );
+    const entries = [...processPathEntries, ...registryPathEntries];
 
-    for (const entry of extraPathEntries) {
-      const normalized = entry.toLowerCase();
-      if (existingSet.has(normalized)) {
-        continue;
-      }
-      existingEntries.push(entry);
-      existingSet.add(normalized);
+    if (wingetLinksPath) {
+      entries.push(wingetLinksPath);
     }
 
-    env[pathKey] = existingEntries.join(";");
-    return env;
+    const uniqueEntries: string[] = [];
+    const seenEntries = new Set<string>();
+
+    for (const entry of entries) {
+      const normalized = entry.trim();
+      if (!normalized) {
+        continue;
+      }
+
+      const normalizedKey = normalized.toLowerCase();
+      if (seenEntries.has(normalizedKey)) {
+        continue;
+      }
+
+      seenEntries.add(normalizedKey);
+      uniqueEntries.push(normalized);
+    }
+
+    return uniqueEntries;
+  }
+
+  private readWindowsRegistryPath(registryKey: string): string[] {
+    if (process.platform !== "win32") {
+      return [];
+    }
+
+    try {
+      const output = execFileSync("reg", ["query", registryKey, "/v", "Path"], {
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      const matched = output.match(/\sPath\s+REG_\w+\s+([^\r\n]+)/i);
+      if (!matched?.[1]) {
+        return [];
+      }
+
+      return matched[1]
+        .split(";")
+        .map((entry) => this.expandWindowsPathEntry(entry.trim()))
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
+  private expandWindowsPathEntry(entry: string): string {
+    if (!entry) {
+      return "";
+    }
+
+    return entry.replace(/%([^%]+)%/g, (_, variableName: string) => {
+      const envKey = Object.keys(process.env).find(
+        (key) => key.toLowerCase() === variableName.toLowerCase(),
+      );
+      const envValue = envKey ? process.env[envKey] : undefined;
+      return envValue ?? `%${variableName}%`;
+    });
   }
 
   private async runCommand(
