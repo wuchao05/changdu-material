@@ -536,25 +536,27 @@ function formatPollingTime(value: string | null): string | null {
   return date.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
-function getCompletedTaskResultType(
-  status: "completed" | "failed" | "skipped",
-) {
-  if (status === "completed") {
-    return "success" as const;
+function getCompletedTaskResultType(task: {
+  status: "completed" | "failed" | "skipped";
+  error?: string;
+}) {
+  if (task.status === "completed") {
+    return task.error ? "warning" as const : "success" as const;
   }
-  if (status === "failed") {
+  if (task.status === "failed") {
     return "error" as const;
   }
   return "warning" as const;
 }
 
-function getCompletedTaskResultText(
-  status: "completed" | "failed" | "skipped",
-) {
-  if (status === "completed") {
-    return "成功";
+function getCompletedTaskResultText(task: {
+  status: "completed" | "failed" | "skipped";
+  error?: string;
+}) {
+  if (task.status === "completed") {
+    return task.error ? "部分成功" : "全部成功";
   }
-  if (status === "failed") {
+  if (task.status === "failed") {
     return "失败";
   }
   return "跳过";
@@ -972,17 +974,12 @@ onUnmounted(() => {
                   <td>{{ task.date }}</td>
                   <td>{{ task.fileCount }}</td>
                   <td class="completed-result-cell">
-                    <div class="completed-result">
-                      <NTag
-                        :type="getCompletedTaskResultType(task.status)"
-                        size="small"
-                      >
-                        {{ getCompletedTaskResultText(task.status) }}
-                      </NTag>
-                      <span class="completed-reason">
-                        {{ getCompletedTaskReason(task) }}
-                      </span>
-                    </div>
+                    <NTag
+                      :type="getCompletedTaskResultType(task)"
+                      size="small"
+                    >
+                      {{ getCompletedTaskResultText(task) }}
+                    </NTag>
                   </td>
                   <td>{{ formatCompletedAt(task.completedAt) }}</td>
                   <td>{{ task.duration }}</td>

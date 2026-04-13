@@ -1327,8 +1327,12 @@ export class JuliangService {
             }
 
             currentFiles = result.remainingFiles;
+            const partialMsg =
+              result.successCount > 0
+                ? `第 ${batchIndex}/${totalBatches} 批已提交 ${result.successCount} 个已完成素材，剩余 ${currentFiles.length} 个未完成素材将进行超时轮回重传`
+                : `第 ${batchIndex}/${totalBatches} 批超时后无素材成功，${currentFiles.length} 个素材将进行超时轮回重传`;
             this.log(
-              `第 ${batchIndex}/${totalBatches} 批已提交已完成素材，剩余 ${currentFiles.length} 个未完成素材将作为同一批继续上传: ${this.formatFileNamesForLog(
+              `${partialMsg}: ${this.formatFileNamesForLog(
                 currentFiles.map((file) => basename(file)),
               )}`,
             );
@@ -1597,18 +1601,57 @@ export class JuliangService {
                 await this.page.waitForTimeout(5000);
                 continue;
               }
+
+              // 如果有成功的素材，先提交再轮回重传缺失的
+              if (successCount > 0) {
+                const successNames = snapshot.rows
+                  .filter((row) => row.isSuccess && row.fileName)
+                  .map((row) => row.fileName);
+                const { remainingFiles } = this.splitFilesByUploadedNames(
+                  files,
+                  successNames,
+                );
+
+                this.log(
+                  `进度条不足但有 ${successCount} 个素材已成功，先提交已成功素材，再轮回重传剩余 ${remainingFiles.length} 个`,
+                );
+
+                try {
+                  await this.clickConfirmButton();
+                } catch (confirmError) {
+                  this.log(
+                    `提交已成功素材失败: ${confirmError instanceof Error ? confirmError.message : String(confirmError)}`,
+                  );
+                  await this.clickCancelButton();
+                  return {
+                    success: false,
+                    successCount: 0,
+                    observedSuccessCount: successCount,
+                    remainingFiles: files,
+                  };
+                }
+
+                return {
+                  success: false,
+                  successCount,
+                  observedSuccessCount: successCount,
+                  remainingFiles,
+                };
+              }
+
               this.log(
-                `上传异常：最终只剩 ${progressCount}/${files.length} 个进度条，低于允许缺失配置（允许缺失 ${allowedMissingCount} 个），取消本批并准备重试`,
+                `上传异常：最终只剩 ${progressCount}/${files.length} 个进度条且无素材成功，取消本批并准备轮回重试`,
               );
 
               // 点击取消按钮
               await this.clickCancelButton();
 
-              // 返回失败，让外层重试整批
+              // 返回 remainingFiles 让外层走超时轮回路径
               return {
                 success: false,
                 successCount: 0,
-                observedSuccessCount: successCount,
+                observedSuccessCount: 0,
+                remainingFiles: files,
               };
             }
 
@@ -1658,9 +1701,40 @@ export class JuliangService {
             finalSuccessCount = successCount;
 
             if (errorCount > 0) {
-              this.log(
-                `检测到部分文件报错，按成功处理：成功 ${successCount} 个，错误 ${errorCount} 个，允许缺失 ${allowedMissingCount} 个`,
+              const successNames = snapshot.rows
+                .filter((row) => row.isSuccess && row.fileName)
+                .map((row) => row.fileName);
+              const { remainingFiles } = this.splitFilesByUploadedNames(
+                files,
+                successNames,
               );
+
+              this.log(
+                `检测到 ${errorCount} 个素材报错，先提交 ${successCount} 个已成功素材，再轮回重传报错的 ${remainingFiles.length} 个`,
+              );
+              await this.randomDelay(1000, 2000);
+
+              this.log("点击确定按钮");
+              try {
+                await this.clickConfirmButton();
+              } catch (confirmError) {
+                this.log(
+                  `提交已成功素材失败: ${confirmError instanceof Error ? confirmError.message : String(confirmError)}`,
+                );
+                return {
+                  success: false,
+                  successCount: 0,
+                  observedSuccessCount: successCount,
+                  remainingFiles: files,
+                };
+              }
+
+              return {
+                success: false,
+                successCount,
+                observedSuccessCount: successCount,
+                remainingFiles,
+              };
             } else if (progressCount < files.length) {
               this.log(
                 `按允许缺失配置视为成功：当前 ${progressCount}/${files.length} 个进度条全部成功，允许缺失 ${allowedMissingCount} 个`,
@@ -1726,6 +1800,7 @@ export class JuliangService {
           success: false,
           successCount: 0,
           observedSuccessCount: 0,
+          remainingFiles: files,
         };
       }
 
@@ -1998,12 +2073,13 @@ export class JuliangService {
       const hasIgnoredBatch = ignoredBatchIndexes.length > 0;
       const success =
         !hasIgnoredBatch && totalSuccess >= minimumRequiredTotalSuccess;
+      const actualMissing = task.files.length - totalSuccess;
       const uniqueIgnoredFileNames = Array.from(new Set(ignoredFileNames));
       const partialRemark = hasIgnoredBatch
-        ? `少传 ${uniqueIgnoredFileNames.length} 个素材：${this.formatFileNamesForLog(uniqueIgnoredFileNames)}；已跳过失败批次 ${ignoredBatchIndexes.join("、")}`
+        ? `成功 ${totalSuccess} 个素材，失败 ${actualMissing} 个素材`
         : undefined;
       const partialErrorMessage = hasIgnoredBatch
-        ? `${partialRemark}；失败原因：${ignoredBatchErrors.join("；")}`
+        ? `少传 ${actualMissing} 个素材（跳过批次 ${ignoredBatchIndexes.join("、")}：${this.formatFileNamesForLog(uniqueIgnoredFileNames)}）；失败原因：${ignoredBatchErrors.join("；")}`
         : undefined;
 
       // 上传完成，清除进度记录

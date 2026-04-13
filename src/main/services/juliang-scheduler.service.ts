@@ -1173,7 +1173,7 @@ export class JuliangSchedulerService {
 
         task.status = hasUploadedFiles ? "completed" : "failed";
         task.error = hasUploadedFiles
-          ? `上传未全部成功（成功 ${uploadResult.successCount}/${uploadResult.totalFiles}），已改为待搭建: ${uploadResult.error || "未知错误"}`
+          ? `成功 ${uploadResult.successCount}/${uploadResult.totalFiles}，已改为待搭建`
           : `上传失败: ${uploadResult.error || "未知错误"}`;
         task.updatedAt = new Date();
 
