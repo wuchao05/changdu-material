@@ -518,12 +518,12 @@ async function processDownloadedArchive(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "解压失败";
     console.error(`[Download] ${task.dramaName} 解压阶段异常:`, error);
-    task.status = "pending";
+    task.status = "error";
     task.progress = 0;
-    task.error = errorMessage;
+    task.error = `解压异常: ${errorMessage}`;
     task.downloadUrl = "";
-    await updateFeishuStatus(task, "待下载");
-    message.warning(`${task.dramaName} 解压异常，已恢复为待下载`);
+    await updateFeishuStatus(task, "下载失败");
+    message.error(`${task.dramaName} 解压异常，已标记为下载失败`);
   }
 }
 
@@ -554,6 +554,8 @@ async function downloadSingleTask(
       task.status = "error";
       task.error = "获取下载链接失败";
       console.error(`[Download] ${task.dramaName} 获取下载链接失败`);
+      await updateFeishuStatus(task, "下载失败");
+      message.error(`${task.dramaName} 获取下载链接失败，已标记为下载失败`);
       return;
     }
 
@@ -818,18 +820,18 @@ async function downloadSingleTask(
         return; // 返回，不标记为失败
       }
 
-      // 其他错误或重试次数用尽，恢复为待下载（留待下次轮询继续尝试）
-      task.status = "pending";
+      // 其他错误或重试次数用尽，标记失败，避免当前轮次反复拉起同一任务
+      task.status = "error";
       task.progress = 0;
       task.error = errorMessage;
-      task.retryCount = 0; // 重置重试次数，下次轮询重新开始
+      task.retryCount = 0;
 
-      // 更新飞书状态为"待下载"（下次轮询会继续尝试）
-      await updateFeishuStatus(task, "待下载");
+      // 更新飞书状态为"下载失败"，等待人工处理或手动重试
+      await updateFeishuStatus(task, "下载失败");
       console.log(
-        `[Download] ${task.dramaName} 本轮重试次数用尽，恢复为待下载状态，下次轮询将继续尝试`,
+        `[Download] ${task.dramaName} 本轮重试次数用尽，已标记为下载失败`,
       );
-      message.warning(`${task.dramaName} 本轮下载失败，已恢复为待下载`);
+      message.error(`${task.dramaName} 本轮下载失败，已标记为下载失败`);
     } else {
       console.log(`[Download] ${task.dramaName} 被用户取消或暂停`);
     }
@@ -935,15 +937,15 @@ async function startDownload() {
             );
 
             if (task.status !== "cancelled" && task.status !== "paused") {
-              task.status = "pending";
+              task.status = "error";
               task.progress = 0;
               task.error = error instanceof Error ? error.message : "下载失败";
               task.retryCount = 0;
 
               try {
-                await updateFeishuStatus(task, "待下载");
+                await updateFeishuStatus(task, "下载失败");
                 console.log(
-                  `[Download] Worker ${workerId} ${task.dramaName} 异常，已恢复为待下载状态`,
+                  `[Download] Worker ${workerId} ${task.dramaName} 异常，已标记为下载失败`,
                 );
               } catch (updateError) {
                 console.error(

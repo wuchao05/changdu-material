@@ -57,7 +57,6 @@ const schedulerPolling = ref({
 const schedulerConfig = ref({
   fetchIntervalMinutes: 20,
   localRootDir: "",
-  maxTaskRetries: 1,
 });
 
 const currentSchedulerDarenId = computed(() => {
@@ -376,10 +375,6 @@ async function saveSchedulerConfig() {
     const cfg = {
       fetchIntervalMinutes: schedulerConfig.value.fetchIntervalMinutes,
       localRootDir: schedulerConfig.value.localRootDir,
-      maxTaskRetries: Math.max(
-        0,
-        Math.min(5, Math.floor(schedulerConfig.value.maxTaskRetries || 0)),
-      ),
     };
     await window.api.juliangSchedulerUpdateConfig(cfg);
     message.success("配置已保存");
@@ -1081,20 +1076,6 @@ onUnmounted(() => {
               >
             </div>
             <div class="config-row">
-              <span class="config-label">批次重试次数</span>
-              <NInputNumber
-                v-model:value="config.maxBatchRetries"
-                :min="0"
-                :max="10"
-                :step="1"
-                style="width: 120px"
-                @update:value="saveConfig"
-              />
-              <span class="config-desc"
-                >单批失败后最多额外重试的次数，30 秒无进度条也走这里</span
-              >
-            </div>
-            <div class="config-row">
               <span class="config-label">超时轮回次数</span>
               <NInputNumber
                 v-model:value="config.timeoutPartialRetryRounds"
@@ -1106,6 +1087,20 @@ onUnmounted(() => {
               />
               <span class="config-desc"
                 >单批超时后仅重传未完成素材的轮回次数</span
+              >
+            </div>
+            <div class="config-row">
+              <span class="config-label">批次重试次数</span>
+              <NInputNumber
+                v-model:value="config.maxBatchRetries"
+                :min="0"
+                :max="10"
+                :step="1"
+                style="width: 120px"
+                @update:value="saveConfig"
+              />
+              <span class="config-desc"
+                >单批失败后最多额外重试的次数，30 秒无进度条也走这里</span
               >
             </div>
             <div class="config-row">
@@ -1121,20 +1116,6 @@ onUnmounted(() => {
               <span class="config-desc"
                 >例如一批 10 个文件，设置为 2，则最终剩 8
                 个成功进度条也会点确定继续</span
-              >
-            </div>
-            <div class="config-row">
-              <span class="config-label">任务重试次数</span>
-              <NInputNumber
-                v-model:value="schedulerConfig.maxTaskRetries"
-                :min="0"
-                :max="5"
-                :step="1"
-                style="width: 120px"
-                @update:value="saveSchedulerConfig"
-              />
-              <span class="config-desc"
-                >调度器模式下整部剧上传失败后最多额外重试的次数</span
               >
             </div>
           </div>

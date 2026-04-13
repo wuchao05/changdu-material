@@ -55,6 +55,7 @@ export interface JuliangUploadResult {
   totalFiles: number;
   skipped?: boolean;
   error?: string;
+  remark?: string;
 }
 
 interface JuliangBatchResult {
@@ -1718,6 +1719,16 @@ export class JuliangService {
         )}`,
       );
 
+      if (successNames.length === 0) {
+        this.log("超时后没有任何素材成功，点击取消按钮关闭弹窗");
+        await this.clickCancelButton();
+        return {
+          success: false,
+          successCount: 0,
+          observedSuccessCount: 0,
+        };
+      }
+
       let confirmSubmitted = false;
       try {
         this.log("点击确定按钮，先提交当前已成功素材");
@@ -1823,6 +1834,9 @@ export class JuliangService {
       }
 
       totalBatches = batches.length;
+      const ignoredBatchIndexes: number[] = [];
+      const ignoredBatchErrors: string[] = [];
+      const ignoredFileNames: string[] = [];
 
       // 检查是否有保存的进度（断点续传）
       const savedProgress = task.recordId
@@ -1941,7 +1955,7 @@ export class JuliangService {
             };
           }
 
-          // 上传失败，保存进度
+          // 当前批次的轮回与重试都已耗尽，跳过该批次并继续后续批次
           if (task.recordId) {
             this.progressManager.updateProgress(
               task.recordId,
@@ -1949,31 +1963,29 @@ export class JuliangService {
               task.date,
               task.account,
               totalBatches,
-              i, // 保存已完成的批次数
+              i + 1,
             );
           }
-          console.error(`[Juliang] 第 ${i + 1}/${totalBatches} 批上传失败`);
 
-          // 发送进度：失败
-          this.emitProgress({
-            taskId: task.id,
-            drama: task.drama,
-            status: "failed",
-            currentBatch: i + 1,
-            totalBatches,
-            successCount: totalSuccess,
-            totalFiles: task.files.length,
-            message: `第 ${i + 1} 批上传失败，进度已保存`,
-          });
+          const batchError = result.error || `第 ${i + 1} 批上传失败`;
+          ignoredBatchIndexes.push(i + 1);
+          ignoredBatchErrors.push(batchError);
+          ignoredFileNames.push(...batch.map((file) => basename(file)));
+          console.error(
+            `[Juliang] 第 ${i + 1}/${totalBatches} 批上传失败，已跳过`,
+          );
 
-          return {
-            success: false,
-            taskId: task.id,
-            drama: task.drama,
-            successCount: totalSuccess,
-            totalFiles: task.files.length,
-            error: `第 ${i + 1} 批上传失败`,
-          };
+          if (i < batches.length - 1) {
+            this.log(
+              `第 ${i + 1} 批已跳过，继续第 ${i + 2} 批上传（轮回重试和批次重试均已达上限）`,
+            );
+          } else {
+            this.log(
+              `第 ${i + 1} 批已跳过，当前已是最后一批，结束当前剧并继续下一部（轮回重试和批次重试均已达上限）`,
+            );
+          }
+
+          continue;
         }
       }
 
@@ -1983,7 +1995,16 @@ export class JuliangService {
         task.files.length - allowedTotalMissing,
         0,
       );
-      const success = totalSuccess >= minimumRequiredTotalSuccess;
+      const hasIgnoredBatch = ignoredBatchIndexes.length > 0;
+      const success =
+        !hasIgnoredBatch && totalSuccess >= minimumRequiredTotalSuccess;
+      const uniqueIgnoredFileNames = Array.from(new Set(ignoredFileNames));
+      const partialRemark = hasIgnoredBatch
+        ? `少传 ${uniqueIgnoredFileNames.length} 个素材：${this.formatFileNamesForLog(uniqueIgnoredFileNames)}；已跳过失败批次 ${ignoredBatchIndexes.join("、")}`
+        : undefined;
+      const partialErrorMessage = hasIgnoredBatch
+        ? `${partialRemark}；失败原因：${ignoredBatchErrors.join("；")}`
+        : undefined;
 
       // 上传完成，清除进度记录
       this.progressManager.clearProgress(task.recordId, task.drama);
@@ -1999,7 +2020,9 @@ export class JuliangService {
         totalFiles: task.files.length,
         message: success
           ? `上传完成（成功 ${totalSuccess}/${task.files.length}）`
-          : `上传失败（成功 ${totalSuccess}/${task.files.length}）`,
+          : hasIgnoredBatch
+            ? `上传部分完成（成功 ${totalSuccess}/${task.files.length}，跳过批次 ${ignoredBatchIndexes.join("、")}）`
+            : `上传失败（成功 ${totalSuccess}/${task.files.length}）`,
       });
 
       return {
@@ -2008,6 +2031,8 @@ export class JuliangService {
         drama: task.drama,
         successCount: totalSuccess,
         totalFiles: task.files.length,
+        error: partialErrorMessage,
+        remark: partialRemark,
       };
     } catch (error) {
       const errorMessage =

@@ -4132,24 +4132,6 @@ onUnmounted(() => {
             >
           </div>
           <div class="config-row">
-            <span class="config-label">批次重试次数</span>
-            <NInputNumber
-              :value="uploadConfig.maxBatchRetries"
-              :min="0"
-              :max="10"
-              @update:value="
-                (value) =>
-                  applyUploadConfig({
-                    maxBatchRetries: Math.max(
-                      0,
-                      Math.min(10, Number(value || 0)),
-                    ),
-                  })
-              "
-            />
-            <span class="config-desc">单批失败后最多额外重试的次数</span>
-          </div>
-          <div class="config-row">
             <span class="config-label">超时轮回次数</span>
             <NInputNumber
               :value="uploadConfig.timeoutPartialRetryRounds"
@@ -4168,6 +4150,24 @@ onUnmounted(() => {
             <span class="config-desc"
               >单批超时后仅重传未完成素材的轮回次数</span
             >
+          </div>
+          <div class="config-row">
+            <span class="config-label">批次重试次数</span>
+            <NInputNumber
+              :value="uploadConfig.maxBatchRetries"
+              :min="0"
+              :max="10"
+              @update:value="
+                (value) =>
+                  applyUploadConfig({
+                    maxBatchRetries: Math.max(
+                      0,
+                      Math.min(10, Number(value || 0)),
+                    ),
+                  })
+              "
+            />
+            <span class="config-desc">单批失败后最多额外重试的次数</span>
           </div>
           <div class="config-row">
             <span class="config-label">允许缺失数</span>

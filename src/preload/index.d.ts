@@ -896,7 +896,6 @@ interface Api {
   juliangSchedulerGetConfig: () => Promise<{
     fetchIntervalMinutes: number;
     localRootDir: string;
-    maxTaskRetries: number;
   }>;
   juliangSchedulerUpdateConfig: (
     config: unknown,
