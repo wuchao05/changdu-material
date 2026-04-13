@@ -71,13 +71,14 @@ const config = ref({
   baseUploadUrl: "",
   batchSize: 20,
   batchUploadTimeoutMinutes: 5,
-  maxBatchRetries: 5,
-  timeoutPartialRetryRounds: 3,
+  maxBatchRetries: 1,
+  timeoutPartialRetryRounds: 5,
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
   slowMo: 50,
   allowedMissingCount: 0,
+  abandonedRetryTimeoutMinutes: 3,
 });
 
 // 当前任务
@@ -206,6 +207,10 @@ async function saveConfig() {
       allowedMissingCount: Math.max(
         0,
         Math.floor(config.value.allowedMissingCount || 0),
+      ),
+      abandonedRetryTimeoutMinutes: Math.max(
+        1,
+        Math.min(30, Math.floor(config.value.abandonedRetryTimeoutMinutes || 3)),
       ),
     };
     await window.api.juliangUpdateConfig(cfg);
@@ -1098,6 +1103,20 @@ onUnmounted(() => {
               />
               <span class="config-desc"
                 >单批失败后最多额外重试的次数，30 秒无进度条也走这里</span
+              >
+            </div>
+            <div class="config-row">
+              <span class="config-label">兜底重传超时(分钟)</span>
+              <NInputNumber
+                v-model:value="config.abandonedRetryTimeoutMinutes"
+                :min="1"
+                :max="30"
+                :step="1"
+                style="width: 120px"
+                @update:value="saveConfig"
+              />
+              <span class="config-desc"
+                >所有批次结束后，对轮回放弃的文件做最后一次重传的超时时间</span
               >
             </div>
             <div class="config-row">

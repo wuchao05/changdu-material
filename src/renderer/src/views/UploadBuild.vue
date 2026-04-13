@@ -256,10 +256,11 @@ const uploadConfig = ref({
   baseUploadUrl: "",
   batchSize: 10,
   batchUploadTimeoutMinutes: 5,
-  maxBatchRetries: 5,
-  timeoutPartialRetryRounds: 3,
+  maxBatchRetries: 1,
+  timeoutPartialRetryRounds: 5,
   headless: false,
   allowedMissingCount: 0,
+  abandonedRetryTimeoutMinutes: 3,
   deleteAfterUpload: false,
   clearProjectsBeforeBuild: false,
   autoPreviewAfterBuild: false,
@@ -4168,6 +4169,24 @@ onUnmounted(() => {
               "
             />
             <span class="config-desc">单批失败后最多额外重试的次数</span>
+          </div>
+          <div class="config-row">
+            <span class="config-label">兜底重传超时(分钟)</span>
+            <NInputNumber
+              :value="uploadConfig.abandonedRetryTimeoutMinutes"
+              :min="1"
+              :max="30"
+              @update:value="
+                (value) =>
+                  applyUploadConfig({
+                    abandonedRetryTimeoutMinutes: Math.max(
+                      1,
+                      Math.min(30, Number(value || 3)),
+                    ),
+                  })
+              "
+            />
+            <span class="config-desc">兜底重传放弃文件的超时时间</span>
           </div>
           <div class="config-row">
             <span class="config-label">允许缺失数</span>

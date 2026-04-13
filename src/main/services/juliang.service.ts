@@ -65,6 +65,7 @@ interface JuliangBatchResult {
   failureType?: "no-progress-timeout";
   skipped?: boolean;
   error?: string;
+  abandonedFiles?: string[];
   remainingFiles?: string[];
 }
 
@@ -115,6 +116,7 @@ export interface JuliangConfig {
   headless: boolean;
   slowMo: number;
   allowedMissingCount: number; // 最终允许缺失的进度条个数，如 2 表示 10 个文件允许最终只剩 8 个进度条
+  abandonedRetryTimeoutMinutes: number; // 兜底重传超时时间（分钟）
   selectors: {
     uploadButton: string;
     uploadPanel: string;
@@ -150,13 +152,14 @@ const DEFAULT_CONFIG: JuliangConfig = {
     "https://ad.oceanengine.com/material_center/management/video?aadvid={accountId}#source=ad_navigator",
   batchSize: 10, // 巨量后台每次最多上传 10 个视频
   batchUploadTimeoutMinutes: 5,
-  maxBatchRetries: 5,
-  timeoutPartialRetryRounds: 3,
+  maxBatchRetries: 1,
+  timeoutPartialRetryRounds: 5,
   batchDelayMin: 3000,
   batchDelayMax: 5000,
   headless: false,
   slowMo: 50,
   allowedMissingCount: 0, // 默认不允许缺失进度条
+  abandonedRetryTimeoutMinutes: 3, // 兜底重传默认3分钟超时
   selectors: {
     uploadButton: "button:has(span:text('上传视频'))",
     uploadPanel: ".material-center-v2-oc-create-upload-select-wrapper",
@@ -446,6 +449,12 @@ export class JuliangService {
       nextConfig.allowedMissingCount = Math.max(
         0,
         Math.floor(nextConfig.allowedMissingCount),
+      );
+    }
+    if (typeof nextConfig.abandonedRetryTimeoutMinutes === "number") {
+      nextConfig.abandonedRetryTimeoutMinutes = Math.max(
+        1,
+        Math.min(30, Math.floor(nextConfig.abandonedRetryTimeoutMinutes)),
       );
     }
     this.config = nextConfig;
@@ -1284,14 +1293,20 @@ export class JuliangService {
                 : `第 ${batchIndex}/${totalBatches} 批开始超时轮回第 ${partialRound}/${maxPartialRounds} 次，仅重传剩余 ${currentFiles.length} 个素材`;
             this.log(retryMessage);
 
-            // 重试前刷新页面，确保页面状态干净
-            this.log("刷新页面以清理状态...");
-            await this.page.reload({
-              waitUntil: "networkidle",
-              timeout: 60000,
-            });
-            this.log("页面刷新完成，等待 5 秒后重试");
-            await this.page.waitForTimeout(5000);
+            if (retry > 0) {
+              // 批次重试：刷新页面，确保页面状态干净
+              this.log("刷新页面以清理状态...");
+              await this.page.reload({
+                waitUntil: "networkidle",
+                timeout: 60000,
+              });
+              this.log("页面刷新完成，等待 5 秒后重试");
+              await this.page.waitForTimeout(5000);
+            } else if (partialRound > 0) {
+              // 超时轮回：不刷新页面，只短暂等待让页面稳定
+              this.log("等待页面稳定后重新上传...");
+              await this.page.waitForTimeout(2000);
+            }
           }
 
           const result = await this.uploadBatchInternal(
@@ -1323,7 +1338,11 @@ export class JuliangService {
               this.log(
                 `第 ${batchIndex}/${totalBatches} 批超时轮回已达到上限 ${maxPartialRounds} 次，放弃剩余 ${result.remainingFiles.length} 个未完成素材，继续下一批`,
               );
-              return { success: true, successCount: committedSuccessCount };
+              return {
+                success: true,
+                successCount: committedSuccessCount,
+                abandonedFiles: result.remainingFiles,
+              };
             }
 
             currentFiles = result.remainingFiles;
@@ -1944,6 +1963,7 @@ export class JuliangService {
       }
 
       // 从保存的进度开始上传
+      const allAbandonedFiles: string[] = [];
       for (let i = startBatchIndex; i < batches.length; i++) {
         currentBatchIndex = i; // 记录当前批次，用于异常时保存进度
         const batch = batches[i];
@@ -1963,6 +1983,14 @@ export class JuliangService {
         const result = await this.uploadBatch(batch, i + 1, totalBatches);
         if (result.successCount > 0) {
           totalSuccess += result.successCount;
+        }
+
+        // 收集被放弃的文件
+        if (result.abandonedFiles && result.abandonedFiles.length > 0) {
+          allAbandonedFiles.push(...result.abandonedFiles);
+          this.log(
+            `第 ${i + 1}/${totalBatches} 批有 ${result.abandonedFiles.length} 个文件被放弃，将在所有批次结束后兜底重传`,
+          );
         }
 
         if (result.success) {
@@ -2061,6 +2089,69 @@ export class JuliangService {
           }
 
           continue;
+        }
+      }
+
+      // 所有批次结束后，兜底重传之前放弃的文件
+      if (allAbandonedFiles.length > 0 && !this.isCancelled && this.page && !this.page.isClosed()) {
+        const retryTimeout = this.config.abandonedRetryTimeoutMinutes;
+        this.log(
+          `所有批次完成后，尝试兜底重传 ${allAbandonedFiles.length} 个之前放弃的文件（${retryTimeout}分钟超时）`,
+        );
+
+        // 临时调整超时为兜底重传超时
+        const originalTimeout = this.config.batchUploadTimeoutMinutes;
+        this.config.batchUploadTimeoutMinutes = retryTimeout;
+
+        try {
+          // 刷新页面清理状态
+          await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
+          await this.page.waitForTimeout(5000);
+
+          const retryResult = await this.uploadBatchInternal(
+            allAbandonedFiles,
+            totalBatches + 1, // 虚拟批次号
+            totalBatches + 1,
+            0,
+          );
+
+          if (retryResult.successCount > 0) {
+            totalSuccess += retryResult.successCount;
+            this.log(
+              `兜底重传成功 ${retryResult.successCount}/${allAbandonedFiles.length} 个文件`,
+            );
+          }
+
+          if (!retryResult.success) {
+            // 仍然失败的文件计入 ignored
+            const stillFailedFiles =
+              retryResult.remainingFiles || allAbandonedFiles;
+            ignoredFileNames.push(
+              ...stillFailedFiles.map((f) => basename(f)),
+            );
+            ignoredBatchErrors.push(
+              `兜底重传失败 ${stillFailedFiles.length} 个文件`,
+            );
+            this.log(
+              `兜底重传仍有 ${stillFailedFiles.length} 个文件失败，已计入忽略列表`,
+            );
+          } else {
+            this.log(`兜底重传全部成功`);
+          }
+        } catch (error) {
+          this.log(
+            `兜底重传出错: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          // 出错时将所有放弃的文件计入 ignored
+          ignoredFileNames.push(
+            ...allAbandonedFiles.map((f) => basename(f)),
+          );
+          ignoredBatchErrors.push(
+            `兜底重传出错: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        } finally {
+          // 恢复超时配置
+          this.config.batchUploadTimeoutMinutes = originalTimeout;
         }
       }
 
