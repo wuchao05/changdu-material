@@ -1139,47 +1139,92 @@ export class JuliangService {
       return { progressCount: 0, rows: [] };
     }
 
-    const progressBars = this.page.locator(
-      ".material-center-v2-oc-upload-table-name-progress",
+    // 使用 page.evaluate 在浏览器端一次性提取所有行数据，
+    // 避免多次异步 Playwright 调用之间 DOM 变化导致的竞态超时
+    const uploadPanelSelector = this.config.selectors.uploadPanel;
+    const errorKeywordsSource = this.uploadErrorKeywords.source;
+    const ignoredTexts = this.ignoredUploadErrorTexts;
+
+    const result = await this.page.evaluate(
+      ({
+        panelSelector,
+        errorKeywords,
+        ignored,
+      }: {
+        panelSelector: string;
+        errorKeywords: string;
+        ignored: string[];
+      }) => {
+        const panel = document.querySelector(panelSelector);
+        if (!panel) return { progressCount: 0, rows: [] };
+
+        const errorRegex = new RegExp(errorKeywords);
+
+        // 查找所有上传行的文件名容器（无论是否有进度条都会存在）
+        const nameTextElements = panel.querySelectorAll(
+          ".material-center-v2-oc-upload-table-name-text",
+        );
+
+        let progressCount = 0;
+        const rows: Array<{
+          fileName: string;
+          rowText: string;
+          isSuccess: boolean;
+          hasError: boolean;
+        }> = [];
+
+        for (const nameText of nameTextElements) {
+          // 行容器是 nameText 的父元素
+          const row = nameText.parentElement;
+          if (!row) continue;
+
+          const rowText = (row.innerText || "").trim().replace(/\s+/g, " ");
+
+          // 提取文件名
+          const fileNameEl = nameText.querySelector(
+            ".material-center-v2-oc-typography-value-int",
+          );
+          const fileName = fileNameEl
+            ? (fileNameEl as HTMLElement).innerText?.trim() || ""
+            : "";
+
+          // 检查是否有进度条
+          const hasProgressBar = row.querySelector(
+            ".material-center-v2-oc-upload-table-name-progress",
+          );
+          if (hasProgressBar) {
+            progressCount++;
+          }
+
+          // 检查成功状态
+          const isSuccess = !!row.querySelector(
+            ".material-center-v2-oc-upload-table-name-progress-success",
+          );
+
+          // 检查错误状态：通过特定 class 或错误关键词
+          const hasErrorElement = !!row.querySelector(
+            '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"]',
+          );
+          const hasErrorKeyword =
+            !isSuccess &&
+            !hasProgressBar &&
+            errorRegex.test(rowText) &&
+            !ignored.some((t) => rowText.includes(t));
+          const hasError = hasErrorElement || hasErrorKeyword;
+
+          rows.push({ fileName, rowText, isSuccess, hasError });
+        }
+
+        return { progressCount, rows };
+      },
+      {
+        panelSelector: uploadPanelSelector,
+        errorKeywords: errorKeywordsSource,
+        ignored: ignoredTexts,
+      },
     );
-    const progressCount = await progressBars.count();
-    const rows: JuliangUploadRowSnapshot[] = [];
 
-    for (let i = 0; i < progressCount; i++) {
-      const progressBar = progressBars.nth(i);
-      const parent = progressBar.locator("..");
-      const fileNameElement = parent
-        .locator(
-          ".material-center-v2-oc-upload-table-name-text .material-center-v2-oc-typography-value-int",
-        )
-        .first();
-      const successElement = parent.locator(
-        ".material-center-v2-oc-upload-table-name-progress-success",
-      );
-      const errorElement = parent.locator(
-        '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"], [class*="warn"]',
-      );
-      const rowText = (await parent.innerText()).trim().replace(/\s+/g, " ");
-      const fileName =
-        (await fileNameElement.count()) > 0
-          ? (await fileNameElement.innerText()).trim()
-          : "";
-      const hasErrorHint =
-        (await errorElement.count()) > 0 ||
-        (this.uploadErrorKeywords.test(rowText) &&
-          !this.ignoredUploadErrorTexts.some((ignoredText) =>
-            rowText.includes(ignoredText),
-          ));
-
-      rows.push({
-        fileName,
-        rowText,
-        isSuccess: (await successElement.count()) > 0,
-        hasError: hasErrorHint,
-      });
-    }
-
-    return { progressCount, rows };
+    return result;
   }
 
   /**
@@ -1527,17 +1572,20 @@ export class JuliangService {
           }
 
           const snapshot = await this.getUploadRowSnapshots();
+          // totalRowCount: 所有可见的上传行（包括有进度条的和已报错无进度条的）
+          // progressCount: 仅有进度条的行数
+          const totalRowCount = snapshot.rows.length;
           const progressCount = snapshot.progressCount;
-          if (progressCount > maxObservedProgressCount) {
-            maxObservedProgressCount = progressCount;
+          if (totalRowCount > maxObservedProgressCount) {
+            maxObservedProgressCount = totalRowCount;
             this.log(
-              `本批次历史最大进度条数量更新为 ${maxObservedProgressCount}/${files.length}`,
+              `本批次历史最大行数量更新为 ${maxObservedProgressCount}/${files.length}`,
             );
           }
-          const hasSeenAllProgressBars =
+          const hasSeenAllRows =
             maxObservedProgressCount >= files.length;
 
-          if (progressCount === 0) {
+          if (totalRowCount === 0) {
             const nonRetryableError =
               await this.detectNonRetryableUploadError();
             if (nonRetryableError) {
@@ -1561,22 +1609,22 @@ export class JuliangService {
                 error: stallError,
               };
             }
-            this.log("进度条未找到，继续等待...");
+            this.log("上传行未找到，继续等待...");
             await this.randomDelay(5000, 6000);
             continue;
           }
 
-          // 如果进度条数量少于预期，判断是否达到最低要求
+          // 如果可见行数少于预期，判断是否达到最低要求
           const elapsedTime = Date.now() - startTime;
           if (
-            progressCount < files.length &&
+            totalRowCount < files.length &&
             elapsedTime > 10000 &&
-            !hasSeenAllProgressBars
+            !hasSeenAllRows
           ) {
             if (maxObservedProgressCount < minimumRequiredProgressCount) {
               // 未达到最低要求，立即取消并重试
               this.log(
-                `检测到进度条数量严重不足：当前 ${progressCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，立即取消并准备重试`,
+                `检测到上传行数量严重不足：当前 ${totalRowCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，立即取消并准备重试`,
               );
 
               // 点击取消按钮
@@ -1587,16 +1635,14 @@ export class JuliangService {
             } else {
               // 已达到最低要求，允许继续上传，但记录差异
               this.log(
-                `进度条数量略少：当前 ${progressCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，继续等待上传完成`,
+                `上传行数量略少：当前 ${totalRowCount}/${files.length}，历史最大 ${maxObservedProgressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，继续等待上传完成`,
               );
             }
-          } else if (progressCount < files.length && hasSeenAllProgressBars) {
+          } else if (totalRowCount < files.length && hasSeenAllRows) {
             this.log(
-              `检测到巨量进度条回退：当前 ${progressCount}/${files.length}，但本批次已出现过完整 ${maxObservedProgressCount}/${files.length}，继续等待，不视为成功`,
+              `检测到巨量行回退：当前 ${totalRowCount}/${files.length}，但本批次已出现过完整 ${maxObservedProgressCount}/${files.length}，继续等待，不视为成功`,
             );
           }
-
-          this.log(`找到 ${progressCount} 个进度条（期望 ${files.length} 个）`);
 
           const successCount = snapshot.rows.filter(
             (row) => row.isSuccess,
@@ -1604,17 +1650,20 @@ export class JuliangService {
           const errorCount = snapshot.rows.filter((row) => row.hasError).length;
 
           this.log(
-            `上传进度: 成功 ${successCount} 个，错误 ${errorCount} 个，可见进度条 ${progressCount} 个`,
+            `找到 ${totalRowCount} 个上传行（期望 ${files.length} 个），进度条 ${progressCount} 个`,
+          );
+          this.log(
+            `上传进度: 成功 ${successCount} 个，错误 ${errorCount} 个，上传中 ${totalRowCount - successCount - errorCount} 个`,
           );
 
           const terminalCount = successCount + errorCount;
 
-          // 判断上传完成的条件：当前可见进度条都进入终态，且成功数达到最低要求
-          if (terminalCount === progressCount && progressCount > 0) {
-            if (progressCount < minimumRequiredProgressCount) {
+          // 判断上传完成的条件：当前所有可见行都进入终态（成功或错误）
+          if (terminalCount === totalRowCount && totalRowCount > 0) {
+            if (totalRowCount < minimumRequiredProgressCount) {
               consecutiveMissingSuccessRounds++;
               this.log(
-                `检测到终态进度条数量不足：当前 ${progressCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，第 ${consecutiveMissingSuccessRounds} 次确认`,
+                `检测到终态行数量不足：当前 ${totalRowCount}/${files.length}，最低要求 ${minimumRequiredProgressCount}/${files.length}，第 ${consecutiveMissingSuccessRounds} 次确认`,
               );
               if (consecutiveMissingSuccessRounds < 2) {
                 await this.page.waitForTimeout(5000);
@@ -1659,7 +1708,7 @@ export class JuliangService {
               }
 
               this.log(
-                `上传异常：最终只剩 ${progressCount}/${files.length} 个进度条且无素材成功，取消本批并准备轮回重试`,
+                `上传异常：最终只剩 ${totalRowCount}/${files.length} 个上传行且无素材成功，取消本批并准备轮回重试`,
               );
 
               // 点击取消按钮
@@ -1754,9 +1803,9 @@ export class JuliangService {
                 observedSuccessCount: successCount,
                 remainingFiles,
               };
-            } else if (progressCount < files.length) {
+            } else if (totalRowCount < files.length) {
               this.log(
-                `按允许缺失配置视为成功：当前 ${progressCount}/${files.length} 个进度条全部成功，允许缺失 ${allowedMissingCount} 个`,
+                `按允许缺失配置视为成功：当前 ${totalRowCount}/${files.length} 个上传行全部成功，允许缺失 ${allowedMissingCount} 个`,
               );
             } else {
               this.log("所有素材上传完成（所有进度条显示成功状态）");
