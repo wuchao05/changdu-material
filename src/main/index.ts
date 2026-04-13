@@ -62,6 +62,7 @@ import { juliangService } from "./services/juliang.service";
 import { DailyBuildService } from "./services/daily-build.service";
 import { getJuliangScheduler } from "./services/juliang-scheduler.service";
 import { MaterialClipService } from "./services/material-clip.service";
+import { materialPreviewService } from "./services/material-preview.service";
 import { WebSessionService } from "./services/web-session.service";
 
 // 初始化服务
@@ -71,7 +72,10 @@ const fileService = new FileService();
 const downloadService = new DownloadService();
 const apiService = new ApiService();
 const tosService = new TosService();
-const dailyBuildService = new DailyBuildService(configService);
+const dailyBuildService = new DailyBuildService(
+  configService,
+  webSessionService,
+);
 const juliangScheduler = getJuliangScheduler(
   apiService,
   fileService,
@@ -210,6 +214,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("session:get", async () => {
     return await webSessionService.getSession();
+  });
+
+  ipcMain.handle("changdu:searchSeries", async (_event, query) => {
+    return await webSessionService.searchChangduSeries(query);
   });
 
   ipcMain.handle("session:switchChannel", async (_event, channelId) => {
@@ -666,6 +674,10 @@ function registerIpcHandlers(): void {
     return await juliangService.uploadTask(task);
   });
 
+  ipcMain.handle("juliang:clearExistingProjects", async (_event, accountId) => {
+    return await juliangService.clearExistingProjects(accountId);
+  });
+
   ipcMain.handle("juliang:getConfig", async () => {
     return juliangService.getConfig();
   });
@@ -737,6 +749,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle("daily-build:startTask", async (_event, task) => {
     if (mainWindow) {
       dailyBuildService.setMainWindow(mainWindow);
+      materialPreviewService.setMainWindow(mainWindow);
     }
     return await dailyBuildService.startTask(task);
   });
@@ -755,6 +768,15 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle("daily-build:clearLogs", async () => {
     dailyBuildService.clearLogs();
+    return { success: true };
+  });
+
+  ipcMain.handle("material-preview:getLogs", async () => {
+    return materialPreviewService.getLogs();
+  });
+
+  ipcMain.handle("material-preview:clearLogs", async () => {
+    materialPreviewService.clearLogs();
     return { success: true };
   });
 

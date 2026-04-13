@@ -46,6 +46,7 @@ export interface RuntimeBuildConfig {
   landingUrl: string;
   microAppName: string;
   microAppId: string;
+  microAppInstanceId: string;
   ccId: string;
   rechargeTemplateId: string;
   adCallbackConfigId?: string;
@@ -66,7 +67,13 @@ export interface RuntimeUserProfile {
     id: string;
     douyinAccount: string;
     douyinAccountId: string;
-    materialRange: string;
+    percent?: number;
+    maxPercent?: number;
+    locked?: boolean;
+    weight?: number;
+    order?: number;
+    materialRange?: string;
+    materialRatio?: number;
     createdAt?: string;
     updatedAt?: string;
   }>;
@@ -92,20 +99,24 @@ export interface SessionRuntimeData {
   buildConfig: RuntimeBuildConfig;
 }
 
+export interface ChangduSeriesSearchItem {
+  bookId: string;
+  seriesName: string;
+}
+
+interface ChangduSeriesListItemPayload {
+  book_id?: string;
+  series_name?: string;
+}
+
+interface ChangduSeriesListResponse {
+  data?: ChangduSeriesListItemPayload[];
+  total?: number;
+}
+
 interface PersistedSessionState {
   token: string;
   selectedChannelId: string;
-}
-
-function createDefaultDesktopMenus(): DesktopMenus {
-  return {
-    download: false,
-    materialClip: false,
-    upload: false,
-    juliangUpload: false,
-    uploadBuild: false,
-    juliangBuild: false,
-  };
 }
 
 function normalizeDesktopMenus(menus?: Partial<DesktopMenus>): DesktopMenus {
@@ -119,7 +130,9 @@ function normalizeDesktopMenus(menus?: Partial<DesktopMenus>): DesktopMenus {
   };
 }
 
-function normalizeRuntimeUser(user?: Partial<RuntimeUserProfile> | null): RuntimeUserProfile | null {
+function normalizeRuntimeUser(
+  user?: Partial<RuntimeUserProfile> | null,
+): RuntimeUserProfile | null {
   if (!user) {
     return null;
   }
@@ -157,7 +170,16 @@ function normalizeRuntimeUser(user?: Partial<RuntimeUserProfile> | null): Runtim
           id: String(item.id || "").trim(),
           douyinAccount: String(item.douyinAccount || "").trim(),
           douyinAccountId: String(item.douyinAccountId || "").trim(),
+          percent: Number(item.percent ?? item.materialRatio ?? 0),
+          maxPercent: Number(item.maxPercent ?? 100),
+          locked: Boolean(item.locked),
+          weight: Math.max(0, Math.round(Number(item.weight ?? 1))),
+          order: Math.max(1, Math.round(Number(item.order ?? 1))),
           materialRange: String(item.materialRange || "").trim(),
+          materialRatio: Math.max(
+            0,
+            Math.min(100, Math.round(Number(item.materialRatio ?? 0))),
+          ),
           createdAt: item.createdAt,
           updatedAt: item.updatedAt,
         }))
@@ -165,7 +187,9 @@ function normalizeRuntimeUser(user?: Partial<RuntimeUserProfile> | null): Runtim
   };
 }
 
-function normalizeSessionRuntimeData(data?: Partial<SessionRuntimeData> | null): SessionRuntimeData | null {
+function normalizeSessionRuntimeData(
+  data?: Partial<SessionRuntimeData> | null,
+): SessionRuntimeData | null {
   if (!data?.user) {
     return null;
   }
@@ -198,7 +222,9 @@ function normalizeSessionRuntimeData(data?: Partial<SessionRuntimeData> | null):
           distributorId: String(
             data.platforms?.changdu?.channel?.distributorId || "",
           ).trim(),
-          adUserId: String(data.platforms?.changdu?.channel?.adUserId || "").trim(),
+          adUserId: String(
+            data.platforms?.changdu?.channel?.adUserId || "",
+          ).trim(),
           rootAdUserId: String(
             data.platforms?.changdu?.channel?.rootAdUserId || "",
           ).trim(),
@@ -221,13 +247,22 @@ function normalizeSessionRuntimeData(data?: Partial<SessionRuntimeData> | null):
       secretKey: String(data.buildConfig?.secretKey || "").trim(),
       source: String(data.buildConfig?.source || "").trim(),
       productId: String(data.buildConfig?.productId || "").trim(),
-      productPlatformId: String(data.buildConfig?.productPlatformId || "").trim(),
+      productPlatformId: String(
+        data.buildConfig?.productPlatformId || "",
+      ).trim(),
       landingUrl: String(data.buildConfig?.landingUrl || "").trim(),
       microAppName: String(data.buildConfig?.microAppName || "").trim(),
       microAppId: String(data.buildConfig?.microAppId || "").trim(),
+      microAppInstanceId: String(
+        data.buildConfig?.microAppInstanceId || "",
+      ).trim(),
       ccId: String(data.buildConfig?.ccId || "").trim(),
-      rechargeTemplateId: String(data.buildConfig?.rechargeTemplateId || "").trim(),
-      adCallbackConfigId: String(data.buildConfig?.adCallbackConfigId || "").trim(),
+      rechargeTemplateId: String(
+        data.buildConfig?.rechargeTemplateId || "",
+      ).trim(),
+      adCallbackConfigId: String(
+        data.buildConfig?.adCallbackConfigId || "",
+      ).trim(),
       advanceHoursAfterTen: String(
         data.buildConfig?.advanceHoursAfterTen || "0",
       ).trim(),
@@ -272,7 +307,11 @@ export class WebSessionService {
       token: this.token,
       selectedChannelId: this.selectedChannelId,
     };
-    await fs.writeFile(this.stateFilePath, JSON.stringify(payload, null, 2), "utf-8");
+    await fs.writeFile(
+      this.stateFilePath,
+      JSON.stringify(payload, null, 2),
+      "utf-8",
+    );
   }
 
   private async request<T>(
@@ -314,7 +353,10 @@ export class WebSessionService {
       throw new Error(payload?.message || "登录已失效");
     }
 
-    if (response.status >= 400 || (payload?.code !== undefined && payload.code !== 0)) {
+    if (
+      response.status >= 400 ||
+      (payload?.code !== undefined && payload.code !== 0)
+    ) {
       throw new Error(payload?.message || payload?.error || "请求失败");
     }
 
@@ -326,6 +368,19 @@ export class WebSessionService {
     this.selectedChannelId = "";
     this.runtimeData = null;
     await this.persistState();
+  }
+
+  async getAuthHeaders(): Promise<Record<string, string>> {
+    await this.ensureLoaded();
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers["X-Studio-Token"] = this.token;
+    }
+    if (this.selectedChannelId) {
+      headers["X-Studio-Channel-Id"] = this.selectedChannelId;
+    }
+    return headers;
   }
 
   async login(account: string, password: string): Promise<SessionRuntimeData> {
@@ -379,7 +434,9 @@ export class WebSessionService {
       !availableChannels.some((item) => item.id === this.selectedChannelId)
     ) {
       this.selectedChannelId =
-        normalizedData.channel?.id || normalizedData.user.defaultChannelId || "";
+        normalizedData.channel?.id ||
+        normalizedData.user.defaultChannelId ||
+        "";
       await this.persistState();
       return this.refreshSession();
     }
@@ -431,6 +488,54 @@ export class WebSessionService {
       method: "PUT",
       data: payload,
     });
+  }
+
+  async searchChangduSeries(
+    query: string,
+  ): Promise<ChangduSeriesSearchItem | null> {
+    const normalizedQuery = String(query || "").trim();
+    if (!normalizedQuery) {
+      return null;
+    }
+
+    const searchType = /^\d+$/.test(normalizedQuery) ? 1 : 2;
+    const response = await this.request<ChangduSeriesListResponse>(
+      "/novelsale/distributor/content/series/list/v1",
+      {
+        method: "GET",
+        params: {
+          permission_statuses: "3,4",
+          page_index: 0,
+          page_size: 10,
+          query: normalizedQuery,
+          search_type: searchType,
+        },
+      },
+    );
+
+    const items = Array.isArray(response?.data)
+      ? response.data
+          .map((item) => ({
+            bookId: String(item?.book_id || "").trim(),
+            seriesName: String(item?.series_name || "").trim(),
+          }))
+          .filter((item) => item.bookId && item.seriesName)
+      : [];
+
+    if (!items.length) {
+      return null;
+    }
+
+    if (searchType === 1) {
+      return items.find((item) => item.bookId === normalizedQuery) || null;
+    }
+
+    const normalizedQueryText = normalizedQuery.replace(/\s+/g, "");
+    return (
+      items.find(
+        (item) => item.seriesName.replace(/\s+/g, "") === normalizedQueryText,
+      ) || null
+    );
   }
 
   getSelectedChannelId(): string {

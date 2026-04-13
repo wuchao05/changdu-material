@@ -6,7 +6,13 @@ import type {
   DouyinMaterialRule,
   UploadBuildSettings,
 } from "./config.service";
+import {
+  allocateMaterialCountsByPercent,
+  normalizeAllocationPercent,
+} from "../../shared/material-allocation";
 import { juliangService } from "./juliang.service";
+import { materialPreviewService } from "./material-preview.service";
+import type { WebSessionService } from "./web-session.service";
 
 const DAILY_BUILD_CONFIG = {
   changduBaseUrl: "https://www.changdupingtai.com/novelsale/openapi",
@@ -53,6 +59,17 @@ export interface DailyBuildTaskPayload {
   files: string[];
   darenId: string;
   buildSettings: UploadBuildSettings;
+  postBuildPreview?: {
+    enabled?: boolean;
+    delaysMinutes?: number[];
+  };
+}
+
+export interface DailyBuildMaterialPreviewSchedule {
+  enabled: boolean;
+  scheduledCount: number;
+  delaysMinutes: number[];
+  error?: string;
 }
 
 export interface DailyBuildProgress {
@@ -86,6 +103,7 @@ export interface DailyBuildResult {
   failedRuleCount: number;
   skippedRules: DailyBuildSkippedRule[];
   error?: string;
+  materialPreviewSchedule?: DailyBuildMaterialPreviewSchedule;
 }
 
 interface CoverImageInfo {
@@ -100,6 +118,12 @@ interface MicroAppInfo {
   start_page?: string;
   status?: number;
   instance_id?: string;
+}
+
+interface MicroAppAssetInfo {
+  assets_id: string | number;
+  micro_app_instance_id?: string;
+  micro_app_id?: string;
 }
 
 interface DailyBuildInitData {
@@ -142,19 +166,33 @@ interface GiantMaterial {
   [key: string]: unknown;
 }
 
+interface RuleMaterialAllocationPlan {
+  rule: DouyinMaterialRule;
+  sequences: string[];
+}
+
+interface PrefetchedRuleBuildData {
+  iesCoreId: string;
+  materials: GiantMaterial[];
+}
+
 interface DailyBuildTaskRuntime {
   controller: AbortController;
   payload: DailyBuildTaskPayload;
 }
 
 function md5Lower(value: string): string {
-  return crypto.createHash("md5").update(value, "utf8").digest("hex").toLowerCase();
+  return crypto
+    .createHash("md5")
+    .update(value, "utf8")
+    .digest("hex")
+    .toLowerCase();
 }
 
 function buildChangduPostHeaders(
   body: Record<string, unknown>,
   distributorId: string,
-  secretKey: string
+  secretKey: string,
 ): Record<string, string> {
   const ts = Math.floor(Date.now() / 1000);
   const paramsValue = JSON.stringify(body);
@@ -168,7 +206,7 @@ function buildChangduPostHeaders(
 function sanitizeDramaName(name: string): string {
   return name.replace(
     /[，。：；！？、''""（）《》【】……—·\s,.:;!?()\[\]{}'"<>\/\\|~`@#$%^&*+=]/g,
-    ""
+    "",
   );
 }
 
@@ -183,7 +221,10 @@ function resolveDarenName(buildSettings: UploadBuildSettings): string {
   return String(buildSettings.darenName || "").trim() || "小鱼";
 }
 
-function parsePromotionUrl(url: string): { launchPage: string; launchParams: string } {
+function parsePromotionUrl(url: string): {
+  launchPage: string;
+  launchParams: string;
+} {
   if (!url) {
     return { launchPage: "", launchParams: "" };
   }
@@ -274,7 +315,9 @@ function generateMicroAppLink(params: {
   });
 
   const bdpLog = encodeURIComponent('{"launch_from":"ad","location":""}');
-  const startPageValue = encodeURIComponent(`${startPage}?${orderedParams.join("&")}`);
+  const startPageValue = encodeURIComponent(
+    `${startPage}?${orderedParams.join("&")}`,
+  );
 
   return (
     `sslocal://microapp?app_id=${appId}` +
@@ -288,29 +331,67 @@ function generateMicroAppLink(params: {
   );
 }
 
-function ensureRangeSequenceList(range: string): string[] {
-  const normalized = String(range || "").trim();
-  if (!/^\d+(-\d+)?$/.test(normalized)) {
-    throw new Error("素材序号范围格式不正确，只支持 01 或 01-03");
+function getConfiguredMicroApp(
+  buildSettings: UploadBuildSettings,
+): MicroAppInfo {
+  const microAppInstanceId = String(
+    buildSettings.buildParams.microAppInstanceId || "",
+  ).trim();
+  const microAppId = String(buildSettings.buildParams.microAppId || "").trim();
+
+  if (!microAppInstanceId) {
+    throw new Error("当前未配置小程序实例 ID");
   }
 
-  if (!normalized.includes("-")) {
-    return [String(parseInt(normalized, 10)).padStart(2, "0")];
+  return {
+    micro_app_instance_id: microAppInstanceId,
+    app_id: microAppId,
+    start_page: "",
+  };
+}
+
+function findConfiguredMicroAppAsset(
+  assets: unknown,
+  buildSettings: UploadBuildSettings,
+): MicroAppAssetInfo | null {
+  const microApps = Array.isArray(assets)
+    ? (assets as Array<Partial<MicroAppAssetInfo>>)
+    : [];
+  const targetInstanceId = String(
+    buildSettings.buildParams.microAppInstanceId || "",
+  ).trim();
+  const targetMicroAppId = String(
+    buildSettings.buildParams.microAppId || "",
+  ).trim();
+
+  if (targetInstanceId) {
+    const matched = microApps.find(
+      (item) =>
+        String(item.micro_app_instance_id || "").trim() === targetInstanceId,
+    );
+    return matched?.assets_id
+      ? {
+          assets_id: matched.assets_id,
+          micro_app_instance_id: matched.micro_app_instance_id,
+          micro_app_id: matched.micro_app_id,
+        }
+      : null;
   }
 
-  const [startText, endText] = normalized.split("-");
-  const start = parseInt(startText, 10);
-  const end = parseInt(endText, 10);
-
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) {
-    throw new Error("素材序号范围格式不正确，结束序号不能小于开始序号");
+  if (!targetMicroAppId) {
+    return null;
   }
 
-  const list: string[] = [];
-  for (let value = start; value <= end; value += 1) {
-    list.push(String(value).padStart(2, "0"));
-  }
-  return list;
+  const matched = microApps.find(
+    (item) => String(item.micro_app_id || "").trim() === targetMicroAppId,
+  );
+  return matched?.assets_id
+    ? {
+        assets_id: matched.assets_id,
+        micro_app_instance_id: matched.micro_app_instance_id,
+        micro_app_id: matched.micro_app_id,
+      }
+    : null;
 }
 
 function resolveMaterialDateValue(dateValue?: string): string {
@@ -353,11 +434,12 @@ function formatStepError(step: string, error: unknown): Error {
 function buildExpectedMaterialNames(params: {
   template: string;
   dramaName: string;
-  materialRange: string;
+  sequences: string[];
   materialDateValue?: string;
+  shortName?: string;
 }): string[] {
-  const { template, dramaName, materialRange, materialDateValue } = params;
-  const sequences = ensureRangeSequenceList(materialRange);
+  const { template, dramaName, sequences, materialDateValue, shortName } =
+    params;
   const resolvedDateValue = resolveMaterialDateValue(materialDateValue);
 
   return sequences.map((sequence) =>
@@ -365,20 +447,95 @@ function buildExpectedMaterialNames(params: {
       template
         .replaceAll("{剧名}", dramaName)
         .replaceAll("{日期}", resolvedDateValue)
-        .replaceAll("{简称}", "")
-        .replaceAll("{序号}", sequence)
-    )
+        .replaceAll("{简称}", String(shortName || "").trim())
+        .replaceAll("{序号}", sequence),
+    ),
   );
+}
+
+function buildRuleMaterialAllocationPlans(
+  rules: DouyinMaterialRule[],
+  totalMaterialCount: number,
+): RuleMaterialAllocationPlan[] {
+  if (totalMaterialCount <= 0 || rules.length === 0) {
+    return [];
+  }
+
+  const allocationCounts = allocateMaterialCountsByPercent(
+    totalMaterialCount,
+    rules.map((rule, index) => ({
+      id: rule.id,
+      percent: normalizeAllocationPercent(rule.percent),
+      order: Number(rule.order || index + 1),
+    })),
+  );
+
+  let currentSequence = 1;
+  const plans: RuleMaterialAllocationPlan[] = [];
+
+  rules.forEach((rule) => {
+    const count =
+      allocationCounts.find((item) => item.id === rule.id)?.count || 0;
+    if (count <= 0) {
+      return;
+    }
+
+    const sequences = Array.from({ length: count }, () => {
+      const sequence = String(currentSequence).padStart(2, "0");
+      currentSequence += 1;
+      return sequence;
+    });
+
+    plans.push({ rule, sequences });
+  });
+
+  return plans;
+}
+
+function inferMaterialCountFromMaterials(params: {
+  materials: GiantMaterial[];
+  template: string;
+  dramaName: string;
+  materialDateValue?: string;
+}): number {
+  const materialMap = new Map<string, GiantMaterial>();
+  for (const material of params.materials) {
+    const filename = String(
+      material.filename || material.video_name || "",
+    ).trim();
+    if (!filename) {
+      continue;
+    }
+    materialMap.set(filename.toLowerCase(), material);
+  }
+
+  let matchedCount = 0;
+  for (let index = 1; index <= params.materials.length; index += 1) {
+    const sequence = String(index).padStart(2, "0");
+    const expectedName = buildExpectedMaterialNames({
+      template: params.template,
+      dramaName: params.dramaName,
+      sequences: [sequence],
+      materialDateValue: params.materialDateValue,
+    })[0];
+    if (expectedName && materialMap.has(expectedName.toLowerCase())) {
+      matchedCount += 1;
+    }
+  }
+
+  return matchedCount;
 }
 
 function filterMaterialsByTemplate(
   materials: GiantMaterial[],
-  expectedNames: string[]
+  expectedNames: string[],
 ): GiantMaterial[] {
   const materialMap = new Map<string, GiantMaterial>();
 
   for (const material of materials) {
-    const filename = String(material.filename || material.video_name || "").trim();
+    const filename = String(
+      material.filename || material.video_name || "",
+    ).trim();
     if (!filename) {
       continue;
     }
@@ -408,8 +565,14 @@ export class DailyBuildService {
   private maxLogs = 500;
   private recentTaskStates = new Map<string, DailyBuildTaskState>();
   private maxRecentTaskStates = 200;
+  private webSessionService: WebSessionService;
 
-  constructor(_configService: ConfigService) {}
+  constructor(
+    _configService: ConfigService,
+    webSessionService: WebSessionService,
+  ) {
+    this.webSessionService = webSessionService;
+  }
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -511,6 +674,7 @@ export class DailyBuildService {
       "landingUrl",
       "microAppName",
       "microAppId",
+      "microAppInstanceId",
       "ccId",
       "rechargeTemplateId",
     ];
@@ -535,19 +699,41 @@ export class DailyBuildService {
     if (!douyinMaterialRules.length) {
       throw new Error("请先配置抖音号匹配素材规则");
     }
+
+    for (const rule of douyinMaterialRules) {
+      if (!rule.douyinAccount.trim() || !rule.douyinAccountId.trim()) {
+        throw new Error("请先完善每条抖音号配置");
+      }
+    }
+
+    const totalPercent = douyinMaterialRules.reduce(
+      (sum, rule) => sum + normalizeAllocationPercent(rule.percent),
+      0,
+    );
+    if (totalPercent > 100) {
+      throw new Error("所有抖音号比例之和不能超过 100%");
+    }
   }
 
-  private getRuleCount(settings: UploadBuildSettings): number {
-    return settings.douyinMaterialRules.length;
+  private getExecutableRules(
+    settings: UploadBuildSettings,
+  ): DouyinMaterialRule[] {
+    return settings.douyinMaterialRules.filter(
+      (rule) =>
+        rule.douyinAccount.trim() &&
+        rule.douyinAccountId.trim() &&
+        normalizeAllocationPercent(rule.percent) > 0,
+    );
   }
 
   private emitState(
     payload: DailyBuildTaskPayload,
     status: DailyBuildTaskStatus,
     message: string,
+    totalRules: number,
     currentRuleIndex = 0,
     successRuleCount = 0,
-    failedRuleCount = 0
+    failedRuleCount = 0,
   ) {
     this.emitProgress({
       taskId: payload.taskId,
@@ -555,7 +741,7 @@ export class DailyBuildService {
       status,
       message,
       currentRuleIndex,
-      totalRules: this.getRuleCount(payload.buildSettings),
+      totalRules,
       successRuleCount,
       failedRuleCount,
     });
@@ -563,8 +749,10 @@ export class DailyBuildService {
 
   private async fetchCoverImage(signal: AbortSignal): Promise<CoverImageInfo> {
     this.ensureNotCancelled(signal);
+    const authHeaders = await this.webSessionService.getAuthHeaders();
     const response = await fetch(DAILY_BUILD_CONFIG.coverImageUrl, {
       method: "GET",
+      headers: authHeaders,
       signal,
     });
     if (!response.ok) {
@@ -572,7 +760,8 @@ export class DailyBuildService {
     }
 
     const mimeType = response.headers.get("content-type") || "image/png";
-    const extension = mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : "png";
+    const extension =
+      mimeType.includes("jpeg") || mimeType.includes("jpg") ? "jpg" : "png";
     const arrayBuffer = await response.arrayBuffer();
     return {
       buffer: Buffer.from(arrayBuffer),
@@ -585,15 +774,18 @@ export class DailyBuildService {
     payload: DailyBuildTaskPayload,
     distributorId: string,
     signal: AbortSignal,
-    promotionName?: string
+    promotionName?: string,
   ): Promise<{ promotion_url: string; promotion_name: string }> {
     const darenName = resolveDarenName(payload.buildSettings);
     const requestBody = {
       distributor_id: Number(distributorId),
       book_id: payload.dramaId.trim(),
       index: DAILY_BUILD_CONFIG.promotion.index,
-      promotion_name: promotionName || `${darenName}-${sanitizeDramaName(payload.drama)}`,
-      recharge_template_id: Number(payload.buildSettings.buildParams.rechargeTemplateId),
+      promotion_name:
+        promotionName || `${darenName}-${sanitizeDramaName(payload.drama)}`,
+      recharge_template_id: Number(
+        payload.buildSettings.buildParams.rechargeTemplateId,
+      ),
       media_source: DAILY_BUILD_CONFIG.promotion.mediaSource,
       price: DAILY_BUILD_CONFIG.promotion.price,
       start_chapter: DAILY_BUILD_CONFIG.promotion.startChapter,
@@ -608,21 +800,31 @@ export class DailyBuildService {
           ...buildChangduPostHeaders(
             requestBody,
             distributorId,
-            payload.buildSettings.buildParams.secretKey.trim()
+            payload.buildSettings.buildParams.secretKey.trim(),
           ),
         },
         body: JSON.stringify(requestBody),
         signal,
-      }
+      },
     );
 
-    const result = await parseJsonResponse<{ code?: number; message?: string; data?: { promotion_url?: string; promotion_name?: string }; promotion_url?: string; promotion_name?: string }>(response);
+    const result = await parseJsonResponse<{
+      code?: number;
+      message?: string;
+      data?: { promotion_url?: string; promotion_name?: string };
+      promotion_url?: string;
+      promotion_name?: string;
+    }>(response);
     if (result.code !== 200) {
       throw new Error(result.message || "创建推广链接失败");
     }
 
-    const promotionUrl = result.promotion_url || result.data?.promotion_url || "";
-    const finalName = result.promotion_name || result.data?.promotion_name || requestBody.promotion_name;
+    const promotionUrl =
+      result.promotion_url || result.data?.promotion_url || "";
+    const finalName =
+      result.promotion_name ||
+      result.data?.promotion_name ||
+      requestBody.promotion_name;
 
     if (!promotionUrl) {
       throw new Error("创建推广链接失败：返回结果中缺少 promotion_url");
@@ -634,155 +836,49 @@ export class DailyBuildService {
     };
   }
 
-  private async queryMicroApp(
+  private async waitForConfiguredMicroAppAsset(
     accountId: string,
     buildSettings: UploadBuildSettings,
     cookieHeader: string,
-    signal: AbortSignal
-  ): Promise<{ hasValidMicroApp: boolean; microApps: MicroAppInfo[]; raw: any }> {
-    const url = new URL("https://business.oceanengine.com/app_package/microapp/applet/list");
-    url.searchParams.set("page_no", "1");
-    url.searchParams.set("page_size", "10");
-    url.searchParams.set("search_key", "");
-    url.searchParams.set("search_type", "1");
-    url.searchParams.set("status", "-1");
-    url.searchParams.set("adv_id", accountId);
-    url.searchParams.set("cc_id", buildSettings.buildParams.ccId.trim());
-    url.searchParams.set("operator", buildSettings.buildParams.ccId.trim());
-    url.searchParams.set("operation_type", "1");
-
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        "x-tt-hume-platform": "bp",
-        Cookie: cookieHeader,
-      },
-      signal,
-    });
-    const result = await parseJsonResponse<any>(response);
-    const applets = Array.isArray(result?.data?.applets) ? result.data.applets : [];
-    const microApps = applets.map((item: any) => ({
-      ...item,
-      micro_app_instance_id: item.instance_id,
-    }));
-    return {
-      hasValidMicroApp: microApps.some((item: MicroAppInfo) => item.status === 1),
-      microApps,
-      raw: result,
-    };
-  }
-
-  private async queryApprovedMicroApp(
-    accountId: string,
-    buildSettings: UploadBuildSettings,
-    cookieHeader: string,
-    signal: AbortSignal
-  ): Promise<MicroAppInfo | null> {
-    const url = new URL("https://business.oceanengine.com/app_package/microapp/applet/list");
-    url.searchParams.set("page_no", "1");
-    url.searchParams.set("page_size", "10");
-    url.searchParams.set("search_key", "");
-    url.searchParams.set("search_type", "2");
-    url.searchParams.set("status", "-1");
-    url.searchParams.set("adv_id", accountId);
-    url.searchParams.set("cc_id", buildSettings.buildParams.ccId.trim());
-    url.searchParams.set("operator", buildSettings.buildParams.ccId.trim());
-    url.searchParams.set("operation_type", "1");
-
-    const response = await fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        "x-tt-hume-platform": "bp",
-        Cookie: cookieHeader,
-      },
-      signal,
-    });
-
-    const result = await parseJsonResponse<any>(response);
-    const applets = Array.isArray(result?.data?.applets) ? result.data.applets : [];
-    const approved = applets
-      .filter((item: any) => item.status === 1)
-      .map((item: any) => ({ ...item, micro_app_instance_id: item.instance_id }));
-
-    if (!approved.length) {
-      return null;
-    }
-
-    const targetAppId = buildSettings.buildParams.microAppId.trim();
-    if (targetAppId) {
-      const matched = approved.find(
-        (item: MicroAppInfo) => String(item.app_id || "") === targetAppId
-      );
-      if (matched) {
-        return matched;
-      }
-    }
-
-    return approved[approved.length - 1];
-  }
-
-  private async createMicroApp(
-    params: {
-      accountId: string;
-      appId: string;
-      path: string;
-      query: string;
-      remark: string;
-      link: string;
+    signal: AbortSignal,
+    options?: {
+      attempts?: number;
+      intervalMs?: number;
     },
-    buildSettings: UploadBuildSettings,
-    cookieHeader: string,
-    signal: AbortSignal
-  ): Promise<void> {
-    const response = await fetch(
-      `https://business.oceanengine.com/app_package/microapp/applet/create?cc_id=${buildSettings.buildParams.ccId.trim()}&operator=${buildSettings.buildParams.ccId.trim()}&operation_type=1`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: cookieHeader,
-          "x-tt-hume-platform": "bp",
-        },
-        body: JSON.stringify({
-          instance_id: "",
-          adv_id: params.accountId,
-          app_id: params.appId,
-          remark: "",
-          schema_info: [
-            {
-              path: params.path,
-              query: params.query,
-              remark: params.remark,
-              link: params.link,
-              operate_type: "1",
-            },
-          ],
-          data: {
-            tag_info:
-              '{"category_id":1050000000,"category_name":"小程序","categories":[{"category_id":1050100000,"category_name":"短剧","categories":[{"category_id":1050107001,"category_name":"其他"}]}]}',
-          },
-        }),
+  ): Promise<MicroAppAssetInfo | null> {
+    const attempts = Math.max(1, Number(options?.attempts || 4));
+    const intervalMs = Math.max(0, Number(options?.intervalMs || 1500));
+
+    for (let index = 0; index < attempts; index += 1) {
+      const assetsList = await this.listMicroAppAssets(
+        accountId,
+        cookieHeader,
         signal,
+      );
+      const matchedAsset = findConfiguredMicroAppAsset(
+        assetsList?.data?.micro_app,
+        buildSettings,
+      );
+
+      if (matchedAsset) {
+        return matchedAsset;
       }
-    );
 
-    const result = await parseJsonResponse<any>(response);
-    const isAlreadyExists =
-      result?.status === 1 &&
-      typeof result?.message === "string" &&
-      result.message.includes("账户内已存在相同AppId");
-
-    if (result?.status === 0 || isAlreadyExists) {
-      return;
+      if (index < attempts - 1 && intervalMs > 0) {
+        this.log(
+          `暂未查到指定小程序资产，${intervalMs}ms 后进行第 ${index + 2} 次重试`,
+        );
+        await this.sleep(intervalMs, signal);
+      }
     }
 
-    throw new Error(result?.message || "创建小程序失败");
+    return null;
   }
 
   private async listMicroAppAssets(
     accountId: string,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<any> {
     const response = await fetch(
       `https://ad.oceanengine.com/event_manager/v2/api/assets/ad/list?aadvid=${accountId}`,
@@ -798,7 +894,7 @@ export class DailyBuildService {
           role: 1,
         }),
         signal,
-      }
+      },
     );
 
     return parseJsonResponse<any>(response);
@@ -809,7 +905,7 @@ export class DailyBuildService {
     microAppInstanceId: string,
     buildSettings: UploadBuildSettings,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<any> {
     const response = await fetch(
       `https://ad.oceanengine.com/event_manager/api/assets/create?aadvid=${accountId}`,
@@ -831,7 +927,7 @@ export class DailyBuildService {
           },
         }),
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -845,7 +941,7 @@ export class DailyBuildService {
     accountId: string,
     assetsId: string | number,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<{ hasPaymentEvent: boolean }> {
     const response = await fetch(
       `https://ad.oceanengine.com/event_manager/v2/api/event/track/status/${assetsId}?aadvid=${accountId}`,
@@ -856,12 +952,14 @@ export class DailyBuildService {
           Cookie: cookieHeader,
         },
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
     const hasPaymentEvent = Array.isArray(result?.data?.track_status)
-      ? result.data.track_status.some((event: any) => event.event_name === "付费")
+      ? result.data.track_status.some(
+          (event: any) => event.event_name === "付费",
+        )
       : false;
     return { hasPaymentEvent };
   }
@@ -870,7 +968,7 @@ export class DailyBuildService {
     accountId: string,
     assetsId: string | number,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<void> {
     const response = await fetch(
       `https://ad.oceanengine.com/event_manager/v2/api/event/config/create?aadvid=${accountId}`,
@@ -889,14 +987,15 @@ export class DailyBuildService {
               event_type: DAILY_BUILD_CONFIG.event.eventType,
               event_name: DAILY_BUILD_CONFIG.event.eventName,
               track_types: DAILY_BUILD_CONFIG.event.trackTypes,
-              statistical_method_type: DAILY_BUILD_CONFIG.event.statisticalMethodType,
+              statistical_method_type:
+                DAILY_BUILD_CONFIG.event.statisticalMethodType,
               discrimination_value: { value_type: 0, dimension: 0, groups: [] },
             },
           ],
           assets_id: assetsId,
         }),
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -909,7 +1008,7 @@ export class DailyBuildService {
     accountId: string,
     coverImage: CoverImageInfo,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<{ webUri: string }> {
     const formData = new FormData();
     formData.append("file", coverImage.buffer, {
@@ -927,9 +1026,9 @@ export class DailyBuildService {
           Cookie: cookieHeader,
           "content-type": formData.getHeaders()["content-type"],
         },
-        body: formData.getBuffer(),
+        body: formData.getBuffer() as unknown as BodyInit,
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -949,7 +1048,7 @@ export class DailyBuildService {
     accountId: string,
     webUri: string,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<void> {
     const response = await fetch(
       `https://ad.oceanengine.com/account/api/v2/adv/saveAvatar?accountId=${accountId}&aadvid=${accountId}`,
@@ -967,7 +1066,7 @@ export class DailyBuildService {
           },
         }),
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -980,7 +1079,7 @@ export class DailyBuildService {
     accountId: string,
     coverImage: CoverImageInfo,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<{ width: number; height: number; webUri: string }> {
     const formData = new FormData();
     formData.append("fileData", coverImage.buffer, {
@@ -996,9 +1095,9 @@ export class DailyBuildService {
           Cookie: cookieHeader,
           "content-type": formData.getHeaders()["content-type"],
         },
-        body: formData.getBuffer(),
+        body: formData.getBuffer() as unknown as BodyInit,
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -1028,7 +1127,7 @@ export class DailyBuildService {
     },
     payload: DailyBuildTaskPayload,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<string> {
     const buildParams = payload.buildSettings.buildParams;
     const response = await fetch(
@@ -1084,7 +1183,7 @@ export class DailyBuildService {
           is_search_3_online: true,
         }),
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -1102,7 +1201,7 @@ export class DailyBuildService {
     accountId: string,
     douyinAccountId: string,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<{ iesCoreId: string }> {
     const response = await fetch(
       `https://ad.oceanengine.com/superior/api/v2/ad/authorize/list?aadvid=${accountId}`,
@@ -1123,7 +1222,7 @@ export class DailyBuildService {
           dpa_id: "",
         }),
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -1144,7 +1243,7 @@ export class DailyBuildService {
     douyinAccountId: string,
     iesCoreId: string,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<GiantMaterial[]> {
     const queryParams = new URLSearchParams({
       aadvid: accountId,
@@ -1170,7 +1269,7 @@ export class DailyBuildService {
           Cookie: cookieHeader,
         },
         signal,
-      }
+      },
     );
 
     const result = await parseJsonResponse<any>(response);
@@ -1197,7 +1296,7 @@ export class DailyBuildService {
     },
     payload: DailyBuildTaskPayload,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<void> {
     const buildParams = payload.buildSettings.buildParams;
     const videoMaterialInfo = params.materials.map((material) => {
@@ -1263,7 +1362,9 @@ export class DailyBuildService {
         video_material_info: videoMaterialInfo,
         image_material_info: [],
         aweme_photo_material_info: [],
-        external_material_info: [{ external_url: buildParams.landingUrl.trim() }],
+        external_material_info: [
+          { external_url: buildParams.landingUrl.trim() },
+        ],
         component_material_info: [],
         call_to_action_material_info: [
           {
@@ -1313,7 +1414,7 @@ export class DailyBuildService {
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
         this.log(
-          `创建广告请求: ${params.adName}，项目 ${params.projectId}，素材 ${params.materials.length} 个，尝试 ${attempt + 1}/${maxRetries + 1}`
+          `创建广告请求: ${params.adName}，项目 ${params.projectId}，素材 ${params.materials.length} 个，尝试 ${attempt + 1}/${maxRetries + 1}`,
         );
         this.log(
           `创建广告参数: ${JSON.stringify({
@@ -1326,7 +1427,7 @@ export class DailyBuildService {
               video_id: material.video_id,
             })),
             request_body: requestBody,
-          })}`
+          })}`,
         );
         const response = await fetch(
           `https://ad.oceanengine.com/superior/api/v2/promotion/create_promotion?aadvid=${params.accountId}`,
@@ -1338,7 +1439,7 @@ export class DailyBuildService {
             },
             body: JSON.stringify(requestBody),
             signal,
-          }
+          },
         );
 
         const result = await parseJsonResponse<any>(response);
@@ -1352,7 +1453,7 @@ export class DailyBuildService {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (attempt < maxRetries) {
           this.log(
-            `创建广告失败，准备重试: ${params.adName} - ${lastError.message}`
+            `创建广告失败，准备重试: ${params.adName} - ${lastError.message}`,
           );
           await this.sleep(2000, signal);
           continue;
@@ -1366,9 +1467,8 @@ export class DailyBuildService {
   private async executeAssetization(
     payload: DailyBuildTaskPayload,
     coverImage: CoverImageInfo,
-    distributorId: string,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
   ): Promise<DailyBuildInitData> {
     let avatar: { webUri: string };
     try {
@@ -1376,152 +1476,95 @@ export class DailyBuildService {
         payload.accountId,
         coverImage,
         cookieHeader,
-        signal
+        signal,
       );
     } catch (error) {
       throw formatStepError("上传头像", error);
     }
 
     try {
-      await this.saveAvatar(payload.accountId, avatar.webUri, cookieHeader, signal);
+      await this.saveAvatar(
+        payload.accountId,
+        avatar.webUri,
+        cookieHeader,
+        signal,
+      );
     } catch (error) {
       throw formatStepError("保存头像", error);
     }
 
-    let promotionResult: { promotion_url: string; promotion_name: string };
+    let microApp: MicroAppInfo;
     try {
-      promotionResult = await this.createPromotionLink(
-        payload,
-        distributorId,
-        signal
-      );
+      microApp = getConfiguredMicroApp(payload.buildSettings);
     } catch (error) {
-      throw formatStepError("创建推广链接", error);
-    }
-
-    let microApp =
-      (await this.queryApprovedMicroApp(
-        payload.accountId,
-        payload.buildSettings,
-        cookieHeader,
-        signal
-      )) || null;
-
-    let ownMicroAppResult:
-      | { hasValidMicroApp: boolean; microApps: MicroAppInfo[]; raw: any }
-      | null = null;
-
-    if (!microApp) {
-      ownMicroAppResult = await this.queryMicroApp(
-        payload.accountId,
-        payload.buildSettings,
-        cookieHeader,
-        signal
-      );
-      if (ownMicroAppResult.hasValidMicroApp) {
-        microApp = ownMicroAppResult.microApps[0];
-      }
-    }
-
-    if (!microApp) {
-      const existingApplets = ownMicroAppResult?.raw?.data?.applets;
-      if (Array.isArray(existingApplets) && existingApplets.length > 0) {
-        throw new Error("小程序未审核通过（status != 1），跳过当前剧搭建");
-      }
-
-      const parsed = parsePromotionUrl(promotionResult.promotion_url);
-      const appId = extractAppIdFromParams(parsed.launchParams);
-      if (!appId) {
-        throw new Error("无法从推广链接中提取 app_id");
-      }
-
-      const cleanedParams = parsed.launchParams
-        .split("&")
-        .filter((item) => item && !item.startsWith("app_id="))
-        .join("&");
-      const microAppLink = generateMicroAppLink({
-        appId,
-        startPage: parsed.launchPage,
-        startParams: cleanedParams,
-      });
-
-      try {
-        await this.createMicroApp(
-          {
-            accountId: payload.accountId,
-            appId,
-            path: parsed.launchPage,
-            query: parsed.launchParams,
-            remark: promotionResult.promotion_name,
-            link: microAppLink,
-          },
-          payload.buildSettings,
-          cookieHeader,
-          signal
-        );
-      } catch (error) {
-        throw formatStepError("创建小程序", error);
-      }
-
-      await this.sleep(30000, signal);
-      let recheck = await this.queryMicroApp(
-        payload.accountId,
-        payload.buildSettings,
-        cookieHeader,
-        signal
-      );
-      if (!recheck.hasValidMicroApp) {
-        await this.sleep(10000, signal);
-        recheck = await this.queryMicroApp(
-          payload.accountId,
-          payload.buildSettings,
-          cookieHeader,
-          signal
-        );
-        if (!recheck.hasValidMicroApp) {
-          throw new Error("小程序创建后查询失败（已重试 2 次）");
-        }
-      }
-
-      microApp = recheck.microApps[0];
-    }
-
-    if (!microApp?.micro_app_instance_id) {
-      throw new Error("未找到可用小程序实例");
+      throw formatStepError("读取小程序配置", error);
     }
 
     const assetsList = await this.listMicroAppAssets(
       payload.accountId,
       cookieHeader,
-      signal
+      signal,
     );
-    let assetsId = assetsList?.data?.micro_app?.[0]?.assets_id;
+    let assetMicroApp = findConfiguredMicroAppAsset(
+      assetsList?.data?.micro_app,
+      payload.buildSettings,
+    );
+    let assetsId = assetMicroApp?.assets_id;
 
     if (!assetsId) {
-      let assetResult;
       try {
-        assetResult = await this.createMicroAppAsset(
+        await this.createMicroAppAsset(
           payload.accountId,
           microApp.micro_app_instance_id,
           payload.buildSettings,
           cookieHeader,
-          signal
+          signal,
         );
       } catch (error) {
         throw formatStepError("创建小程序资产", error);
       }
-      assetsId = assetResult.assets_id;
+
+      assetMicroApp = await this.waitForConfiguredMicroAppAsset(
+        payload.accountId,
+        payload.buildSettings,
+        cookieHeader,
+        signal,
+        {
+          attempts: 4,
+          intervalMs: 1500,
+        },
+      );
+      if (!assetMicroApp) {
+        throw new Error("小程序资产创建成功后，未查询到指定实例对应的资产");
+      }
+      assetsId = assetMicroApp.assets_id;
     }
+
+    microApp = {
+      micro_app_instance_id:
+        String(assetMicroApp?.micro_app_instance_id || "").trim() ||
+        microApp.micro_app_instance_id,
+      app_id:
+        String(assetMicroApp?.micro_app_id || "").trim() ||
+        microApp.app_id ||
+        "",
+      start_page: "",
+    };
 
     const eventStatus = await this.checkEventStatus(
       payload.accountId,
       assetsId,
       cookieHeader,
-      signal
+      signal,
     );
     if (!eventStatus.hasPaymentEvent) {
       try {
-        await this.addPaymentEvent(payload.accountId, assetsId, cookieHeader, signal);
+        await this.addPaymentEvent(
+          payload.accountId,
+          assetsId,
+          cookieHeader,
+          signal,
+        );
       } catch (error) {
         throw formatStepError("添加付费事件", error);
       }
@@ -1533,7 +1576,7 @@ export class DailyBuildService {
         payload.accountId,
         coverImage,
         cookieHeader,
-        signal
+        signal,
       );
     } catch (error) {
       throw formatStepError("上传主图", error);
@@ -1553,13 +1596,52 @@ export class DailyBuildService {
     };
   }
 
+  private async loadRuleBuildData(
+    payload: DailyBuildTaskPayload,
+    rule: DouyinMaterialRule,
+    cookieHeader: string,
+    signal: AbortSignal,
+  ): Promise<PrefetchedRuleBuildData> {
+    let accountInfo: { iesCoreId: string };
+    try {
+      accountInfo = await this.getDouyinAccountInfo(
+        payload.accountId,
+        rule.douyinAccountId,
+        cookieHeader,
+        signal,
+      );
+    } catch (error) {
+      throw formatStepError("获取抖音号信息", error);
+    }
+
+    let materials: GiantMaterial[];
+    try {
+      materials = await this.getMaterialList(
+        payload.accountId,
+        rule.douyinAccountId,
+        accountInfo.iesCoreId,
+        cookieHeader,
+        signal,
+      );
+    } catch (error) {
+      throw formatStepError("获取素材列表", error);
+    }
+
+    return {
+      iesCoreId: accountInfo.iesCoreId,
+      materials,
+    };
+  }
+
   private async buildSingleRule(
     payload: DailyBuildTaskPayload,
     rule: DouyinMaterialRule,
+    sequences: string[],
     initData: DailyBuildInitData,
     distributorId: string,
     cookieHeader: string,
-    signal: AbortSignal
+    signal: AbortSignal,
+    prefetched?: PrefetchedRuleBuildData,
   ): Promise<void> {
     const darenName = resolveDarenName(payload.buildSettings);
     const promotionName = `${darenName}-${rule.douyinAccount}-${sanitizeDramaName(payload.drama)}-${payload.accountId}`;
@@ -1569,7 +1651,7 @@ export class DailyBuildService {
         payload,
         distributorId,
         signal,
-        promotionName
+        promotionName,
       );
     } catch (error) {
       throw formatStepError("创建推广链接", error);
@@ -1611,51 +1693,34 @@ export class DailyBuildService {
         },
         payload,
         cookieHeader,
-        signal
+        signal,
       );
     } catch (error) {
       throw formatStepError("创建项目", error);
     }
 
-    let accountInfo: { iesCoreId: string };
-    try {
-      accountInfo = await this.getDouyinAccountInfo(
-        payload.accountId,
-        rule.douyinAccountId,
-        cookieHeader,
-        signal
-      );
-    } catch (error) {
-      throw formatStepError("获取抖音号信息", error);
-    }
-
-    let materials: GiantMaterial[];
-    try {
-      materials = await this.getMaterialList(
-        payload.accountId,
-        rule.douyinAccountId,
-        accountInfo.iesCoreId,
-        cookieHeader,
-        signal
-      );
-    } catch (error) {
-      throw formatStepError("获取素材列表", error);
-    }
+    const ruleBuildData =
+      prefetched ||
+      (await this.loadRuleBuildData(payload, rule, cookieHeader, signal));
 
     const expectedNames = buildExpectedMaterialNames({
       template: payload.buildSettings.materialFilenameTemplate,
       dramaName: payload.drama,
       materialDateValue: payload.buildSettings.materialDateValue,
-      materialRange: rule.materialRange,
+      shortName: rule.shortName,
+      sequences,
     });
-    const matchedMaterials = filterMaterialsByTemplate(materials, expectedNames);
-    this.log(
-      `素材匹配期望: ${rule.douyinAccount} -> ${expectedNames.join("、")}`
+    const matchedMaterials = filterMaterialsByTemplate(
+      ruleBuildData.materials,
+      expectedNames,
     );
     this.log(
-      `素材匹配结果: ${rule.douyinAccount} -> 命中 ${matchedMaterials.length} 个：${matchedMaterials
-        .map((material) => material.filename)
-        .join("、") || "无"}`
+      `素材匹配期望: ${rule.douyinAccount} -> ${expectedNames.join("、")}`,
+    );
+    this.log(
+      `素材匹配结果: ${rule.douyinAccount} -> 命中 ${matchedMaterials.length} 个：${
+        matchedMaterials.map((material) => material.filename).join("、") || "无"
+      }`,
     );
 
     if (!matchedMaterials.length) {
@@ -1666,8 +1731,9 @@ export class DailyBuildService {
       const missingNames = expectedNames.filter(
         (name) =>
           !matchedMaterials.some(
-            (material) => material.filename.toLowerCase() === name.toLowerCase()
-          )
+            (material) =>
+              material.filename.toLowerCase() === name.toLowerCase(),
+          ),
       );
       throw new Error(`素材不完整，缺少：${missingNames.join("、")}`);
     }
@@ -1678,13 +1744,13 @@ export class DailyBuildService {
           accountId: payload.accountId,
           projectId,
           adName: `${darenName}-${rule.douyinAccount}-${payload.drama}-${formatBuildDate()}`,
-          iesCoreId: accountInfo.iesCoreId,
+          iesCoreId: ruleBuildData.iesCoreId,
           materials: matchedMaterials,
           initData: nextInitData,
         },
         payload,
         cookieHeader,
-        signal
+        signal,
       );
     } catch (error) {
       throw formatStepError("创建广告", error);
@@ -1703,10 +1769,11 @@ export class DailyBuildService {
     const signal = controller.signal;
     const skippedRules: DailyBuildSkippedRule[] = [];
     let successRuleCount = 0;
+    let totalRules = 0;
 
     try {
       const distributorId = String(
-        payload.buildSettings.buildParams.distributorId || ""
+        payload.buildSettings.buildParams.distributorId || "",
       ).trim();
       if (!distributorId) {
         throw new Error("当前达人缺少搭建参数 distributorId 配置");
@@ -1714,40 +1781,85 @@ export class DailyBuildService {
 
       const cookieHeader = await juliangService.getCookieHeader();
 
-      this.emitState(payload, "assetizing", "正在准备封面图并执行资产化");
+      const executableRules = this.getExecutableRules(payload.buildSettings);
+      if (!executableRules.length) {
+        throw new Error("当前分配方式下没有可执行的抖音号规则");
+      }
+
+      let prefetchedFirstRuleData: PrefetchedRuleBuildData | undefined;
+      let totalMaterialCount = payload.files.length;
+
+      if (totalMaterialCount <= 0) {
+        prefetchedFirstRuleData = await this.loadRuleBuildData(
+          payload,
+          executableRules[0],
+          cookieHeader,
+          signal,
+        );
+        totalMaterialCount = inferMaterialCountFromMaterials({
+          materials: prefetchedFirstRuleData.materials,
+          template: payload.buildSettings.materialFilenameTemplate,
+          dramaName: payload.drama,
+          materialDateValue: payload.buildSettings.materialDateValue,
+        });
+        if (totalMaterialCount <= 0) {
+          throw new Error("未在巨量素材中匹配到可分配素材");
+        }
+      }
+
+      const allocationPlans = buildRuleMaterialAllocationPlans(
+        executableRules,
+        totalMaterialCount,
+      );
+      if (!allocationPlans.length) {
+        throw new Error("根据当前素材数量和分配方式，没有可执行的搭建规则");
+      }
+      totalRules = allocationPlans.length;
+
+      this.emitState(
+        payload,
+        "assetizing",
+        "正在准备封面图并执行资产化",
+        totalRules,
+      );
       const coverImage = await this.fetchCoverImage(signal);
       const initData = await this.executeAssetization(
         payload,
         coverImage,
-        distributorId,
         cookieHeader,
-        signal
+        signal,
       );
 
-      const rules = payload.buildSettings.douyinMaterialRules;
-      for (let index = 0; index < rules.length; index += 1) {
-        const rule = rules[index];
+      for (let index = 0; index < allocationPlans.length; index += 1) {
+        const plan = allocationPlans[index];
+        const rule = plan.rule;
         this.emitState(
           payload,
           "building",
           `正在搭建抖音号 ${rule.douyinAccount}`,
+          totalRules,
           index + 1,
           successRuleCount,
-          skippedRules.length
+          skippedRules.length,
         );
 
         try {
           await this.buildSingleRule(
             payload,
             rule,
+            plan.sequences,
             initData,
             distributorId,
             cookieHeader,
-            signal
+            signal,
+            index === 0 && prefetchedFirstRuleData
+              ? prefetchedFirstRuleData
+              : undefined,
           );
           successRuleCount += 1;
         } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
           skippedRules.push({
             ruleId: rule.id,
             douyinAccount: rule.douyinAccount,
@@ -1765,23 +1877,64 @@ export class DailyBuildService {
         throw new Error(error);
       }
 
+      let materialPreviewSchedule:
+        | DailyBuildMaterialPreviewSchedule
+        | undefined;
+      if (payload.postBuildPreview?.enabled) {
+        const previewAwemeWhiteList = Array.from(
+          new Set(
+            executableRules
+              .map((rule) => String(rule.douyinAccount || "").trim())
+              .filter(Boolean),
+          ),
+        );
+
+        try {
+          const scheduleResult =
+            await materialPreviewService.scheduleAfterBuild({
+              accountId: payload.accountId,
+              dramaName: payload.drama,
+              awemeWhiteList: previewAwemeWhiteList,
+              cookieHeader,
+              delaysMinutes: payload.postBuildPreview.delaysMinutes || [20, 30],
+            });
+          materialPreviewSchedule = {
+            enabled: true,
+            scheduledCount: scheduleResult.scheduledCount,
+            delaysMinutes: scheduleResult.delaysMinutes,
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.log(`素材预览定时任务创建失败：${errorMessage}`);
+          materialPreviewSchedule = {
+            enabled: true,
+            scheduledCount: 0,
+            delaysMinutes: payload.postBuildPreview.delaysMinutes || [20, 30],
+            error: errorMessage,
+          };
+        }
+      }
+
       this.emitState(
         payload,
         "completed",
-        `搭建完成（成功 ${successRuleCount}/${payload.buildSettings.douyinMaterialRules.length}）`,
-        payload.buildSettings.douyinMaterialRules.length,
+        `搭建完成（成功 ${successRuleCount}/${totalRules}）`,
+        totalRules,
+        totalRules,
         successRuleCount,
-        skippedRules.length
+        skippedRules.length,
       );
 
       return {
         success: true,
         taskId: payload.taskId,
         drama: payload.drama,
-        totalRules: payload.buildSettings.douyinMaterialRules.length,
+        totalRules,
         successRuleCount,
         failedRuleCount: skippedRules.length,
         skippedRules,
+        materialPreviewSchedule,
       };
     } catch (error) {
       const cancelled = signal.aborted;
@@ -1795,9 +1948,10 @@ export class DailyBuildService {
         payload,
         cancelled ? "cancelled" : "failed",
         errorMessage,
+        totalRules,
         0,
         successRuleCount,
-        skippedRules.length
+        skippedRules.length,
       );
 
       return {
@@ -1805,7 +1959,7 @@ export class DailyBuildService {
         cancelled,
         taskId: payload.taskId,
         drama: payload.drama,
-        totalRules: payload.buildSettings.douyinMaterialRules.length,
+        totalRules,
         successRuleCount,
         failedRuleCount: skippedRules.length,
         skippedRules,

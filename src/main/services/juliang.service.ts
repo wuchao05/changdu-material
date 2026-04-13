@@ -123,6 +123,26 @@ export interface JuliangConfig {
   };
 }
 
+interface JuliangProjectListResponse {
+  code?: number;
+  msg?: string;
+  message?: string;
+  data?: {
+    projects?: Array<{
+      project_id?: string | number;
+    }>;
+    pagination?: {
+      total_page?: number;
+    };
+  };
+}
+
+interface JuliangProjectDeleteResponse {
+  code?: number;
+  msg?: string;
+  message?: string;
+}
+
 // 默认配置
 const DEFAULT_CONFIG: JuliangConfig = {
   baseUploadUrl:
@@ -180,6 +200,40 @@ export class JuliangService {
     "竖版视频",
     "横版视频",
   ];
+
+  private async parseJsonResponse<T>(
+    response: Response,
+    actionName: string,
+  ): Promise<T> {
+    const responseText = await response.text();
+    let result: T;
+    try {
+      result = JSON.parse(responseText) as T;
+    } catch {
+      const snippet = responseText.slice(0, 200).replace(/\s+/g, " ").trim();
+      throw new Error(
+        `${actionName}返回非 JSON 响应：HTTP ${response.status} ${response.statusText}，响应片段：${snippet || "empty"}`,
+      );
+    }
+
+    if (!response.ok) {
+      const message =
+        typeof result === "object" && result
+          ? String(
+              (result as { message?: string; msg?: string; error?: string })
+                .message ||
+                (result as { message?: string; msg?: string; error?: string })
+                  .msg ||
+                (result as { message?: string; msg?: string; error?: string })
+                  .error ||
+                `${response.status} ${response.statusText}`,
+            )
+          : `${response.status} ${response.statusText}`;
+      throw new Error(`${actionName}失败：${message}`);
+    }
+
+    return result;
+  }
 
   /**
    * 获取用户数据目录
@@ -500,13 +554,14 @@ export class JuliangService {
       | JuliangLoginStateStorage
       | null;
 
-    const storageState =
+    const storageState = (
       parsed &&
       typeof parsed === "object" &&
       "storageState" in parsed &&
       parsed.storageState
         ? parsed.storageState
-        : parsed;
+        : parsed
+    ) as JuliangLoginStateStorage | null;
 
     if (
       !storageState ||
@@ -691,6 +746,137 @@ export class JuliangService {
     }
 
     return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  }
+
+  async clearExistingProjects(accountId: string): Promise<{
+    queriedCount: number;
+    deletedCount: number;
+    projectIds: string[];
+  }> {
+    const normalizedAccountId = String(accountId || "").trim();
+    if (!normalizedAccountId) {
+      throw new Error("缺少账户 ID");
+    }
+
+    const cookieHeader = await this.getCookieHeader();
+    const dateString = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const projectIds: string[] = [];
+    let page = 1;
+    let totalPages = 1;
+
+    this.log(`开始清理账户 ${normalizedAccountId} 的历史项目`);
+
+    while (page <= totalPages) {
+      const response = await fetch(
+        `https://ad.oceanengine.com/ad/api/promotion/projects/list?aadvid=${normalizedAccountId}`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: cookieHeader,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            project_status: [-1],
+            search_type: "8",
+            promotion_status: [-1],
+            st: dateString,
+            et: dateString,
+            campaign_type: [1],
+            page,
+            limit: 30,
+            fields: [
+              "stat_cost",
+              "show_cnt",
+              "cpm_platform",
+              "click_cnt",
+              "ctr",
+              "cpc_platform",
+              "convert_cnt",
+              "conversion_rate",
+              "conversion_cost",
+            ],
+            cascade_fields: ["support_cost_rate_7d", "budget_optimize_switch"],
+            sort_stat: "create_time",
+            sort_order: 1,
+            need_trans_toLocal: true,
+            isSophonx: 1,
+          }),
+        },
+      );
+
+      const result = await this.parseJsonResponse<JuliangProjectListResponse>(
+        response,
+        "查询项目列表",
+      );
+      if (result.code !== 0) {
+        throw new Error(result.msg || result.message || "查询项目列表失败");
+      }
+
+      const projects = Array.isArray(result.data?.projects)
+        ? result.data.projects
+        : [];
+      projectIds.push(
+        ...projects
+          .map((project) => String(project?.project_id || "").trim())
+          .filter(Boolean),
+      );
+
+      totalPages = Math.max(
+        1,
+        Number(result.data?.pagination?.total_page || 1),
+      );
+      page += 1;
+    }
+
+    const uniqueProjectIds = [...new Set(projectIds)];
+    if (!uniqueProjectIds.length) {
+      this.log(`账户 ${normalizedAccountId} 没有可删除的历史项目`);
+      return {
+        queriedCount: 0,
+        deletedCount: 0,
+        projectIds: [],
+      };
+    }
+
+    for (let index = 0; index < uniqueProjectIds.length; index += 20) {
+      const chunk = uniqueProjectIds.slice(index, index + 20);
+      const response = await fetch(
+        `https://ad.oceanengine.com/ad/api/promotion/projects/delete?aadvid=${normalizedAccountId}`,
+        {
+          method: "POST",
+          headers: {
+            Cookie: cookieHeader,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ProjectIds: chunk,
+            ForceAsync: false,
+          }),
+        },
+      );
+
+      const result = await this.parseJsonResponse<JuliangProjectDeleteResponse>(
+        response,
+        "删除项目",
+      );
+      if (result.code !== 0) {
+        throw new Error(result.msg || result.message || "删除项目失败");
+      }
+    }
+
+    this.log(
+      `账户 ${normalizedAccountId} 历史项目清理完成，共删除 ${uniqueProjectIds.length} 个项目`,
+    );
+    return {
+      queriedCount: uniqueProjectIds.length,
+      deletedCount: uniqueProjectIds.length,
+      projectIds: uniqueProjectIds,
+    };
   }
 
   /**

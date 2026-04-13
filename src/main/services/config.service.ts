@@ -64,6 +64,14 @@ export interface ApiConfig {
   xtToken: string;
 }
 
+import {
+  buildEqualPercentages,
+  normalizeAllocationMaxPercent,
+  normalizeAllocationOrder,
+  normalizeAllocationPercent,
+  normalizeAllocationWeight,
+} from "../../shared/material-allocation";
+
 export interface UploadBuildParams {
   distributorId: string;
   secretKey: string;
@@ -74,16 +82,25 @@ export interface UploadBuildParams {
   landingUrl: string;
   microAppName: string;
   microAppId: string;
+  microAppInstanceId: string;
   ccId: string;
   rechargeTemplateId: string;
 }
+
+export type MaterialAllocationMode = "average" | "ratio";
 
 export interface DouyinMaterialRule {
   id: string;
   douyinAccount: string;
   douyinAccountId: string;
   shortName: string;
-  materialRange: string;
+  percent?: number;
+  maxPercent?: number;
+  locked?: boolean;
+  weight?: number;
+  order?: number;
+  materialRange?: string;
+  materialRatio?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -93,6 +110,7 @@ export interface UploadBuildSettings {
   darenName?: string;
   materialFilenameTemplate: string;
   materialDateValue?: string;
+  materialAllocationMode: MaterialAllocationMode;
   douyinMaterialRules: DouyinMaterialRule[];
 }
 
@@ -389,12 +407,14 @@ export class ConfigService {
         landingUrl: "",
         microAppName: "",
         microAppId: "",
+        microAppInstanceId: "",
         ccId: "",
         rechargeTemplateId: "",
       },
       darenName: "小鱼",
       materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
       materialDateValue: "",
+      materialAllocationMode: "ratio",
       douyinMaterialRules: [],
     };
   }
@@ -406,6 +426,24 @@ export class ConfigService {
     const rules = Array.isArray(settings?.douyinMaterialRules)
       ? settings!.douyinMaterialRules
       : [];
+    const normalizedRules = rules.map((rule, index) => ({
+      ...this.normalizeDouyinMaterialRule(rule),
+      order: normalizeAllocationOrder(rule?.order, index + 1),
+    }));
+
+    if (
+      normalizedRules.length > 0 &&
+      normalizedRules.every(
+        (rule) => normalizeAllocationPercent(rule.percent) === 0,
+      ) &&
+      settings?.materialAllocationMode === "average"
+    ) {
+      const equalPercentages = buildEqualPercentages(normalizedRules.length);
+      normalizedRules.forEach((rule, index) => {
+        rule.percent = equalPercentages[index] || 0;
+        rule.materialRatio = rule.percent;
+      });
+    }
 
     return {
       buildParams: {
@@ -417,9 +455,8 @@ export class ConfigService {
         settings?.materialFilenameTemplate?.trim() ||
         defaultSettings.materialFilenameTemplate,
       materialDateValue: settings?.materialDateValue?.trim() || "",
-      douyinMaterialRules: rules.map((rule) =>
-        this.normalizeDouyinMaterialRule(rule),
-      ),
+      materialAllocationMode: "ratio",
+      douyinMaterialRules: normalizedRules,
     };
   }
 
@@ -432,7 +469,17 @@ export class ConfigService {
       douyinAccount: rule?.douyinAccount?.trim() || "",
       douyinAccountId: rule?.douyinAccountId?.trim() || "",
       shortName: rule?.shortName?.trim() || "",
+      percent: normalizeAllocationPercent(
+        rule?.percent ?? rule?.materialRatio ?? 0,
+      ),
+      maxPercent: normalizeAllocationMaxPercent(rule?.maxPercent ?? 100),
+      locked: Boolean(rule?.locked),
+      weight: normalizeAllocationWeight(rule?.weight ?? 1),
+      order: normalizeAllocationOrder(rule?.order, 1),
       materialRange: rule?.materialRange?.trim() || "",
+      materialRatio: normalizeAllocationPercent(
+        rule?.materialRatio ?? rule?.percent ?? 0,
+      ),
       createdAt: rule?.createdAt || now,
       updatedAt: now,
     };
@@ -637,13 +684,21 @@ export class ConfigService {
     const runtimeUser = runtimeConfig.runtimeUser;
     const desktopMenus = runtimeUser?.permissions?.desktopMenus;
     const buildConfig = runtimeConfig.buildConfig;
-    const douyinMaterialRules = Array.isArray(runtimeUser?.douyinMaterialMatches)
+    const douyinMaterialRules = Array.isArray(
+      runtimeUser?.douyinMaterialMatches,
+    )
       ? runtimeUser.douyinMaterialMatches.map((item) =>
           this.normalizeDouyinMaterialRule({
             id: item.id,
             douyinAccount: item.douyinAccount,
             douyinAccountId: item.douyinAccountId,
+            percent: item.percent,
+            maxPercent: item.maxPercent,
+            locked: item.locked,
+            weight: item.weight,
+            order: item.order,
             materialRange: item.materialRange,
+            materialRatio: item.materialRatio,
             createdAt: item.createdAt,
             updatedAt: item.updatedAt,
           }),
@@ -671,12 +726,14 @@ export class ConfigService {
           landingUrl: buildConfig.landingUrl,
           microAppName: buildConfig.microAppName,
           microAppId: buildConfig.microAppId,
+          microAppInstanceId: buildConfig.microAppInstanceId,
           ccId: buildConfig.ccId,
           rechargeTemplateId: buildConfig.rechargeTemplateId,
         },
         darenName: runtimeUser?.nickname || runtimeConfig.user.nickname,
         materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
         materialDateValue: "",
+        materialAllocationMode: "ratio",
         douyinMaterialRules,
       },
     });

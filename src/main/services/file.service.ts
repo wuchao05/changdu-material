@@ -172,39 +172,59 @@ export class FileService {
         throw new Error("素材目录不存在");
       }
 
-      const dramaFolders = fs
-        .readdirSync(basePath, { withFileTypes: true })
-        .filter((dirent) => dirent.isDirectory());
+      const mp4Files = this.collectRootLevelMp4Files(basePath);
+      if (mp4Files.length === 0) {
+        return {
+          success: true,
+          dramaCount: 0,
+          renamedCount: 0,
+          skippedCount: 0,
+        };
+      }
 
       let dramaCount = 0;
       let renamedCount = 0;
       let skippedCount = 0;
 
-      for (const folder of dramaFolders) {
-        const dramaName = folder.name;
-        const dramaPath = path.join(basePath, dramaName);
-        const files = fs
-          .readdirSync(dramaPath, { withFileTypes: true })
-          .filter(
-            (dirent) =>
-              dirent.isFile() &&
-              path.extname(dirent.name).toLowerCase() === ".mp4",
-          )
-          .map((dirent) => dirent.name)
-          .sort((a, b) => this.compareFileNames(a, b));
+      const groupedFiles = new Map<string, string[]>();
+      for (const filePath of mp4Files) {
+        const dramaName = this.resolveDramaNameForRename(basePath, filePath);
+        const dramaFiles = groupedFiles.get(dramaName) || [];
+        dramaFiles.push(filePath);
+        groupedFiles.set(dramaName, dramaFiles);
+      }
 
-        if (files.length === 0) {
+      const allPlans: Array<{
+        fileName: string;
+        oldPath: string;
+        targetName: string;
+        targetPath: string;
+      }> = [];
+
+      for (const [dramaName, dramaFiles] of groupedFiles.entries()) {
+        const normalizedDramaName = dramaName.trim();
+        if (!normalizedDramaName) {
+          throw new Error("存在无法识别剧名的素材文件");
+        }
+
+        const targetDramaPath = path.join(basePath, normalizedDramaName);
+        const sortedFiles = [...dramaFiles].sort((left, right) =>
+          this.compareFileNames(path.basename(left), path.basename(right)),
+        );
+
+        if (sortedFiles.length === 0) {
           continue;
         }
 
         dramaCount += 1;
-        const plans = files.map((fileName, index) => {
-          const oldPath = path.join(dramaPath, fileName);
+
+        const plans = sortedFiles.map((oldPath, index) => {
+          const fileName = path.basename(oldPath);
           const sequence = String(index + 1).padStart(2, "0");
           const extension = path.extname(fileName) || ".mp4";
           let targetName = this.normalizeTemplateFileName(
             normalizedTemplate
-              .replaceAll("{剧名}", dramaName)
+              .replaceAll("{剧名}", normalizedDramaName)
               .replaceAll("{日期}", resolvedDateValue)
               .replaceAll("{简称}", "")
               .replaceAll("{序号}", sequence),
@@ -218,7 +238,7 @@ export class FileService {
             fileName,
             oldPath,
             targetName,
-            targetPath: path.join(dramaPath, targetName),
+            targetPath: path.join(targetDramaPath, targetName),
           };
         });
 
@@ -227,46 +247,50 @@ export class FileService {
           const lowerTargetName = plan.targetName.toLowerCase();
           if (targetNameSet.has(lowerTargetName)) {
             throw new Error(
-              `《${dramaName}》重命名后文件名重复：${plan.targetName}`,
+              `《${normalizedDramaName}》重命名后文件名重复：${plan.targetName}`,
             );
           }
           targetNameSet.add(lowerTargetName);
         }
 
-        const originalPathSet = new Set(plans.map((plan) => plan.oldPath));
-        for (const plan of plans) {
-          if (
-            plan.oldPath !== plan.targetPath &&
-            fs.existsSync(plan.targetPath) &&
-            !originalPathSet.has(plan.targetPath)
-          ) {
-            throw new Error(
-              `《${dramaName}》目标文件已存在：${plan.targetName}`,
-            );
-          }
-        }
+        allPlans.push(...plans);
+      }
 
-        const changedPlans = plans.filter(
-          (plan) => plan.fileName !== plan.targetName,
+      const originalPathSet = new Set(allPlans.map((plan) => plan.oldPath));
+      for (const plan of allPlans) {
+        if (
+          plan.oldPath !== plan.targetPath &&
+          fs.existsSync(plan.targetPath) &&
+          !originalPathSet.has(plan.targetPath)
+        ) {
+          const dramaName = path.basename(path.dirname(plan.targetPath));
+          throw new Error(`《${dramaName}》目标文件已存在：${plan.targetName}`);
+        }
+      }
+
+      const changedPlans = allPlans.filter(
+        (plan) => plan.oldPath !== plan.targetPath,
+      );
+      skippedCount = allPlans.length - changedPlans.length;
+
+      for (let index = 0; index < changedPlans.length; index += 1) {
+        const plan = changedPlans[index];
+        const tempPath = path.join(
+          path.dirname(plan.oldPath),
+          `.__rename_tmp__${Date.now()}_${index}_${Math.random()
+            .toString(36)
+            .slice(2, 8)}${path.extname(plan.fileName)}`,
         );
-        skippedCount += plans.length - changedPlans.length;
+        await fs.promises.rename(plan.oldPath, tempPath);
+        plan.oldPath = tempPath;
+      }
 
-        for (let index = 0; index < changedPlans.length; index += 1) {
-          const plan = changedPlans[index];
-          const tempPath = path.join(
-            dramaPath,
-            `.__rename_tmp__${Date.now()}_${index}_${Math.random()
-              .toString(36)
-              .slice(2, 8)}${path.extname(plan.fileName)}`,
-          );
-          await fs.promises.rename(plan.oldPath, tempPath);
-          plan.oldPath = tempPath;
-        }
-
-        for (const plan of changedPlans) {
-          await fs.promises.rename(plan.oldPath, plan.targetPath);
-          renamedCount += 1;
-        }
+      for (const plan of changedPlans) {
+        await fs.promises.mkdir(path.dirname(plan.targetPath), {
+          recursive: true,
+        });
+        await fs.promises.rename(plan.oldPath, plan.targetPath);
+        renamedCount += 1;
       }
 
       return {
@@ -299,6 +323,39 @@ export class FileService {
     ];
     const ext = path.extname(fileName).toLowerCase();
     return videoExtensions.includes(ext);
+  }
+
+  private collectRootLevelMp4Files(basePath: string): string[] {
+    return fs
+      .readdirSync(basePath, { withFileTypes: true })
+      .filter(
+        (entry) =>
+          entry.isFile() &&
+          path.extname(entry.name).toLowerCase() === ".mp4" &&
+          !entry.name.startsWith(".__rename_tmp__"),
+      )
+      .map((entry) => path.join(basePath, entry.name));
+  }
+
+  private resolveDramaNameForRename(
+    _basePath: string,
+    filePath: string,
+  ): string {
+    return this.extractDramaNameFromFileName(path.basename(filePath));
+  }
+
+  private extractDramaNameFromFileName(fileName: string): string {
+    const baseName = path.basename(fileName, path.extname(fileName)).trim();
+    const delimiters = ["（", "(", "-", "."];
+
+    for (const delimiter of delimiters) {
+      const delimiterIndex = baseName.indexOf(delimiter);
+      if (delimiterIndex > 0) {
+        return baseName.slice(0, delimiterIndex).trim();
+      }
+    }
+
+    return baseName;
   }
 
   private compareFileNames(a: string, b: string): number {

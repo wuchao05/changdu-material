@@ -1,5 +1,12 @@
 import { computed, ref } from "vue";
 import { defineStore, storeToRefs } from "pinia";
+import {
+  buildEqualPercentages,
+  normalizeAllocationMaxPercent,
+  normalizeAllocationOrder,
+  normalizeAllocationPercent,
+  normalizeAllocationWeight,
+} from "../../../shared/material-allocation";
 import { useApiConfigStore } from "./apiConfig";
 import { useSessionStore } from "./session";
 
@@ -13,16 +20,25 @@ export interface UploadBuildParams {
   landingUrl: string;
   microAppName: string;
   microAppId: string;
+  microAppInstanceId: string;
   ccId: string;
   rechargeTemplateId: string;
 }
+
+export type MaterialAllocationMode = "average" | "ratio";
 
 export interface DouyinMaterialRule {
   id: string;
   douyinAccount: string;
   douyinAccountId: string;
   shortName: string;
-  materialRange: string;
+  percent?: number;
+  maxPercent?: number;
+  locked?: boolean;
+  weight?: number;
+  order?: number;
+  materialRange?: string;
+  materialRatio?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -32,6 +48,7 @@ export interface UploadBuildSettings {
   darenName?: string;
   materialFilenameTemplate: string;
   materialDateValue?: string;
+  materialAllocationMode: MaterialAllocationMode;
   douyinMaterialRules: DouyinMaterialRule[];
 }
 
@@ -60,26 +77,36 @@ function createDefaultBuildSettings(nickname = "小鱼"): UploadBuildSettings {
       landingUrl: "",
       microAppName: "",
       microAppId: "",
+      microAppInstanceId: "",
       ccId: "",
       rechargeTemplateId: "",
     },
     darenName: nickname,
     materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
     materialDateValue: "",
+    materialAllocationMode: "ratio",
     douyinMaterialRules: [],
   };
 }
 
-function normalizeRule(
-  rule?: Partial<DouyinMaterialRule>,
-): DouyinMaterialRule {
+function normalizeRule(rule?: Partial<DouyinMaterialRule>): DouyinMaterialRule {
   const now = new Date().toISOString();
   return {
     id: rule?.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     douyinAccount: rule?.douyinAccount?.trim() || "",
     douyinAccountId: rule?.douyinAccountId?.trim() || "",
     shortName: rule?.shortName?.trim() || "",
+    percent: normalizeAllocationPercent(
+      rule?.percent ?? rule?.materialRatio ?? 0,
+    ),
+    maxPercent: normalizeAllocationMaxPercent(rule?.maxPercent ?? 100),
+    locked: Boolean(rule?.locked),
+    weight: normalizeAllocationWeight(rule?.weight ?? 1),
+    order: normalizeAllocationOrder(rule?.order, 1),
     materialRange: rule?.materialRange?.trim() || "",
+    materialRatio: normalizeAllocationPercent(
+      rule?.materialRatio ?? rule?.percent ?? 0,
+    ),
     createdAt: rule?.createdAt || now,
     updatedAt: rule?.updatedAt || now,
   };
@@ -90,6 +117,28 @@ function normalizeBuildSettings(
   nickname: string,
 ): UploadBuildSettings {
   const defaults = createDefaultBuildSettings(nickname);
+  const normalizedRules = Array.isArray(settings?.douyinMaterialRules)
+    ? settings.douyinMaterialRules.map((rule, index) => ({
+        ...normalizeRule(rule),
+        order: normalizeAllocationOrder(rule?.order, index + 1),
+      }))
+    : [];
+
+  const shouldBackfillEqualPercentages =
+    normalizedRules.length > 0 &&
+    normalizedRules.every(
+      (rule) => normalizeAllocationPercent(rule.percent) === 0,
+    ) &&
+    settings?.materialAllocationMode === "average";
+
+  if (shouldBackfillEqualPercentages) {
+    const equalPercentages = buildEqualPercentages(normalizedRules.length);
+    normalizedRules.forEach((rule, index) => {
+      rule.percent = equalPercentages[index] || 0;
+      rule.materialRatio = rule.percent;
+    });
+  }
+
   return {
     buildParams: {
       ...defaults.buildParams,
@@ -100,9 +149,8 @@ function normalizeBuildSettings(
       settings?.materialFilenameTemplate?.trim() ||
       defaults.materialFilenameTemplate,
     materialDateValue: settings?.materialDateValue?.trim() || "",
-    douyinMaterialRules: Array.isArray(settings?.douyinMaterialRules)
-      ? settings.douyinMaterialRules.map((rule) => normalizeRule(rule))
-      : [],
+    materialAllocationMode: "ratio",
+    douyinMaterialRules: normalizedRules,
   };
 }
 
@@ -162,7 +210,9 @@ export const useDarenStore = defineStore("daren", () => {
     }
 
     try {
-      const raw = localStorage.getItem(buildSettingsStorageKey(userId, channelId));
+      const raw = localStorage.getItem(
+        buildSettingsStorageKey(userId, channelId),
+      );
       if (!raw) {
         buildSettings.value = normalizeBuildSettings(undefined, nickname);
         return;
@@ -177,7 +227,9 @@ export const useDarenStore = defineStore("daren", () => {
     }
   }
 
-  function saveBuildSettingsToStorage(nextSettings: Partial<UploadBuildSettings>) {
+  function saveBuildSettingsToStorage(
+    nextSettings?: Partial<UploadBuildSettings>,
+  ) {
     const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";
     const channelId = currentChannel.value?.id || "";
     const nickname =

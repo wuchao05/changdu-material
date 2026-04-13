@@ -156,6 +156,8 @@ const api = {
   sessionLogin: (account: string, password: string) =>
     ipcRenderer.invoke("session:login", account, password),
   sessionGet: () => ipcRenderer.invoke("session:get"),
+  changduSearchSeries: (query: string) =>
+    ipcRenderer.invoke("changdu:searchSeries", query),
   sessionSwitchChannel: (channelId: string) =>
     ipcRenderer.invoke("session:switchChannel", channelId),
   sessionLogout: () => ipcRenderer.invoke("session:logout"),
@@ -397,6 +399,8 @@ const api = {
   juliangCheckLogin: () => ipcRenderer.invoke("juliang:checkLogin"),
   juliangUploadTask: (task: unknown) =>
     ipcRenderer.invoke("juliang:uploadTask", task),
+  juliangClearExistingProjects: (accountId: string) =>
+    ipcRenderer.invoke("juliang:clearExistingProjects", accountId),
   juliangGetConfig: () => ipcRenderer.invoke("juliang:getConfig"),
   juliangUpdateConfig: (config: unknown) =>
     ipcRenderer.invoke("juliang:updateConfig", config),
@@ -430,6 +434,9 @@ const api = {
   dailyBuildGetTaskStates: () =>
     ipcRenderer.invoke("daily-build:getTaskStates"),
   dailyBuildClearLogs: () => ipcRenderer.invoke("daily-build:clearLogs"),
+  materialPreviewGetLogs: () => ipcRenderer.invoke("material-preview:getLogs"),
+  materialPreviewClearLogs: () =>
+    ipcRenderer.invoke("material-preview:clearLogs"),
 
   // ==================== 巨量调度器 ====================
   juliangSchedulerStart: (darenId?: string) =>
@@ -539,6 +546,16 @@ const api = {
     ) => callback(log);
     ipcRenderer.on("daily-build:log", handler);
     return () => ipcRenderer.removeListener("daily-build:log", handler);
+  },
+  onMaterialPreviewLog: (
+    callback: (log: { time: string; message: string }) => void,
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      log: { time: string; message: string },
+    ) => callback(log);
+    ipcRenderer.on("material-preview:log", handler);
+    return () => ipcRenderer.removeListener("material-preview:log", handler);
   },
 };
 

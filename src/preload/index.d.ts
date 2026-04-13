@@ -103,7 +103,13 @@ interface RuntimeUserProfile {
     id: string;
     douyinAccount: string;
     douyinAccountId: string;
-    materialRange: string;
+    percent?: number;
+    maxPercent?: number;
+    locked?: boolean;
+    weight?: number;
+    order?: number;
+    materialRange?: string;
+    materialRatio?: number;
     createdAt?: string;
     updatedAt?: string;
   }>;
@@ -150,6 +156,7 @@ interface SessionRuntimeData {
     landingUrl: string;
     microAppName: string;
     microAppId: string;
+    microAppInstanceId: string;
     ccId: string;
     rechargeTemplateId: string;
     adCallbackConfigId?: string;
@@ -193,16 +200,25 @@ interface UploadBuildParams {
   landingUrl: string;
   microAppName: string;
   microAppId: string;
+  microAppInstanceId: string;
   ccId: string;
   rechargeTemplateId: string;
 }
+
+type MaterialAllocationMode = "average" | "ratio";
 
 interface DouyinMaterialRule {
   id: string;
   douyinAccount: string;
   douyinAccountId: string;
   shortName: string;
-  materialRange: string;
+  percent?: number;
+  maxPercent?: number;
+  locked?: boolean;
+  weight?: number;
+  order?: number;
+  materialRange?: string;
+  materialRatio?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -212,6 +228,7 @@ interface UploadBuildSettings {
   darenName?: string;
   materialFilenameTemplate: string;
   materialDateValue?: string;
+  materialAllocationMode: MaterialAllocationMode;
   douyinMaterialRules: DouyinMaterialRule[];
 }
 
@@ -560,12 +577,20 @@ interface MaterialClipRunState {
   message: string;
 }
 
+interface ChangduSeriesSearchItem {
+  bookId: string;
+  seriesName: string;
+}
+
 interface Api {
   sessionLogin: (
     account: string,
     password: string,
   ) => Promise<SessionRuntimeData>;
   sessionGet: () => Promise<SessionRuntimeData | null>;
+  changduSearchSeries: (
+    query: string,
+  ) => Promise<ChangduSeriesSearchItem | null>;
   sessionSwitchChannel: (channelId: string) => Promise<SessionRuntimeData>;
   sessionLogout: () => Promise<{ success: boolean }>;
   adminListUsers: () => Promise<RuntimeUserProfile[]>;
@@ -748,6 +773,11 @@ interface Api {
   ) => Promise<{ success: boolean; error?: string }>;
   juliangCheckLogin: () => Promise<{ needLogin: boolean }>;
   juliangUploadTask: (task: unknown) => Promise<unknown>;
+  juliangClearExistingProjects: (accountId: string) => Promise<{
+    queriedCount: number;
+    deletedCount: number;
+    projectIds: string[];
+  }>;
   juliangGetConfig: () => Promise<Record<string, unknown>>;
   juliangUpdateConfig: (config: unknown) => Promise<{ success: boolean }>;
   juliangGetScreenshot: () => Promise<string | null>;
@@ -847,6 +877,10 @@ interface Api {
     }>
   >;
   dailyBuildClearLogs: () => Promise<{ success: boolean }>;
+  materialPreviewGetLogs: () => Promise<
+    Array<{ time: string; message: string }>
+  >;
+  materialPreviewClearLogs: () => Promise<{ success: boolean }>;
 
   // 巨量调度器
   juliangSchedulerStart: (darenId?: string) => Promise<JuliangSchedulerResult>;
@@ -908,6 +942,9 @@ interface Api {
     }) => void,
   ) => () => void;
   onDailyBuildLog: (
+    callback: (log: { time: string; message: string }) => void,
+  ) => () => void;
+  onMaterialPreviewLog: (
     callback: (log: { time: string; message: string }) => void,
   ) => () => void;
 }

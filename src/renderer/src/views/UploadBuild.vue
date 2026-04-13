@@ -9,6 +9,7 @@ import {
   NCollapse,
   NCollapseItem,
   NEmpty,
+  NIcon,
   NInput,
   NInputNumber,
   NModal,
@@ -19,17 +20,32 @@ import {
   NTooltip,
   useMessage,
 } from "naive-ui";
+import { RefreshOutline, TrashOutline } from "@vicons/ionicons5";
+import {
+  calculateAllocationSummary,
+  distributeRemainingByWeight,
+  distributeRemainingEvenly,
+  getRowAvailableIncrease,
+  getRowMaxSettablePercent,
+  normalizeAllocationMaxPercent,
+  normalizeAllocationPercent,
+  normalizeAllocationWeight,
+  normalizeUnlockedAllocation,
+  setAllocationPercent,
+} from "../../../shared/material-allocation";
 import {
   useDarenStore,
   type DarenInfo,
   type DouyinMaterialRule,
   type UploadBuildSettings,
 } from "../stores/daren";
+import { useApiConfigStore } from "../stores/apiConfig";
 import { useSessionStore } from "../stores/session";
 
 type UploadStatus = "pending" | "uploading" | "uploaded" | "failed";
 type BuildStatus = "idle" | "building" | "built" | "failed" | "cancelled";
 type RowEntryMode = "local" | "build-only";
+type BuildParamField = keyof UploadBuildSettings["buildParams"];
 
 interface DramaUploadRow {
   id: string;
@@ -56,7 +72,16 @@ interface DramaUploadRow {
   buildSuccessRuleCount: number;
   buildFailedRuleCount: number;
   buildTotalRules: number;
+  dramaIdLoading: boolean;
+  dramaIdError?: string;
+  pendingAutoAssignedAccount?: UploadListAutoAssignedAccount;
   skippedRules: Array<{ douyinAccount: string; error: string }>;
+}
+
+interface UploadListDraftRow {
+  row: DramaUploadRow;
+  snapshot: UploadListSavedRowSnapshot;
+  nextAccountId: string;
 }
 
 interface JuliangUploadProgressPayload {
@@ -113,6 +138,12 @@ interface DailyBuildResult {
     error: string;
   }>;
   error?: string;
+  materialPreviewSchedule?: {
+    enabled: boolean;
+    scheduledCount: number;
+    delaysMinutes: number[];
+    error?: string;
+  };
 }
 
 interface UploadBuildViewState {
@@ -124,18 +155,82 @@ interface UploadBuildViewState {
   removedFolderPaths: string[];
 }
 
+interface FeishuRecordItem {
+  record_id: string;
+  fields: Record<string, unknown>;
+}
+
+interface FeishuSearchResponse {
+  code?: number;
+  msg?: string;
+  data?: {
+    items?: FeishuRecordItem[];
+  };
+}
+
+interface UploadListAutoAssignedAccount {
+  accountId: string;
+  recordId: string;
+  tableId: string;
+}
+
+interface UploadListSavedRowSnapshot {
+  rowKey: string;
+  entryMode: RowEntryMode;
+  drama: string;
+  folderPath: string;
+  files: string[];
+  accountId: string;
+  dramaId: string;
+  autoAssignedAccount?: UploadListAutoAssignedAccount;
+}
+
+interface UploadListSavedSnapshot {
+  userId: string;
+  channelId: string;
+  rootDir: string;
+  savedAt: string;
+  rows: UploadListSavedRowSnapshot[];
+}
+
+interface FeishuAccountRecord {
+  recordId: string;
+  accountId: string;
+  isUsed: boolean;
+}
+
+const DEFAULT_MATERIAL_FILENAME_TEMPLATE = "{日期}-{剧名}-{简称}-{序号}.mp4";
 const ROOT_DIR_STORAGE_KEY = "upload-build:root-dir";
 const DELETE_AFTER_UPLOAD_STORAGE_KEY = "upload-build:delete-after-upload";
+const CLEAR_PROJECTS_BEFORE_BUILD_STORAGE_KEY =
+  "upload-build:clear-projects-before-build";
+const AUTO_PREVIEW_AFTER_BUILD_STORAGE_KEY =
+  "upload-build:auto-preview-after-build";
 const VIEW_STATE_STORAGE_KEY = "upload-build:view-state";
-const BUILD_SETTINGS_SAVE_DELAY = 300;
+const UPLOAD_LIST_SNAPSHOT_STORAGE_KEY = "upload-build:upload-list-snapshots";
 const COLLAPSIBLE_SECTION_NAMES = [
   "build-config",
   "douyin-rules",
   "upload-list",
 ];
+const BUILD_PARAM_LABELS: Array<[BuildParamField, string]> = [
+  ["distributorId", "Distributor ID"],
+  ["secretKey", "Secret密钥"],
+  ["source", "来源"],
+  ["bid", "出价"],
+  ["productId", "商品ID"],
+  ["productPlatformId", "商品库ID"],
+  ["landingUrl", "落地页 URL"],
+  ["microAppName", "小程序名称"],
+  ["microAppId", "小程序 AppID"],
+  ["microAppInstanceId", "小程序实例 ID"],
+  ["ccId", "cc_id"],
+  ["rechargeTemplateId", "首充模版ID"],
+];
 
 const darenStore = useDarenStore();
 const sessionStore = useSessionStore();
+const apiConfigStore = useApiConfigStore();
 const message = useMessage();
 
 const rootDir = ref("");
@@ -147,6 +242,7 @@ const isReady = ref(false);
 const needLogin = ref(false);
 const logs = ref<Array<{ time: string; message: string }>>([]);
 const buildLogs = ref<Array<{ time: string; message: string }>>([]);
+const previewLogs = ref<Array<{ time: string; message: string }>>([]);
 const currentProgress = ref<JuliangUploadProgressPayload | null>(null);
 const currentBuildProgress = ref<DailyBuildProgressPayload | null>(null);
 const autoRunEnabled = ref(false);
@@ -165,15 +261,25 @@ const uploadConfig = ref({
   headless: false,
   allowedMissingCount: 0,
   deleteAfterUpload: false,
+  clearProjectsBeforeBuild: false,
+  autoPreviewAfterBuild: false,
 });
 
 let unsubscribeProgress: (() => void) | null = null;
 let unsubscribeLog: (() => void) | null = null;
 let unsubscribeBuildProgress: (() => void) | null = null;
 let unsubscribeBuildLog: (() => void) | null = null;
-let buildSettingsSaveTimer: ReturnType<typeof setTimeout> | null = null;
-let syncingBuildSettings = false;
+let unsubscribePreviewLog: (() => void) | null = null;
 const cancelledTaskIds = new Set<string>();
+const savedBuildSettingsSnapshot = ref<UploadBuildSettings>(
+  createDefaultBuildSettings(),
+);
+const allocationFeedback = ref("");
+const allocationFeedbackType = ref<"info" | "success" | "warning">("info");
+const savingUploadList = ref(false);
+const dramaIdLookupTimers = new Map<string, number>();
+const dramaIdLookupRequestIds = new Map<string, number>();
+const savedUploadListSnapshot = ref<UploadListSavedSnapshot | null>(null);
 
 const totalDramaCount = computed(() => rows.value.length);
 const totalMaterialCount = computed(() =>
@@ -198,37 +304,178 @@ const activeBuildRow = computed(
   () => rows.value.find((row) => row.buildStatus === "building") || null,
 );
 const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
-const validDouyinRules = computed(() =>
+const currentRemoteDarenName = computed(
+  () =>
+    String(
+      sessionStore.currentRuntimeUser?.nickname ||
+        sessionStore.currentUser?.nickname ||
+        "小鱼",
+    ).trim() || "小鱼",
+);
+const currentMaterialShortName = computed(() =>
+  String(
+    sessionStore.currentRuntimeUser?.account ||
+      sessionStore.currentUser?.account ||
+      "",
+  ).trim(),
+);
+const allocationRulesForMath = computed(() =>
+  buildSettings.value.douyinMaterialRules.map((rule, index) => ({
+    ...normalizeRule(rule),
+    order: index + 1,
+  })),
+);
+const configuredDouyinRules = computed(() =>
   buildSettings.value.douyinMaterialRules.filter(
-    (rule) =>
-      rule.douyinAccount.trim() &&
-      rule.douyinAccountId.trim() &&
-      rule.materialRange.trim(),
+    (rule) => rule.douyinAccount.trim() && rule.douyinAccountId.trim(),
   ),
 );
+const executableDouyinRules = computed(() =>
+  configuredDouyinRules.value.filter(
+    (rule) => normalizeAllocationPercent(rule.percent) > 0,
+  ),
+);
+const allocationSummary = computed(() =>
+  calculateAllocationSummary(allocationRulesForMath.value),
+);
+const hasUnsavedBuildSettingsChanges = computed(
+  () =>
+    JSON.stringify(cloneBuildSettings(buildSettings.value)) !==
+    JSON.stringify(savedBuildSettingsSnapshot.value),
+);
+const hasUnsavedBuildParamChanges = computed(
+  () =>
+    JSON.stringify(buildSettings.value.buildParams) !==
+    JSON.stringify(savedBuildSettingsSnapshot.value.buildParams),
+);
+const allocationStatusText = computed(() => {
+  if (allocationSummary.value.status === "over") {
+    return "超限";
+  }
+  if (allocationSummary.value.status === "full") {
+    return "已分满";
+  }
+  return "未分满";
+});
+const allocationStatusType = computed<"success" | "warning" | "error">(() => {
+  if (allocationSummary.value.status === "over") {
+    return "error";
+  }
+  if (allocationSummary.value.status === "full") {
+    return "success";
+  }
+  return "warning";
+});
+const allocationAlertType = computed<"success" | "warning" | "error" | "info">(
+  () =>
+    allocationFeedback.value
+      ? allocationFeedbackType.value
+      : allocationStatusType.value,
+);
+const ruleConfigError = computed(() => getRuleConfigError());
+const canSaveBuildSettings = computed(
+  () => hasUnsavedBuildSettingsChanges.value && !ruleConfigError.value,
+);
+const canSaveBuildParams = computed(() => hasUnsavedBuildParamChanges.value);
+const missingBuildParamFields = computed(() => getMissingBuildParamFields());
+const missingBuildParamFieldSet = computed(
+  () => new Set<BuildParamField>(missingBuildParamFields.value),
+);
+const buildParamNoticeType = computed<"success" | "warning" | "info">(() => {
+  if (missingBuildParamFields.value.length) {
+    return "warning";
+  }
+  if (hasUnsavedBuildParamChanges.value) {
+    return "info";
+  }
+  return "success";
+});
+const buildParamNoticeText = computed(() => {
+  if (missingBuildParamFields.value.length) {
+    return `以下配置还未填写：${missingBuildParamFields.value
+      .map((field) => getBuildParamLabel(field))
+      .join("、")}`;
+  }
+  if (hasUnsavedBuildParamChanges.value) {
+    return "当前搭建参数有改动，保存到本地后下次进入会自动带入";
+  }
+  return "当前搭建参数已保存到本地，下次进入会自动带入";
+});
+const currentUploadListSnapshotKey = computed(() => {
+  const userId = apiConfigStore.config.userId.trim();
+  const channelId = apiConfigStore.config.channelId.trim();
+  if (!userId || !channelId) {
+    return "";
+  }
+  return JSON.stringify([userId, channelId, rootDir.value.trim()]);
+});
+const savedUploadListComparableRows = computed(() =>
+  (savedUploadListSnapshot.value?.rows || []).map((row) =>
+    buildUploadListComparableRowFromSnapshot(row),
+  ),
+);
+const currentUploadListComparableRows = computed(() =>
+  rows.value.map((row) => buildUploadListComparableRow(row)),
+);
+const hasUnsavedUploadListChanges = computed(
+  () =>
+    JSON.stringify(currentUploadListComparableRows.value) !==
+    JSON.stringify(savedUploadListComparableRows.value),
+);
+const canSaveUploadList = computed(
+  () =>
+    hasUnsavedUploadListChanges.value &&
+    !savingUploadList.value &&
+    !activeRow.value &&
+    !activeBuildRow.value,
+);
+const canPullUploadListAccounts = computed(
+  () =>
+    rows.value.some((row) => !row.accountId.trim()) &&
+    !savingUploadList.value &&
+    !activeRow.value &&
+    !activeBuildRow.value,
+);
+const uploadListSaveStatusText = computed(() =>
+  hasUnsavedUploadListChanges.value ? "未保存" : "已保存",
+);
+const uploadListSaveStatusType = computed<"success" | "warning">(() =>
+  hasUnsavedUploadListChanges.value ? "warning" : "success",
+);
+const allocationStatusMessage = computed(() => {
+  if (ruleConfigError.value) {
+    return ruleConfigError.value;
+  }
+  if (allocationSummary.value.status === "over") {
+    return "当前总比例已超限，系统不会保留非法值，请继续调整。";
+  }
+  if (allocationSummary.value.status === "full") {
+    return "当前配置合法，可保存。";
+  }
+  return "当前总和未达到 100%，允许保存，但会保留未分配素材。";
+});
 const autoRunDisabledReason = computed(() => {
-  if (!rows.value.length) {
-    return "请先选择素材目录并扫描剧目";
+  const executionError = getExecutionRowsValidationError();
+  if (executionError) {
+    return executionError;
   }
 
-  for (const row of rows.value) {
-    const dramaLabel = row.drama.trim() || "未命名剧目";
-    if (row.entryMode === "build-only" && !row.drama.trim()) {
-      return "提交搭建的剧目需要先填写剧名";
-    }
-    if (!row.accountId.trim()) {
-      return `《${dramaLabel}》还没有填写账户`;
-    }
-    if (!row.dramaId.trim()) {
-      return `《${dramaLabel}》还没有填写短剧ID`;
-    }
+  if (hasUnsavedUploadListChanges.value) {
+    return "请先保存上传列表配置";
+  }
+
+  const buildConfigError = getBuildConfigError();
+  if (buildConfigError) {
+    return buildConfigError;
+  }
+
+  if (hasUnsavedBuildSettingsChanges.value) {
+    return "请先保存搭建参数和抖音号匹配素材配置";
   }
 
   return "";
 });
-const autoRunDisabledTooltip = computed(() =>
-  autoRunDisabledReason.value ? "请先完善剧集的账户、短剧ID等信息" : "",
-);
+const autoRunDisabledTooltip = computed(() => autoRunDisabledReason.value);
 
 const browserStatusText = computed(() => {
   if (isInitializing.value) return "初始化中";
@@ -256,12 +503,14 @@ function createDefaultBuildSettings(): UploadBuildSettings {
       landingUrl: "",
       microAppName: "",
       microAppId: "",
+      microAppInstanceId: "",
       ccId: "",
       rechargeTemplateId: "",
     },
     darenName: "小鱼",
-    materialFilenameTemplate: "{日期}-{剧名}-{简称}-{序号}.mp4",
+    materialFilenameTemplate: DEFAULT_MATERIAL_FILENAME_TEMPLATE,
     materialDateValue: "",
+    materialAllocationMode: "ratio",
     douyinMaterialRules: [],
   };
 }
@@ -273,7 +522,11 @@ function createEmptyRule(): DouyinMaterialRule {
     douyinAccount: "",
     douyinAccountId: "",
     shortName: "",
-    materialRange: "",
+    percent: 0,
+    maxPercent: 100,
+    locked: false,
+    weight: 1,
+    order: buildSettings.value.douyinMaterialRules.length + 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -285,6 +538,25 @@ function cloneBuildSettings(source?: UploadBuildSettings): UploadBuildSettings {
   ) as UploadBuildSettings;
 }
 
+function resolveCurrentDarenName(): string {
+  return currentRemoteDarenName.value;
+}
+
+function getFixedMaterialFilenameTemplate(): string {
+  return DEFAULT_MATERIAL_FILENAME_TEMPLATE;
+}
+
+function resolveTemplateWithCurrentShortName(template: string): string {
+  return template.replaceAll("{简称}", currentMaterialShortName.value);
+}
+
+function createEffectiveBuildSettings(): UploadBuildSettings {
+  const nextSettings = cloneBuildSettings(buildSettings.value);
+  nextSettings.darenName = resolveCurrentDarenName();
+  nextSettings.materialFilenameTemplate = getFixedMaterialFilenameTemplate();
+  return nextSettings;
+}
+
 function normalizeRule(rule?: Partial<DouyinMaterialRule>): DouyinMaterialRule {
   const now = new Date().toISOString();
   return {
@@ -292,7 +564,17 @@ function normalizeRule(rule?: Partial<DouyinMaterialRule>): DouyinMaterialRule {
     douyinAccount: rule?.douyinAccount?.trim() || "",
     douyinAccountId: rule?.douyinAccountId?.trim() || "",
     shortName: rule?.shortName?.trim() || "",
+    percent: normalizeAllocationPercent(
+      rule?.percent ?? rule?.materialRatio ?? 0,
+    ),
+    maxPercent: normalizeAllocationMaxPercent(rule?.maxPercent ?? 100),
+    locked: Boolean(rule?.locked),
+    weight: normalizeAllocationWeight(rule?.weight ?? 1),
+    order: Number(rule?.order || 0),
     materialRange: rule?.materialRange?.trim() || "",
+    materialRatio: normalizeAllocationPercent(
+      rule?.materialRatio ?? rule?.percent ?? 0,
+    ),
     createdAt: rule?.createdAt || now,
     updatedAt: rule?.updatedAt || now,
   };
@@ -308,13 +590,15 @@ function normalizeBuildSettings(
       ...(settings?.buildParams || {}),
     },
     darenName: settings?.darenName?.trim() || defaults.darenName,
-    materialFilenameTemplate:
-      settings?.materialFilenameTemplate?.trim() ||
-      defaults.materialFilenameTemplate,
+    materialFilenameTemplate: getFixedMaterialFilenameTemplate(),
     materialDateValue: settings?.materialDateValue?.trim() || "",
     douyinMaterialRules: Array.isArray(settings?.douyinMaterialRules)
-      ? settings!.douyinMaterialRules.map((rule) => normalizeRule(rule))
+      ? settings!.douyinMaterialRules.map((rule, index) => ({
+          ...normalizeRule(rule),
+          order: Number(rule?.order || index + 1),
+        }))
       : [],
+    materialAllocationMode: "ratio",
   };
 }
 
@@ -352,6 +636,572 @@ function saveStoredValue(
   localStorage.setItem(storageKeyFactory(dirPath), JSON.stringify(current));
 }
 
+function persistLocalAccount(row: DramaUploadRow) {
+  if (row.entryMode !== "local") {
+    return;
+  }
+
+  saveStoredValue(
+    rootDir.value,
+    getAccountStorageKey,
+    row.folderPath,
+    row.accountId.trim(),
+  );
+}
+
+function getUploadListRowKey(row: DramaUploadRow): string {
+  return row.entryMode === "local"
+    ? `local:${row.folderPath}`
+    : `build-only:${row.id}`;
+}
+
+function buildUploadListComparableRow(
+  row: DramaUploadRow,
+): UploadListSavedRowSnapshot {
+  return {
+    rowKey: getUploadListRowKey(row),
+    entryMode: row.entryMode,
+    drama: row.drama.trim(),
+    folderPath: row.folderPath,
+    files: [...row.files],
+    accountId: row.accountId.trim(),
+    dramaId: row.dramaId.trim(),
+  };
+}
+
+function buildUploadListComparableRowFromSnapshot(
+  row: UploadListSavedRowSnapshot,
+): UploadListSavedRowSnapshot {
+  return {
+    rowKey: String(row.rowKey || "").trim(),
+    entryMode: row.entryMode === "build-only" ? "build-only" : "local",
+    drama: String(row.drama || "").trim(),
+    folderPath: String(row.folderPath || ""),
+    files: Array.isArray(row.files)
+      ? row.files.map((item) => String(item || ""))
+      : [],
+    accountId: String(row.accountId || "").trim(),
+    dramaId: String(row.dramaId || "").trim(),
+  };
+}
+
+function normalizeUploadListSavedSnapshot(
+  snapshot?: Partial<UploadListSavedSnapshot> | null,
+): UploadListSavedSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    userId: String(snapshot.userId || "").trim(),
+    channelId: String(snapshot.channelId || "").trim(),
+    rootDir: String(snapshot.rootDir || ""),
+    savedAt: String(snapshot.savedAt || ""),
+    rows: Array.isArray(snapshot.rows)
+      ? snapshot.rows.map((row) => ({
+          ...buildUploadListComparableRowFromSnapshot(row),
+          autoAssignedAccount: row.autoAssignedAccount
+            ? {
+                accountId: String(
+                  row.autoAssignedAccount.accountId || "",
+                ).trim(),
+                recordId: String(row.autoAssignedAccount.recordId || "").trim(),
+                tableId: String(row.autoAssignedAccount.tableId || "").trim(),
+              }
+            : undefined,
+        }))
+      : [],
+  };
+}
+
+function readUploadListSnapshotStore(): Record<
+  string,
+  UploadListSavedSnapshot
+> {
+  try {
+    const raw = localStorage.getItem(UPLOAD_LIST_SNAPSHOT_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, UploadListSavedSnapshot>;
+    const normalizedEntries = Object.entries(parsed).map(([key, value]) => [
+      key,
+      normalizeUploadListSavedSnapshot(value),
+    ]);
+
+    return Object.fromEntries(
+      normalizedEntries.filter(
+        (entry): entry is [string, UploadListSavedSnapshot] =>
+          Boolean(entry[1]),
+      ),
+    );
+  } catch (error) {
+    console.error("读取上传列表保存快照失败:", error);
+    return {};
+  }
+}
+
+function writeUploadListSnapshotStore(
+  snapshots: Record<string, UploadListSavedSnapshot>,
+) {
+  localStorage.setItem(
+    UPLOAD_LIST_SNAPSHOT_STORAGE_KEY,
+    JSON.stringify(snapshots),
+  );
+}
+
+function loadUploadListSnapshot(
+  snapshotKey: string,
+): UploadListSavedSnapshot | null {
+  if (!snapshotKey) {
+    return null;
+  }
+
+  return readUploadListSnapshotStore()[snapshotKey] || null;
+}
+
+function saveUploadListSnapshot(
+  snapshotKey: string,
+  snapshot: UploadListSavedSnapshot,
+) {
+  const snapshots = readUploadListSnapshotStore();
+  snapshots[snapshotKey] = snapshot;
+  writeUploadListSnapshotStore(snapshots);
+  savedUploadListSnapshot.value = snapshot;
+}
+
+function buildUploadListDraftRows(): UploadListDraftRow[] {
+  return rows.value.map((row) => ({
+    row,
+    snapshot: buildUploadListComparableRow(row),
+    nextAccountId: row.accountId.trim(),
+  }));
+}
+
+function collectUploadListAutoAssignments(
+  draftRows: UploadListDraftRow[],
+  previousRowMap: Map<string, UploadListSavedRowSnapshot>,
+) {
+  const finalAutoAssignments = new Map<string, UploadListAutoAssignedAccount>();
+
+  for (const draftRow of draftRows) {
+    const previousAuto = previousRowMap.get(
+      draftRow.snapshot.rowKey,
+    )?.autoAssignedAccount;
+    if (previousAuto) {
+      if (
+        !draftRow.nextAccountId ||
+        draftRow.nextAccountId === previousAuto.accountId
+      ) {
+        draftRow.nextAccountId = previousAuto.accountId;
+        finalAutoAssignments.set(draftRow.snapshot.rowKey, previousAuto);
+        continue;
+      }
+    }
+
+    const pendingAuto = draftRow.row.pendingAutoAssignedAccount;
+    if (pendingAuto && draftRow.nextAccountId === pendingAuto.accountId) {
+      finalAutoAssignments.set(draftRow.snapshot.rowKey, pendingAuto);
+    }
+  }
+
+  return finalAutoAssignments;
+}
+
+async function planUploadListAccountAssignments(
+  draftRows: UploadListDraftRow[],
+  previousAutoAssignmentMap: Map<string, UploadListAutoAssignedAccount>,
+  finalAutoAssignments: Map<string, UploadListAutoAssignedAccount>,
+  accountTableId: string,
+) {
+  let recycledAllAccounts = false;
+  const rowsNeedAutoAssignment = draftRows.filter(
+    (draftRow) => !draftRow.nextAccountId,
+  );
+
+  if (!rowsNeedAutoAssignment.length) {
+    return {
+      recycledAllAccounts,
+      rowsNeedAutoAssignment,
+    };
+  }
+
+  const availableAccountRecords = await queryChannelFeishuAccounts();
+  if (!availableAccountRecords.length) {
+    throw new Error("当前渠道账户表没有可分配的账户记录");
+  }
+
+  const preservedRecordIds = new Set(
+    Array.from(finalAutoAssignments.values()).map((item) => item.recordId),
+  );
+
+  let candidateRecords = availableAccountRecords.filter((record) => {
+    if (!record.recordId || !record.accountId) {
+      return false;
+    }
+    if (preservedRecordIds.has(record.recordId)) {
+      return false;
+    }
+    return !record.isUsed || previousAutoAssignmentMap.has(record.recordId);
+  });
+
+  if (candidateRecords.length < rowsNeedAutoAssignment.length) {
+    recycledAllAccounts = true;
+    candidateRecords = availableAccountRecords.filter(
+      (record) =>
+        Boolean(record.recordId && record.accountId) &&
+        !preservedRecordIds.has(record.recordId),
+    );
+  }
+
+  const occupiedAccounts = new Set(
+    draftRows.map((draftRow) => draftRow.nextAccountId.trim()).filter(Boolean),
+  );
+  const usedRecordIds = new Set(
+    Array.from(finalAutoAssignments.values()).map((item) => item.recordId),
+  );
+
+  for (const draftRow of rowsNeedAutoAssignment) {
+    const candidateIndex = candidateRecords.findIndex(
+      (record) =>
+        !usedRecordIds.has(record.recordId) &&
+        !occupiedAccounts.has(record.accountId.trim()),
+    );
+
+    if (candidateIndex === -1) {
+      throw new Error("可用飞书账户不足，无法为当前上传列表完成分配");
+    }
+
+    const candidate = candidateRecords.splice(candidateIndex, 1)[0];
+    const assignment: UploadListAutoAssignedAccount = {
+      accountId: candidate.accountId.trim(),
+      recordId: candidate.recordId,
+      tableId: accountTableId,
+    };
+    draftRow.nextAccountId = assignment.accountId;
+    finalAutoAssignments.set(draftRow.snapshot.rowKey, assignment);
+    usedRecordIds.add(candidate.recordId);
+    occupiedAccounts.add(assignment.accountId);
+  }
+
+  return {
+    recycledAllAccounts,
+    rowsNeedAutoAssignment,
+  };
+}
+
+function parseFeishuTextField(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.trim()) {
+        return item.trim();
+      }
+      if (
+        item &&
+        typeof item === "object" &&
+        "text" in item &&
+        typeof item.text === "string" &&
+        item.text.trim()
+      ) {
+        return item.text.trim();
+      }
+    }
+  }
+
+  if (value && typeof value === "object" && "text" in value) {
+    const text = value.text;
+    if (typeof text === "string") {
+      return text.trim();
+    }
+  }
+
+  return "";
+}
+
+function isFeishuAccountUsed(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.includes("是");
+  }
+  return String(value || "").trim() === "是";
+}
+
+function buildDuplicateAccountError(
+  rowsToValidate: Array<{ drama: string; accountId: string }>,
+): string {
+  const accountMap = new Map<string, string[]>();
+  for (const row of rowsToValidate) {
+    const accountId = row.accountId.trim();
+    if (!accountId) {
+      continue;
+    }
+    const dramas = accountMap.get(accountId) || [];
+    dramas.push(row.drama.trim() || "未命名剧目");
+    accountMap.set(accountId, dramas);
+  }
+
+  const duplicateEntry = Array.from(accountMap.entries()).find(
+    ([, dramas]) => dramas.length > 1,
+  );
+  if (!duplicateEntry) {
+    return "";
+  }
+
+  const [accountId, dramas] = duplicateEntry;
+  return `账户 ${accountId} 被重复使用：${dramas.join("、")}`;
+}
+
+function getUploadListSaveValidationError(): string {
+  for (const row of rows.value) {
+    const dramaLabel = row.drama.trim() || "未命名剧目";
+    if (row.entryMode === "build-only" && !row.drama.trim()) {
+      return "提交搭建的剧目需要先填写剧名";
+    }
+    if (row.dramaIdLoading) {
+      return `《${dramaLabel}》短剧ID获取中`;
+    }
+    if (!row.dramaId.trim() && row.dramaIdError) {
+      return `《${dramaLabel}》短剧ID获取失败`;
+    }
+    if (!row.dramaId.trim()) {
+      return `《${dramaLabel}》还没有填写短剧ID`;
+    }
+  }
+
+  return "";
+}
+
+function getExecutionRowsValidationError(): string {
+  if (!rows.value.length) {
+    return "请先选择素材目录并扫描剧目";
+  }
+
+  for (const row of rows.value) {
+    const dramaLabel = row.drama.trim() || "未命名剧目";
+    if (row.entryMode === "build-only" && !row.drama.trim()) {
+      return "提交搭建的剧目需要先填写剧名";
+    }
+    if (!row.accountId.trim()) {
+      return `《${dramaLabel}》还没有填写账户`;
+    }
+    if (row.dramaIdLoading) {
+      return `《${dramaLabel}》短剧ID获取中`;
+    }
+    if (!row.dramaId.trim() && row.dramaIdError) {
+      return `《${dramaLabel}》短剧ID获取失败`;
+    }
+    if (!row.dramaId.trim()) {
+      return `《${dramaLabel}》还没有填写短剧ID`;
+    }
+  }
+
+  return "";
+}
+
+async function queryChannelFeishuAccounts(): Promise<FeishuAccountRecord[]> {
+  const appToken = apiConfigStore.config.feishuAppToken.trim();
+  const tableId = apiConfigStore.config.accountTableId.trim();
+  if (!appToken || !tableId) {
+    throw new Error("当前渠道未配置飞书账户表");
+  }
+
+  const result = (await window.api.feishuRequest(
+    `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/search?ignore_consistency_check=true`,
+    {
+      field_names: ["账户", "是否已用"],
+      page_size: 1000,
+    },
+    "POST",
+  )) as FeishuSearchResponse;
+
+  if (result.code !== 0) {
+    throw new Error(result.msg || "查询飞书账户表失败");
+  }
+
+  return Array.isArray(result.data?.items)
+    ? result.data.items.map((item) => ({
+        recordId: item.record_id,
+        accountId: parseFeishuTextField(item.fields?.["账户"]),
+        isUsed: isFeishuAccountUsed(item.fields?.["是否已用"]),
+      }))
+    : [];
+}
+
+async function updateFeishuAccountUsedStatus(recordId: string, used: boolean) {
+  const appToken = apiConfigStore.config.feishuAppToken.trim();
+  const tableId = apiConfigStore.config.accountTableId.trim();
+  if (!appToken || !tableId) {
+    throw new Error("当前渠道未配置飞书账户表");
+  }
+
+  const result = (await window.api.feishuRequest(
+    `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}?ignore_consistency_check=true`,
+    {
+      fields: {
+        是否已用: used ? "是" : "否",
+      },
+    },
+    "PUT",
+  )) as { code?: number; msg?: string };
+
+  if (result.code !== 0) {
+    throw new Error(result.msg || "更新飞书账户状态失败");
+  }
+}
+
+async function resetAllChannelFeishuAccountsUnused(
+  records: FeishuAccountRecord[],
+) {
+  const appToken = apiConfigStore.config.feishuAppToken.trim();
+  const tableId = apiConfigStore.config.accountTableId.trim();
+  if (!appToken || !tableId) {
+    throw new Error("当前渠道未配置飞书账户表");
+  }
+
+  if (!records.length) {
+    return;
+  }
+
+  const chunkSize = 200;
+  for (let index = 0; index < records.length; index += chunkSize) {
+    const chunk = records.slice(index, index + chunkSize);
+    const result = (await window.api.feishuRequest(
+      `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/batch_update?ignore_consistency_check=true`,
+      {
+        records: chunk.map((record) => ({
+          record_id: record.recordId,
+          fields: {
+            是否已用: "否",
+          },
+        })),
+      },
+      "POST",
+    )) as { code?: number; msg?: string };
+
+    if (result.code !== 0) {
+      throw new Error(result.msg || "重置飞书账户状态失败");
+    }
+  }
+}
+
+function clearDramaIdLookupTimer(rowId: string) {
+  const timer = dramaIdLookupTimers.get(rowId);
+  if (timer !== undefined) {
+    window.clearTimeout(timer);
+    dramaIdLookupTimers.delete(rowId);
+  }
+}
+
+function persistLocalDramaId(row: DramaUploadRow) {
+  if (row.entryMode !== "local") {
+    return;
+  }
+
+  saveStoredValue(
+    rootDir.value,
+    getDramaIdStorageKey,
+    row.folderPath,
+    row.dramaId.trim(),
+  );
+}
+
+async function resolveDramaIdForRow(row: DramaUploadRow) {
+  clearDramaIdLookupTimer(row.id);
+
+  const dramaName = row.drama.trim();
+  if (!dramaName) {
+    row.dramaId = "";
+    row.dramaIdLoading = false;
+    row.dramaIdError = undefined;
+    persistLocalDramaId(row);
+    return;
+  }
+
+  const requestId = (dramaIdLookupRequestIds.get(row.id) || 0) + 1;
+  dramaIdLookupRequestIds.set(row.id, requestId);
+
+  row.dramaId = "";
+  row.dramaIdLoading = true;
+  row.dramaIdError = undefined;
+  persistLocalDramaId(row);
+
+  try {
+    const result = await window.api.changduSearchSeries(dramaName);
+    if (dramaIdLookupRequestIds.get(row.id) !== requestId) {
+      return;
+    }
+
+    if (!result?.bookId) {
+      row.dramaId = "";
+      row.dramaIdError = `未找到《${dramaName}》对应的短剧ID`;
+      persistLocalDramaId(row);
+      return;
+    }
+
+    row.dramaId = result.bookId.trim();
+    row.dramaIdError = undefined;
+    persistLocalDramaId(row);
+  } catch (error) {
+    if (dramaIdLookupRequestIds.get(row.id) !== requestId) {
+      return;
+    }
+
+    const errorText =
+      error instanceof Error ? error.message : String(error || "未知错误");
+    row.dramaId = "";
+    row.dramaIdError = `自动获取失败：${errorText}`;
+    persistLocalDramaId(row);
+  } finally {
+    if (dramaIdLookupRequestIds.get(row.id) === requestId) {
+      row.dramaIdLoading = false;
+    }
+  }
+}
+
+async function resolveDramaIdsForRows(targetRows: DramaUploadRow[]) {
+  const queue = targetRows.filter((row) => row.drama.trim());
+  const workerCount = Math.min(queue.length, 3);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (queue.length) {
+        const row = queue.shift();
+        if (!row) {
+          return;
+        }
+        await resolveDramaIdForRow(row);
+      }
+    }),
+  );
+}
+
+function scheduleDramaIdLookup(row: DramaUploadRow, delay = 400) {
+  clearDramaIdLookupTimer(row.id);
+
+  const dramaName = row.drama.trim();
+  if (!dramaName) {
+    row.dramaId = "";
+    row.dramaIdLoading = false;
+    row.dramaIdError = undefined;
+    persistLocalDramaId(row);
+    return;
+  }
+
+  const timer = window.setTimeout(() => {
+    dramaIdLookupTimers.delete(row.id);
+    void resolveDramaIdForRow(row);
+  }, delay);
+  dramaIdLookupTimers.set(row.id, timer);
+}
+
+function refreshDramaId(row: DramaUploadRow) {
+  void resolveDramaIdForRow(row);
+}
+
 function normalizeRow(row?: Partial<DramaUploadRow>): DramaUploadRow {
   return {
     id:
@@ -379,6 +1229,8 @@ function normalizeRow(row?: Partial<DramaUploadRow>): DramaUploadRow {
     buildSuccessRuleCount: Number(row?.buildSuccessRuleCount || 0),
     buildFailedRuleCount: Number(row?.buildFailedRuleCount || 0),
     buildTotalRules: Number(row?.buildTotalRules || 0),
+    dramaIdLoading: Boolean(row?.dramaIdLoading),
+    dramaIdError: row?.dramaIdError,
     skippedRules: Array.isArray(row?.skippedRules)
       ? row.skippedRules.map((item) => ({
           douyinAccount: String(item?.douyinAccount || ""),
@@ -510,24 +1362,58 @@ function getBuildButtonText(row: DramaUploadRow) {
   return "开始搭建";
 }
 
-function schedulePersistBuildSettings() {
-  if (syncingBuildSettings || !currentDaren.value) {
-    return;
+function getUploadProgressPercentage(row: DramaUploadRow): number {
+  if (row.entryMode === "build-only") {
+    return 100;
+  }
+  if (row.status === "uploaded") {
+    return 100;
   }
 
-  if (buildSettingsSaveTimer) {
-    clearTimeout(buildSettingsSaveTimer);
+  const total = Number(row.totalFiles || row.materialCount || 0);
+  if (total <= 0) {
+    return row.status === "pending" ? 0 : 100;
   }
 
-  buildSettingsSaveTimer = setTimeout(async () => {
-    buildSettingsSaveTimer = null;
-    try {
-      await persistBuildSettingsNow();
-    } catch (error) {
-      console.error("保存上传搭建配置失败:", error);
-      message.error(`保存搭建配置失败: ${error}`);
-    }
-  }, BUILD_SETTINGS_SAVE_DELAY);
+  return Math.max(
+    0,
+    Math.min(100, Math.round((Number(row.successCount || 0) / total) * 100)),
+  );
+}
+
+function getBuildProgressPercentage(row: DramaUploadRow): number {
+  if (row.buildStatus === "built") {
+    return 100;
+  }
+
+  const total = Number(row.buildTotalRules || 0);
+  if (total <= 0) {
+    return row.buildStatus === "idle" ? 0 : 100;
+  }
+
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round((Number(row.buildSuccessRuleCount || 0) / total) * 100),
+    ),
+  );
+}
+
+function shouldShowBuildProgress(row: DramaUploadRow): boolean {
+  return (
+    row.entryMode === "build-only" ||
+    row.buildTotalRules > 0 ||
+    row.buildStatus !== "idle"
+  );
+}
+
+function setAllocationFeedbackMessage(
+  text: string,
+  type: "info" | "success" | "warning" = "info",
+) {
+  allocationFeedback.value = text;
+  allocationFeedbackType.value = type;
 }
 
 async function persistBuildSettingsNow() {
@@ -535,35 +1421,42 @@ async function persistBuildSettingsNow() {
     return;
   }
 
-  if (buildSettingsSaveTimer) {
-    clearTimeout(buildSettingsSaveTimer);
-    buildSettingsSaveTimer = null;
-  }
-
-  const payload = cloneBuildSettings(buildSettings.value);
+  const payload = createEffectiveBuildSettings();
   await darenStore.updateDaren(currentDaren.value.id, {
     uploadBuildSettings: payload,
   });
+  savedBuildSettingsSnapshot.value = cloneBuildSettings(payload);
 }
 
 watch(
-  () => currentDaren.value?.uploadBuildSettings,
-  (settings) => {
-    syncingBuildSettings = true;
-    buildSettings.value = normalizeBuildSettings(settings);
-    queueMicrotask(() => {
-      syncingBuildSettings = false;
-    });
+  () => currentDaren.value?.id,
+  () => {
+    buildSettings.value = normalizeBuildSettings(
+      currentDaren.value?.uploadBuildSettings,
+    );
+    savedBuildSettingsSnapshot.value = cloneBuildSettings(buildSettings.value);
+    allocationFeedback.value = "";
   },
   { immediate: true },
 );
 
 watch(
-  buildSettings,
-  () => {
-    schedulePersistBuildSettings();
+  () => sessionStore.currentChannel?.id,
+  (current, previous) => {
+    if (!current || !previous || current === previous || !rows.value.length) {
+      return;
+    }
+
+    void resolveDramaIdsForRows(rows.value);
   },
-  { deep: true },
+);
+
+watch(
+  currentUploadListSnapshotKey,
+  (snapshotKey) => {
+    savedUploadListSnapshot.value = loadUploadListSnapshot(snapshotKey);
+  },
+  { immediate: true },
 );
 
 watch(
@@ -632,6 +1525,10 @@ async function loadUploadConfig() {
       ...config,
       deleteAfterUpload:
         localStorage.getItem(DELETE_AFTER_UPLOAD_STORAGE_KEY) === "1",
+      clearProjectsBeforeBuild:
+        localStorage.getItem(CLEAR_PROJECTS_BEFORE_BUILD_STORAGE_KEY) === "1",
+      autoPreviewAfterBuild:
+        localStorage.getItem(AUTO_PREVIEW_AFTER_BUILD_STORAGE_KEY) === "1",
     };
   } catch (error) {
     console.error("加载巨量配置失败:", error);
@@ -673,12 +1570,24 @@ async function applyUploadConfig(
     DELETE_AFTER_UPLOAD_STORAGE_KEY,
     uploadConfig.value.deleteAfterUpload ? "1" : "0",
   );
+  localStorage.setItem(
+    CLEAR_PROJECTS_BEFORE_BUILD_STORAGE_KEY,
+    uploadConfig.value.clearProjectsBeforeBuild ? "1" : "0",
+  );
+  localStorage.setItem(
+    AUTO_PREVIEW_AFTER_BUILD_STORAGE_KEY,
+    uploadConfig.value.autoPreviewAfterBuild ? "1" : "0",
+  );
 
   const plainConfig = JSON.parse(
     JSON.stringify(uploadConfig.value),
   ) as typeof uploadConfig.value;
-  const { deleteAfterUpload: _deleteAfterUpload, ...serviceConfig } =
-    plainConfig;
+  const {
+    deleteAfterUpload: _deleteAfterUpload,
+    clearProjectsBeforeBuild: _clearProjectsBeforeBuild,
+    autoPreviewAfterBuild: _autoPreviewAfterBuild,
+    ...serviceConfig
+  } = plainConfig;
   try {
     await window.api.juliangUpdateConfig(serviceConfig);
   } catch (error) {
@@ -801,10 +1710,13 @@ async function scanRootDir() {
             ? previous?.buildFailedRuleCount || 0
             : 0,
           buildTotalRules: unchanged ? previous?.buildTotalRules || 0 : 0,
+          dramaIdLoading: false,
+          dramaIdError: undefined,
           skippedRules: unchanged ? previous?.skippedRules || [] : [],
         } satisfies DramaUploadRow;
       });
     rows.value = [...manualRows, ...rows.value];
+    void resolveDramaIdsForRows(rows.value);
   } catch (error) {
     console.error("扫描目录失败:", error);
     message.error(`扫描目录失败: ${error}`);
@@ -947,7 +1859,7 @@ function getRenameTemplateError() {
     return "请先选择素材目录";
   }
 
-  const template = buildSettings.value.materialFilenameTemplate.trim();
+  const template = getFixedMaterialFilenameTemplate().trim();
   if (!template) {
     return "请先填写素材名称模板";
   }
@@ -979,7 +1891,7 @@ async function renameVideosByTemplate() {
   }
 
   const confirmed = window.confirm(
-    "将按当前素材名称模板批量重命名所选目录下所有剧目录中的 mp4 文件。序号会按每部剧目录内现有文件名的自然顺序生成，是否继续？",
+    "仅处理当前目录下的 mp4 文件；会自动按剧名分组并按固定模板重命名，已有子目录会跳过。是否继续？",
   );
   if (!confirmed) {
     return;
@@ -994,7 +1906,7 @@ async function renameVideosByTemplate() {
 
     const result = await window.api.renameVideosByTemplate(
       rootDir.value,
-      buildSettings.value.materialFilenameTemplate.trim(),
+      resolveTemplateWithCurrentShortName(getFixedMaterialFilenameTemplate()),
     );
 
     if (!result.success) {
@@ -1015,30 +1927,20 @@ async function renameVideosByTemplate() {
 
 function handleAccountInput(row: DramaUploadRow, value: string) {
   row.accountId = value.trim();
-  if (row.entryMode === "local") {
-    saveStoredValue(
-      rootDir.value,
-      getAccountStorageKey,
-      row.folderPath,
-      row.accountId,
-    );
+  if (
+    row.pendingAutoAssignedAccount &&
+    row.accountId !== row.pendingAutoAssignedAccount.accountId
+  ) {
+    row.pendingAutoAssignedAccount = undefined;
   }
-}
-
-function handleDramaIdInput(row: DramaUploadRow, value: string) {
-  row.dramaId = value.trim();
-  if (row.entryMode === "local") {
-    saveStoredValue(
-      rootDir.value,
-      getDramaIdStorageKey,
-      row.folderPath,
-      row.dramaId,
-    );
-  }
+  persistLocalAccount(row);
 }
 
 function handleDramaNameInput(row: DramaUploadRow, value: string) {
   row.drama = value.trim();
+  row.dramaId = "";
+  row.dramaIdError = undefined;
+  scheduleDramaIdLookup(row);
 }
 
 function addBuildOnlyRow() {
@@ -1078,6 +1980,8 @@ function addBuildOnlyRow() {
     buildSuccessRuleCount: 0,
     buildFailedRuleCount: 0,
     buildTotalRules: 0,
+    dramaIdLoading: false,
+    dramaIdError: undefined,
     skippedRules: [],
   });
 }
@@ -1088,6 +1992,8 @@ function removeRow(row: DramaUploadRow) {
     return;
   }
 
+  clearDramaIdLookupTimer(row.id);
+  dramaIdLookupRequestIds.delete(row.id);
   rows.value = rows.value.filter((item) => item.id !== row.id);
   if (row.entryMode === "local" && row.folderPath) {
     const nextRemovedFolderPaths = new Set(removedFolderPaths.value);
@@ -1148,25 +2054,471 @@ function isCancelledUploadResult(result: JuliangUploadResult) {
   );
 }
 
-function validateMaterialRange(value: string): boolean {
-  const normalized = value.trim();
-  if (!/^\d+(-\d+)?$/.test(normalized)) {
-    return false;
-  }
-  if (!normalized.includes("-")) {
-    return true;
-  }
-  const [startText, endText] = normalized.split("-");
-  return Number(startText) <= Number(endText);
+function syncLegacyRuleFields(rule: DouyinMaterialRule, index: number) {
+  rule.percent = normalizeAllocationPercent(rule.percent);
+  rule.maxPercent = normalizeAllocationMaxPercent(rule.maxPercent ?? 100);
+  rule.weight = normalizeAllocationWeight(rule.weight ?? 1);
+  rule.order = index + 1;
+  rule.materialRatio = rule.percent;
+  rule.updatedAt = new Date().toISOString();
 }
 
-function normalizeMaterialRange(value: string): string {
-  const normalized = value.trim();
-  if (!normalized.includes("-")) {
-    return normalized.padStart(2, "0");
+function syncAllRuleOrders() {
+  buildSettings.value.douyinMaterialRules.forEach((rule, index) => {
+    syncLegacyRuleFields(rule, index);
+  });
+}
+
+function applyRuleMutation(
+  nextRules: DouyinMaterialRule[],
+  messageText?: string,
+  type: "info" | "success" | "warning" = "info",
+) {
+  buildSettings.value.douyinMaterialRules = nextRules.map((rule, index) => {
+    const nextRule = normalizeRule(rule);
+    syncLegacyRuleFields(nextRule, index);
+    return nextRule;
+  });
+
+  if (messageText) {
+    setAllocationFeedbackMessage(messageText, type);
   }
-  const [startText, endText] = normalized.split("-");
-  return `${startText.padStart(2, "0")}-${endText.padStart(2, "0")}`;
+}
+
+function handleRulePercentChange(ruleId: string, value: number | null) {
+  const result = setAllocationPercent(
+    buildSettings.value.douyinMaterialRules.map((rule) => normalizeRule(rule)),
+    ruleId,
+    Number(value ?? 0),
+  );
+  applyRuleMutation(
+    result.items,
+    result.message,
+    result.changed ? "info" : "warning",
+  );
+}
+
+function handleRuleWeightChange(ruleId: string, value: number | null) {
+  const nextRules = buildSettings.value.douyinMaterialRules.map((rule) => {
+    if (rule.id !== ruleId) {
+      return normalizeRule(rule);
+    }
+    return normalizeRule({
+      ...rule,
+      weight: normalizeAllocationWeight(value ?? 0),
+    });
+  });
+  applyRuleMutation(nextRules, "已更新权重", "info");
+}
+
+function handleRuleLockChange(ruleId: string, value: boolean) {
+  const nextRules = buildSettings.value.douyinMaterialRules.map((rule) => {
+    if (rule.id !== ruleId) {
+      return normalizeRule(rule);
+    }
+    return normalizeRule({
+      ...rule,
+      locked: value,
+    });
+  });
+  applyRuleMutation(nextRules, value ? "已锁定该账号" : "已解锁该账号", "info");
+}
+
+function handleAverageAllocate() {
+  const result = distributeRemainingEvenly(
+    buildSettings.value.douyinMaterialRules.map((rule) => normalizeRule(rule)),
+  );
+  applyRuleMutation(
+    result.items,
+    result.message,
+    result.changed ? "success" : "warning",
+  );
+}
+
+function handleWeightAllocate() {
+  const result = distributeRemainingByWeight(
+    buildSettings.value.douyinMaterialRules.map((rule) => normalizeRule(rule)),
+  );
+  applyRuleMutation(
+    result.items,
+    result.message,
+    result.changed ? "success" : "warning",
+  );
+}
+
+function handleNormalizeAllocate() {
+  const result = normalizeUnlockedAllocation(
+    buildSettings.value.douyinMaterialRules.map((rule) => normalizeRule(rule)),
+  );
+  applyRuleMutation(
+    result.items,
+    result.message,
+    result.changed ? "success" : "warning",
+  );
+}
+
+function handleResetBuildSettings() {
+  buildSettings.value = cloneBuildSettings(savedBuildSettingsSnapshot.value);
+  syncAllRuleOrders();
+  setAllocationFeedbackMessage("已恢复为初始加载时的配置", "info");
+}
+
+async function handlePullAccountsFromFeishu() {
+  if (activeRow.value) {
+    message.warning(
+      `当前正在上传《${activeRow.value.drama}》，请稍后再拉取账户`,
+    );
+    return;
+  }
+
+  if (activeBuildRow.value) {
+    message.warning(
+      `当前正在搭建《${activeBuildRow.value.drama}》，请稍后再拉取账户`,
+    );
+    return;
+  }
+
+  const accountTableId = apiConfigStore.config.accountTableId.trim();
+  if (!accountTableId) {
+    message.warning("当前渠道未配置飞书账户表 table_id");
+    return;
+  }
+
+  const draftRows = buildUploadListDraftRows();
+  const rowsNeedAutoAssignment = draftRows.filter(
+    (draftRow) => !draftRow.nextAccountId,
+  );
+  if (!rowsNeedAutoAssignment.length) {
+    message.info("当前没有空账户需要拉取");
+    return;
+  }
+
+  const previousRows = savedUploadListSnapshot.value?.rows || [];
+  const previousRowMap = new Map(previousRows.map((row) => [row.rowKey, row]));
+  const previousAutoAssignmentMap = new Map(
+    previousRows
+      .map((row) => row.autoAssignedAccount)
+      .filter((item): item is UploadListAutoAssignedAccount => Boolean(item))
+      .map((item) => [item.recordId, item]),
+  );
+  const finalAutoAssignments = collectUploadListAutoAssignments(
+    draftRows,
+    previousRowMap,
+  );
+
+  try {
+    const result = await planUploadListAccountAssignments(
+      draftRows,
+      previousAutoAssignmentMap,
+      finalAutoAssignments,
+      accountTableId,
+    );
+
+    const duplicateError = buildDuplicateAccountError(
+      draftRows.map((draftRow) => ({
+        drama: draftRow.snapshot.drama,
+        accountId: draftRow.nextAccountId,
+      })),
+    );
+    if (duplicateError) {
+      message.warning(duplicateError);
+      return;
+    }
+
+    for (const draftRow of draftRows) {
+      const assignment = finalAutoAssignments.get(draftRow.snapshot.rowKey);
+      if (!assignment) {
+        continue;
+      }
+
+      if (draftRow.row.accountId.trim() !== draftRow.nextAccountId) {
+        draftRow.row.accountId = draftRow.nextAccountId;
+        persistLocalAccount(draftRow.row);
+      }
+
+      const previousAuto = previousRowMap.get(
+        draftRow.snapshot.rowKey,
+      )?.autoAssignedAccount;
+      draftRow.row.pendingAutoAssignedAccount = previousAuto
+        ? undefined
+        : assignment;
+    }
+
+    const messageParts = [
+      `已拉取 ${result.rowsNeedAutoAssignment.length} 个账户`,
+    ];
+    if (result.recycledAllAccounts) {
+      messageParts.push("保存配置时会按账户回收后的顺序占用");
+    }
+    message.success(messageParts.join("，"));
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    message.error(`拉取账户失败：${errorMessage}`);
+  }
+}
+
+async function handleSaveUploadList() {
+  if (savingUploadList.value) {
+    return;
+  }
+
+  if (activeRow.value) {
+    message.warning(`当前正在上传《${activeRow.value.drama}》，请稍后再保存`);
+    return;
+  }
+
+  if (activeBuildRow.value) {
+    message.warning(
+      `当前正在搭建《${activeBuildRow.value.drama}》，请稍后再保存`,
+    );
+    return;
+  }
+
+  const snapshotKey = currentUploadListSnapshotKey.value;
+  if (!snapshotKey) {
+    message.warning("未获取到当前用户或渠道信息，请刷新后重试");
+    return;
+  }
+
+  const accountTableId = apiConfigStore.config.accountTableId.trim();
+  if (!accountTableId) {
+    message.warning("当前渠道未配置飞书账户表 table_id");
+    return;
+  }
+
+  const saveError = getUploadListSaveValidationError();
+  if (saveError) {
+    message.warning(saveError);
+    return;
+  }
+
+  const previousSnapshot = savedUploadListSnapshot.value;
+  const previousRows = previousSnapshot?.rows || [];
+  const previousRowMap = new Map(previousRows.map((row) => [row.rowKey, row]));
+  const previousAutoAssignments = previousRows
+    .map((row) => row.autoAssignedAccount)
+    .filter((item): item is UploadListAutoAssignedAccount => Boolean(item));
+  const previousAutoAssignmentMap = new Map(
+    previousAutoAssignments.map((item) => [item.recordId, item]),
+  );
+
+  const draftRows = buildUploadListDraftRows();
+  const finalAutoAssignments = collectUploadListAutoAssignments(
+    draftRows,
+    previousRowMap,
+  );
+
+  let duplicateError = buildDuplicateAccountError(
+    draftRows.map((draftRow) => ({
+      drama: draftRow.snapshot.drama,
+      accountId: draftRow.nextAccountId,
+    })),
+  );
+  if (duplicateError) {
+    message.warning(duplicateError);
+    return;
+  }
+
+  let recycledAllAccounts = false;
+  const restoreAfterRecycleFailure = async () => {
+    if (!recycledAllAccounts) {
+      return;
+    }
+
+    for (const assignment of previousAutoAssignmentMap.values()) {
+      try {
+        await updateFeishuAccountUsedStatus(assignment.recordId, true);
+      } catch (rollbackError) {
+        console.error("恢复旧账户占用状态失败:", rollbackError);
+      }
+    }
+  };
+
+  let rowsNeedAutoAssignment = draftRows.filter(
+    (draftRow) => !draftRow.nextAccountId,
+  );
+
+  if (rowsNeedAutoAssignment.length) {
+    try {
+      const planResult = await planUploadListAccountAssignments(
+        draftRows,
+        previousAutoAssignmentMap,
+        finalAutoAssignments,
+        accountTableId,
+      );
+      rowsNeedAutoAssignment = planResult.rowsNeedAutoAssignment;
+      recycledAllAccounts = planResult.recycledAllAccounts;
+
+      if (recycledAllAccounts) {
+        const availableAccountRecords = await queryChannelFeishuAccounts();
+        await resetAllChannelFeishuAccountsUnused(availableAccountRecords);
+      }
+
+      duplicateError = buildDuplicateAccountError(
+        draftRows.map((draftRow) => ({
+          drama: draftRow.snapshot.drama,
+          accountId: draftRow.nextAccountId,
+        })),
+      );
+      if (duplicateError) {
+        throw new Error(duplicateError);
+      }
+    } catch (error) {
+      await restoreAfterRecycleFailure();
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      message.warning(errorMessage);
+      return;
+    }
+  }
+
+  const finalAutoAssignmentList = Array.from(finalAutoAssignments.values());
+  const finalAutoAssignmentRecordIds = new Set(
+    finalAutoAssignmentList.map((item) => item.recordId),
+  );
+  const assignmentsToRelease = Array.from(
+    previousAutoAssignmentMap.values(),
+  ).filter((item) => !finalAutoAssignmentRecordIds.has(item.recordId));
+  const assignmentsToUse = recycledAllAccounts
+    ? finalAutoAssignmentList
+    : finalAutoAssignmentList.filter(
+        (item) => !previousAutoAssignmentMap.has(item.recordId),
+      );
+
+  const performedUseRecordIds: string[] = [];
+  const performedReleaseRecordIds: string[] = [];
+
+  savingUploadList.value = true;
+
+  try {
+    if (!recycledAllAccounts) {
+      for (const assignment of assignmentsToRelease) {
+        await updateFeishuAccountUsedStatus(assignment.recordId, false);
+        performedReleaseRecordIds.push(assignment.recordId);
+      }
+    }
+
+    for (const assignment of assignmentsToUse) {
+      await updateFeishuAccountUsedStatus(assignment.recordId, true);
+      performedUseRecordIds.push(assignment.recordId);
+    }
+  } catch (error) {
+    console.error("保存上传列表时同步飞书账户失败:", error);
+
+    if (recycledAllAccounts) {
+      for (const recordId of performedUseRecordIds) {
+        if (previousAutoAssignmentMap.has(recordId)) {
+          continue;
+        }
+        try {
+          await updateFeishuAccountUsedStatus(recordId, false);
+        } catch (rollbackError) {
+          console.error("回滚新占用账户失败:", rollbackError);
+        }
+      }
+
+      for (const assignment of previousAutoAssignmentMap.values()) {
+        try {
+          await updateFeishuAccountUsedStatus(assignment.recordId, true);
+        } catch (rollbackError) {
+          console.error("恢复旧账户占用状态失败:", rollbackError);
+        }
+      }
+    } else {
+      for (const recordId of [...performedUseRecordIds].reverse()) {
+        try {
+          await updateFeishuAccountUsedStatus(recordId, false);
+        } catch (rollbackError) {
+          console.error("回滚已占用账户失败:", rollbackError);
+        }
+      }
+
+      for (const recordId of [...performedReleaseRecordIds].reverse()) {
+        try {
+          await updateFeishuAccountUsedStatus(recordId, true);
+        } catch (rollbackError) {
+          console.error("恢复已释放账户失败:", rollbackError);
+        }
+      }
+    }
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    message.error(`保存上传列表失败：${errorMessage}`);
+    return;
+  } finally {
+    savingUploadList.value = false;
+  }
+
+  for (const draftRow of draftRows) {
+    draftRow.row.accountId = draftRow.nextAccountId;
+    draftRow.row.pendingAutoAssignedAccount = undefined;
+    persistLocalAccount(draftRow.row);
+  }
+
+  const nextSnapshot: UploadListSavedSnapshot = {
+    userId: apiConfigStore.config.userId.trim(),
+    channelId: apiConfigStore.config.channelId.trim(),
+    rootDir: rootDir.value.trim(),
+    savedAt: new Date().toISOString(),
+    rows: draftRows.map((draftRow) => ({
+      ...draftRow.snapshot,
+      accountId: draftRow.nextAccountId,
+      autoAssignedAccount: finalAutoAssignments.get(draftRow.snapshot.rowKey),
+    })),
+  };
+  saveUploadListSnapshot(snapshotKey, nextSnapshot);
+
+  const autoAssignedCount = rowsNeedAutoAssignment.length;
+  if (!draftRows.length) {
+    message.success("上传列表已保存，旧账户占用已同步释放");
+    return;
+  }
+
+  const messageParts = ["上传列表配置已保存"];
+  if (autoAssignedCount > 0) {
+    messageParts.push(`自动分配 ${autoAssignedCount} 个账户`);
+  }
+  if (assignmentsToRelease.length > 0) {
+    messageParts.push(`释放 ${assignmentsToRelease.length} 个旧账户`);
+  }
+  message.success(messageParts.join("，"));
+}
+
+async function handleSaveBuildSettings() {
+  if (!currentDaren.value) {
+    return;
+  }
+
+  const saveError = getBuildConfigError();
+  if (saveError) {
+    message.warning(saveError);
+    return;
+  }
+
+  try {
+    syncAllRuleOrders();
+    await persistBuildSettingsNow();
+    setAllocationFeedbackMessage(
+      "当前配置已保存到本地，并更新为新的基准状态",
+      "success",
+    );
+    message.success("搭建配置已保存到本地");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    setAllocationFeedbackMessage(`保存失败：${errorMessage}`, "warning");
+    message.error(`保存搭建配置失败：${errorMessage}`);
+  }
+}
+
+function handleClearRulePercent(ruleId: string) {
+  handleRulePercentChange(ruleId, 0);
+}
+
+function handleSetRuleToMax(ruleId: string) {
+  handleRulePercentChange(
+    ruleId,
+    getRowMaxSettablePercent(allocationRulesForMath.value, ruleId),
+  );
 }
 
 function openAddRuleModal() {
@@ -1198,17 +2550,6 @@ function saveRuleModal() {
     message.warning("请填写抖音号ID");
     return;
   }
-  if (!nextRule.materialRange) {
-    message.warning("请填写序号范围");
-    return;
-  }
-  if (!validateMaterialRange(nextRule.materialRange)) {
-    message.warning("序号范围仅支持 01 或 01-03，且结束序号不能小于开始序号");
-    return;
-  }
-
-  nextRule.materialRange = normalizeMaterialRange(nextRule.materialRange);
-  nextRule.updatedAt = new Date().toISOString();
 
   if (editingRuleId.value) {
     const index = buildSettings.value.douyinMaterialRules.findIndex(
@@ -1224,6 +2565,9 @@ function saveRuleModal() {
     buildSettings.value.douyinMaterialRules.push(nextRule);
   }
 
+  syncAllRuleOrders();
+  setAllocationFeedbackMessage("账号信息已更新，请记得保存当前配置", "info");
+
   closeRuleModal();
 }
 
@@ -1233,6 +2577,8 @@ function removeDouyinRule(ruleId: string) {
   );
   if (index >= 0) {
     buildSettings.value.douyinMaterialRules.splice(index, 1);
+    syncAllRuleOrders();
+    setAllocationFeedbackMessage("已删除账号规则，请记得保存当前配置", "info");
   }
 }
 
@@ -1305,29 +2651,93 @@ function handleAutoRunChange(value: boolean) {
   void maybeStartNextAutoTask();
 }
 
-function getBuildConfigError(): string {
-  const params = buildSettings.value.buildParams;
-  const fieldLabels: Array<[keyof typeof params, string]> = [
-    ["distributorId", "Distributor ID"],
-    ["secretKey", "Secret密钥"],
-    ["source", "来源"],
-    ["bid", "出价"],
-    ["productId", "商品ID"],
-    ["productPlatformId", "商品库ID"],
-    ["landingUrl", "落地页 URL"],
-    ["microAppName", "小程序名称"],
-    ["microAppId", "小程序 AppID"],
-    ["ccId", "cc_id"],
-    ["rechargeTemplateId", "首充模版ID"],
-  ];
+function getBuildParamLabel(field: BuildParamField): string {
+  return (
+    BUILD_PARAM_LABELS.find(([currentField]) => currentField === field)?.[1] ||
+    field
+  );
+}
 
-  for (const [field, label] of fieldLabels) {
-    if (!String(params[field] ?? "").trim()) {
-      return `请先填写${label}`;
+function getMissingBuildParamFields(): BuildParamField[] {
+  const params = buildSettings.value.buildParams;
+  return BUILD_PARAM_LABELS.filter(
+    ([field]) => !String(params[field] ?? "").trim(),
+  ).map(([field]) => field);
+}
+
+function isBuildParamMissing(field: BuildParamField): boolean {
+  return missingBuildParamFieldSet.value.has(field);
+}
+
+function getBuildParamsError(): string {
+  if (!missingBuildParamFields.value.length) {
+    return "";
+  }
+
+  return `请先填写${missingBuildParamFields.value
+    .map((field) => getBuildParamLabel(field))
+    .join("、")}`;
+}
+
+async function handleSaveBuildParams() {
+  if (!currentDaren.value) {
+    return;
+  }
+
+  const buildParamsError = getBuildParamsError();
+  if (buildParamsError) {
+    message.warning(buildParamsError);
+    return;
+  }
+
+  try {
+    syncAllRuleOrders();
+    await persistBuildSettingsNow();
+    message.success("当前搭建配置已保存到本地");
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    message.error(`保存搭建参数失败：${errorMessage}`);
+  }
+}
+
+function getRuleConfigError(): string {
+  if (!buildSettings.value.douyinMaterialRules.length) {
+    return "请先添加抖音号匹配素材规则";
+  }
+
+  for (const rule of buildSettings.value.douyinMaterialRules) {
+    if (!rule.douyinAccount.trim() || !rule.douyinAccountId.trim()) {
+      return "请完善每条抖音号匹配素材规则";
+    }
+    if (
+      normalizeAllocationPercent(rule.percent) >
+      normalizeAllocationMaxPercent(rule.maxPercent)
+    ) {
+      return `抖音号 ${rule.douyinAccount} 的比例不能超过单项上限`;
+    }
+    if (normalizeAllocationWeight(rule.weight) < 0) {
+      return "素材比例配置不正确";
     }
   }
 
-  const template = buildSettings.value.materialFilenameTemplate.trim();
+  if (allocationSummary.value.status === "over") {
+    return `当前总比例已超过 100%，请先调整后再保存`;
+  }
+
+  if (allocationSummary.value.hasInvalidRow) {
+    return "当前存在非法比例配置，请先修正";
+  }
+
+  return "";
+}
+
+function getBuildConfigError(): string {
+  const buildParamsError = getBuildParamsError();
+  if (buildParamsError) {
+    return buildParamsError;
+  }
+
+  const template = getFixedMaterialFilenameTemplate().trim();
   if (!template) {
     return "请先填写素材名称模板";
   }
@@ -1335,27 +2745,22 @@ function getBuildConfigError(): string {
     return "素材名称模板必须包含 {剧名}、{序号}";
   }
 
-  if (!buildSettings.value.douyinMaterialRules.length) {
-    return "请先添加抖音号匹配素材规则";
+  const ruleError = getRuleConfigError();
+  if (ruleError) {
+    return ruleError;
   }
 
-  for (const rule of buildSettings.value.douyinMaterialRules) {
-    if (
-      !rule.douyinAccount.trim() ||
-      !rule.douyinAccountId.trim() ||
-      !rule.materialRange.trim()
-    ) {
-      return "请完善每条抖音号匹配素材规则";
-    }
-    if (!validateMaterialRange(rule.materialRange)) {
-      return `素材序号范围格式不正确：${rule.materialRange}`;
-    }
+  if (!executableDouyinRules.value.length) {
+    return "请至少为一个抖音号分配大于 0% 的素材比例";
   }
 
   return "";
 }
 
 function getDisabledUploadTip(row: DramaUploadRow) {
+  if (hasUnsavedUploadListChanges.value) {
+    return "请先保存上传列表配置";
+  }
   if (!row.accountId.trim()) {
     return "请先输入账户";
   }
@@ -1369,6 +2774,9 @@ function getDisabledUploadTip(row: DramaUploadRow) {
 }
 
 function getDisabledBuildTip(row: DramaUploadRow) {
+  if (hasUnsavedUploadListChanges.value) {
+    return "请先保存上传列表配置";
+  }
   if (row.status !== "uploaded") {
     return "请先完成上传";
   }
@@ -1387,10 +2795,19 @@ function getDisabledBuildTip(row: DramaUploadRow) {
   if (activeBuildRow.value && activeBuildRow.value.id !== row.id) {
     return `当前正在搭建《${activeBuildRow.value.drama}》`;
   }
+  if (hasUnsavedBuildSettingsChanges.value) {
+    return "请先保存搭建参数和抖音号匹配素材配置";
+  }
   return getBuildConfigError();
 }
 
 async function startUpload(row: DramaUploadRow) {
+  const disabledTip = getDisabledUploadTip(row);
+  if (disabledTip) {
+    message.warning(disabledTip);
+    return;
+  }
+
   if (activeBuildRow.value) {
     message.warning(
       `当前正在搭建《${activeBuildRow.value.drama}》，请稍后再试`,
@@ -1535,6 +2952,31 @@ async function cancelUpload(row: DramaUploadRow) {
   message.info(`已取消《${row.drama}》上传`);
 }
 
+async function clearExistingProjectsBeforeBuild(row: DramaUploadRow) {
+  if (!uploadConfig.value.clearProjectsBeforeBuild) {
+    return true;
+  }
+
+  try {
+    const result = await window.api.juliangClearExistingProjects(
+      row.accountId.trim(),
+    );
+    if (result.deletedCount > 0) {
+      message.success(`已清理账户历史项目 ${result.deletedCount} 个`);
+    }
+    return true;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    message.error(`清理账户历史项目失败：${errorMessage}`);
+    if (autoRunEnabled.value) {
+      stopAutoRun(
+        `自动运行已停止：《${row.drama || "未命名剧目"}》清理账户历史项目失败`,
+      );
+    }
+    return false;
+  }
+}
+
 async function startBuild(row: DramaUploadRow) {
   const disabledTip = getDisabledBuildTip(row);
   if (disabledTip) {
@@ -1547,12 +2989,17 @@ async function startBuild(row: DramaUploadRow) {
     return;
   }
 
+  const cleared = await clearExistingProjectsBeforeBuild(row);
+  if (!cleared) {
+    return;
+  }
+
   row.buildStatus = "building";
   row.buildError = undefined;
   row.buildMessage = "开始搭建";
   row.buildSuccessRuleCount = 0;
   row.buildFailedRuleCount = 0;
-  row.buildTotalRules = validDouyinRules.value.length;
+  row.buildTotalRules = executableDouyinRules.value.length;
   row.skippedRules = [];
   row.buildTaskId = `build-${Date.now()}-${Math.random()
     .toString(36)
@@ -1564,7 +3011,7 @@ async function startBuild(row: DramaUploadRow) {
     status: "assetizing",
     message: "开始搭建",
     currentRuleIndex: 0,
-    totalRules: validDouyinRules.value.length,
+    totalRules: executableDouyinRules.value.length,
     successRuleCount: 0,
     failedRuleCount: 0,
   };
@@ -1578,7 +3025,19 @@ async function startBuild(row: DramaUploadRow) {
         accountId: row.accountId.trim(),
         files: [...row.files],
         darenId: currentDaren.value.id,
-        buildSettings: cloneBuildSettings(buildSettings.value),
+        postBuildPreview: uploadConfig.value.autoPreviewAfterBuild
+          ? {
+              enabled: true,
+              delaysMinutes: [20, 30],
+            }
+          : undefined,
+        buildSettings: {
+          ...createEffectiveBuildSettings(),
+          darenName: resolveCurrentDarenName(),
+          materialFilenameTemplate: resolveTemplateWithCurrentShortName(
+            getFixedMaterialFilenameTemplate(),
+          ),
+        },
       }),
     );
 
@@ -1625,6 +3084,18 @@ async function startBuild(row: DramaUploadRow) {
     } else {
       message.success(`《${row.drama}》搭建完成`);
     }
+
+    if (result.materialPreviewSchedule?.enabled) {
+      if (result.materialPreviewSchedule.error) {
+        message.warning(
+          `《${row.drama}》素材预览定时任务创建失败：${result.materialPreviewSchedule.error}`,
+        );
+      } else if (result.materialPreviewSchedule.scheduledCount > 0) {
+        message.info(
+          `《${row.drama}》已安排 ${result.materialPreviewSchedule.delaysMinutes.join("/")} 分钟后自动执行素材预览`,
+        );
+      }
+    }
   } catch (error) {
     row.buildStatus = "failed";
     row.buildError = error instanceof Error ? error.message : String(error);
@@ -1662,6 +3133,7 @@ async function loadLogs() {
   try {
     logs.value = await window.api.juliangGetLogs();
     buildLogs.value = await window.api.dailyBuildGetLogs();
+    previewLogs.value = await window.api.materialPreviewGetLogs();
   } catch (error) {
     console.error("加载日志失败:", error);
   }
@@ -1670,6 +3142,10 @@ async function loadLogs() {
 onMounted(async () => {
   if (!darenStore.darenList.length) {
     await darenStore.loadFromServer(true);
+  }
+
+  if (!apiConfigStore.loaded) {
+    await apiConfigStore.loadConfig();
   }
 
   await loadUploadConfig();
@@ -1688,6 +3164,8 @@ onMounted(async () => {
   if (savedRootDir) {
     rootDir.value = savedRootDir;
     await scanRootDir();
+  } else if (rows.value.length) {
+    void resolveDramaIdsForRows(rows.value);
   }
 
   isReady.value = await window.api.juliangIsReady();
@@ -1722,6 +3200,13 @@ onMounted(async () => {
     }
   });
 
+  unsubscribePreviewLog = window.api.onMaterialPreviewLog((log) => {
+    previewLogs.value.push(log);
+    if (previewLogs.value.length > 500) {
+      previewLogs.value.shift();
+    }
+  });
+
   await syncTaskStatesFromMain();
   if (autoRunEnabled.value) {
     void maybeStartNextAutoTask();
@@ -1729,28 +3214,19 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  dramaIdLookupTimers.forEach((timer) => window.clearTimeout(timer));
+  dramaIdLookupTimers.clear();
+  dramaIdLookupRequestIds.clear();
   if (unsubscribeProgress) unsubscribeProgress();
   if (unsubscribeLog) unsubscribeLog();
   if (unsubscribeBuildProgress) unsubscribeBuildProgress();
   if (unsubscribeBuildLog) unsubscribeBuildLog();
-  if (buildSettingsSaveTimer) {
-    clearTimeout(buildSettingsSaveTimer);
-    buildSettingsSaveTimer = null;
-  }
+  if (unsubscribePreviewLog) unsubscribePreviewLog();
 });
 </script>
 
 <template>
   <div class="upload-build-page">
-    <div class="page-actions">
-      <div class="page-actions-copy">
-        <div class="page-actions-title">本地配置</div>
-        <div class="page-actions-desc">
-          当前页面的达人名称、素材名称模板和搭建参数仅保存在当前登录用户的当前渠道下，不再推送到服务器。
-        </div>
-      </div>
-    </div>
-
     <div class="status-bar">
       <div class="status-item">
         <span class="status-label">浏览器</span>
@@ -1781,91 +3257,51 @@ onUnmounted(() => {
     </div>
 
     <NCard class="main-card">
-      <div class="template-panel">
-        <label class="build-field build-field-full">
+      <div class="setup-strip">
+        <label class="compact-field compact-field-sm">
           <span>达人</span>
-          <NInput
-            v-model:value="buildSettings.darenName"
-            placeholder="请输入达人名称，用于生成推广链、项目和广告名称"
-          />
-          <small class="field-help">
-            这里填写的达人名称会作为推广链名称、项目名称和广告名称的统一前缀。
-          </small>
+          <NInput :value="resolveCurrentDarenName()" disabled />
         </label>
-        <label class="build-field build-field-full">
+        <label class="compact-field compact-field-template">
           <span>素材名称模板</span>
-          <NInput
-            v-model:value="buildSettings.materialFilenameTemplate"
-            placeholder="{日期}-{剧名}-{简称}-{序号}.mp4"
-          />
-          <small class="field-help">
-            默认模板已带上 {日期}、{剧名}、{简称}、{序号}。{日期}
-            如果保留占位符会自动替换成当天北京时间日期，例如
-            3.15；如果你想写死日期或简称，也可以直接把占位符改成具体值。
-          </small>
+          <NInput :value="getFixedMaterialFilenameTemplate()" disabled />
         </label>
-        <div class="template-actions">
-          <NButton
-            type="warning"
-            secondary
-            :disabled="!rootDir || !!activeRow || !!activeBuildRow"
-            :loading="isRenaming"
-            @click="renameVideosByTemplate"
-          >
-            {{ isRenaming ? "重命名中..." : "按模板批量重命名" }}
-          </NButton>
-        </div>
+        <label class="compact-field compact-field-dir">
+          <span>素材目录</span>
+          <div class="directory-row">
+            <NInput
+              v-model:value="rootDir"
+              readonly
+              placeholder="选择目录，目录下每个子文件夹都视为一部剧"
+              class="toolbar-input"
+            />
+            <NButton
+              :disabled="!!activeRow || !!activeBuildRow"
+              @click="selectRootDir"
+            >
+              选择目录
+            </NButton>
+            <NButton
+              :disabled="!rootDir || !!activeRow || !!activeBuildRow"
+              :loading="isScanning"
+              @click="rescanRootDir"
+            >
+              {{ isScanning ? "扫描中..." : "重新扫描" }}
+            </NButton>
+            <NButton
+              type="warning"
+              secondary
+              :disabled="!rootDir || !!activeRow || !!activeBuildRow"
+              :loading="isRenaming"
+              @click="renameVideosByTemplate"
+            >
+              {{ isRenaming ? "重命名中..." : "按模板批量重命名" }}
+            </NButton>
+          </div>
+        </label>
       </div>
-
-      <div class="toolbar">
-        <div class="toolbar-main">
-          <span class="toolbar-label">素材目录</span>
-          <NInput
-            v-model:value="rootDir"
-            readonly
-            placeholder="选择目录，目录下每个子文件夹都视为一部剧"
-            class="toolbar-input"
-          />
-          <NButton
-            :disabled="!!activeRow || !!activeBuildRow"
-            @click="selectRootDir"
-          >
-            选择目录
-          </NButton>
-          <NButton
-            :disabled="!rootDir || !!activeRow || !!activeBuildRow"
-            :loading="isScanning"
-            @click="rescanRootDir"
-          >
-            {{ isScanning ? "扫描中..." : "重新扫描" }}
-          </NButton>
-        </div>
-        <div class="toolbar-main">
-          <span class="toolbar-label">当前渠道</span>
-          <NInput
-            :value="sessionStore.currentChannel?.name || ''"
-            class="toolbar-input"
-            readonly
-            placeholder="请先登录并选择渠道"
-          />
-          <span class="toolbar-hint">上传搭建配置按登录用户和渠道隔离存储</span>
-        </div>
-        <div class="toolbar-hint">
-          目录结构：指定目录 / 剧名文件夹 / 素材视频文件
-        </div>
-      </div>
-
-      <div class="config-panel">
-        <div class="config-row">
-          <span class="config-label">上传后删除本地目录</span>
-          <NSwitch
-            :value="uploadConfig.deleteAfterUpload"
-            @update:value="
-              (value) => applyUploadConfig({ deleteAfterUpload: value })
-            "
-          />
-          <span class="config-desc">上传成功后删除该剧目录及其素材</span>
-        </div>
+      <div class="toolbar-hint">
+        目录结构：指定目录 / 剧名文件夹 / 素材视频文件
       </div>
     </NCard>
 
@@ -1878,16 +3314,34 @@ onUnmounted(() => {
           <div class="table-header">
             <span>搭建参数配置</span>
             <span class="table-header-desc"
-              >修改后立即生效，仅作用于当前登录用户的当前渠道</span
+              >保存到本地后，下次进入会自动带入当前登录用户的当前渠道配置</span
             >
           </div>
         </template>
+        <template #header-extra>
+          <div class="collapse-header-action" @click.stop>
+            <NButton
+              type="primary"
+              size="small"
+              :disabled="!canSaveBuildParams"
+              @click.stop="handleSaveBuildParams"
+            >
+              保存配置
+            </NButton>
+          </div>
+        </template>
         <NCard class="build-config-card collapse-card">
+          <NAlert class="build-config-alert" :type="buildParamNoticeType">
+            {{ buildParamNoticeText }}
+          </NAlert>
           <div class="build-config-grid">
             <label class="build-field">
               <span>Distributor ID</span>
               <NInput
                 v-model:value="buildSettings.buildParams.distributorId"
+                :status="
+                  isBuildParamMissing('distributorId') ? 'error' : undefined
+                "
                 placeholder="请输入推广链 Distributor ID"
               />
             </label>
@@ -1895,6 +3349,7 @@ onUnmounted(() => {
               <span>Secret密钥</span>
               <NInput
                 v-model:value="buildSettings.buildParams.secretKey"
+                :status="isBuildParamMissing('secretKey') ? 'error' : undefined"
                 placeholder="请输入 Secret 密钥"
               />
             </label>
@@ -1902,6 +3357,7 @@ onUnmounted(() => {
               <span>来源</span>
               <NInput
                 v-model:value="buildSettings.buildParams.source"
+                :status="isBuildParamMissing('source') ? 'error' : undefined"
                 placeholder="请输入来源，例如：泰州晴天"
               />
             </label>
@@ -1909,6 +3365,7 @@ onUnmounted(() => {
               <span>出价</span>
               <NInput
                 v-model:value="buildSettings.buildParams.bid"
+                :status="isBuildParamMissing('bid') ? 'error' : undefined"
                 placeholder="请输入出价，例如：5"
               />
             </label>
@@ -1916,6 +3373,7 @@ onUnmounted(() => {
               <span>商品ID</span>
               <NInput
                 v-model:value="buildSettings.buildParams.productId"
+                :status="isBuildParamMissing('productId') ? 'error' : undefined"
                 placeholder="请输入商品ID"
               />
             </label>
@@ -1923,6 +3381,9 @@ onUnmounted(() => {
               <span>商品库ID</span>
               <NInput
                 v-model:value="buildSettings.buildParams.productPlatformId"
+                :status="
+                  isBuildParamMissing('productPlatformId') ? 'error' : undefined
+                "
                 placeholder="请输入商品库ID"
               />
             </label>
@@ -1930,6 +3391,9 @@ onUnmounted(() => {
               <span>落地页 URL</span>
               <NInput
                 v-model:value="buildSettings.buildParams.landingUrl"
+                :status="
+                  isBuildParamMissing('landingUrl') ? 'error' : undefined
+                "
                 placeholder="请输入落地页 URL"
               />
             </label>
@@ -1937,6 +3401,9 @@ onUnmounted(() => {
               <span>小程序名称</span>
               <NInput
                 v-model:value="buildSettings.buildParams.microAppName"
+                :status="
+                  isBuildParamMissing('microAppName') ? 'error' : undefined
+                "
                 placeholder="请输入小程序名称"
               />
             </label>
@@ -1944,13 +3411,29 @@ onUnmounted(() => {
               <span>小程序 AppID</span>
               <NInput
                 v-model:value="buildSettings.buildParams.microAppId"
+                :status="
+                  isBuildParamMissing('microAppId') ? 'error' : undefined
+                "
                 placeholder="请输入小程序 AppID"
+              />
+            </label>
+            <label class="build-field">
+              <span>小程序实例 ID</span>
+              <NInput
+                v-model:value="buildSettings.buildParams.microAppInstanceId"
+                :status="
+                  isBuildParamMissing('microAppInstanceId')
+                    ? 'error'
+                    : undefined
+                "
+                placeholder="请输入小程序实例 ID"
               />
             </label>
             <label class="build-field">
               <span>cc_id</span>
               <NInput
                 v-model:value="buildSettings.buildParams.ccId"
+                :status="isBuildParamMissing('ccId') ? 'error' : undefined"
                 placeholder="请输入 cc_id"
               />
             </label>
@@ -1958,6 +3441,11 @@ onUnmounted(() => {
               <span>首充模版ID</span>
               <NInput
                 v-model:value="buildSettings.buildParams.rechargeTemplateId"
+                :status="
+                  isBuildParamMissing('rechargeTemplateId')
+                    ? 'error'
+                    : undefined
+                "
                 placeholder="请输入首充模版ID"
               />
             </label>
@@ -1970,70 +3458,183 @@ onUnmounted(() => {
           <div class="table-header">
             <span>抖音号匹配素材</span>
             <span class="table-header-desc"
-              >每条规则对应一个抖音号与一组素材序号</span
+              >用百分比分配表格管理素材占比，支持锁定、自动补足与保存</span
             >
           </div>
         </template>
-        <NCard class="build-config-card collapse-card">
-          <div class="rule-toolbar">
-            <span class="toolbar-hint">序号范围支持单个 01，或区间 01-03</span>
-            <NButton type="primary" secondary @click="openAddRuleModal"
-              >添加规则</NButton
+        <template #header-extra>
+          <div class="collapse-header-action" @click.stop>
+            <NButton
+              type="primary"
+              size="small"
+              :disabled="!canSaveBuildSettings"
+              @click.stop="handleSaveBuildSettings"
             >
+              保存配置
+            </NButton>
           </div>
+        </template>
+        <NCard class="build-config-card collapse-card">
+          <div class="allocation-summary-grid">
+            <div class="allocation-summary-card">
+              <span class="allocation-summary-label">总比例上限</span>
+              <strong>100%</strong>
+            </div>
+            <div class="allocation-summary-card">
+              <span class="allocation-summary-label">当前已分配</span>
+              <strong>{{ allocationSummary.totalPercent }}%</strong>
+            </div>
+            <div class="allocation-summary-card">
+              <span class="allocation-summary-label">剩余可分配</span>
+              <strong
+                >{{ Math.max(0, allocationSummary.remainingPercent) }}%</strong
+              >
+            </div>
+            <div class="allocation-summary-card">
+              <span class="allocation-summary-label">当前状态</span>
+              <NTag :type="allocationStatusType">{{
+                allocationStatusText
+              }}</NTag>
+            </div>
+            <div class="allocation-summary-card">
+              <span class="allocation-summary-label">可自动补足账号</span>
+              <strong>{{ allocationSummary.autoAllocatableCount }}</strong>
+            </div>
+          </div>
+
+          <div class="rule-toolbar">
+            <div class="rule-toolbar-copy">
+              <span class="toolbar-hint"
+                >自动补足只会作用于“未锁定且未到上限”的账号</span
+              >
+              <span class="toolbar-hint"
+                >保存会把当前搭建参数和素材比例配置一起写入本地</span
+              >
+            </div>
+            <div class="rule-toolbar-actions">
+              <NButton secondary @click="handleAverageAllocate"
+                >平均分配剩余</NButton
+              >
+              <NButton secondary @click="handleWeightAllocate"
+                >按权重补足</NButton
+              >
+              <NButton secondary @click="handleNormalizeAllocate"
+                >归一化到 100%</NButton
+              >
+              <NButton secondary @click="handleResetBuildSettings"
+                >重置</NButton
+              >
+              <NButton type="primary" secondary @click="openAddRuleModal"
+                >添加账号</NButton
+              >
+            </div>
+          </div>
+
+          <NAlert class="allocation-alert" :type="allocationAlertType">
+            {{ allocationFeedback || allocationStatusMessage }}
+          </NAlert>
 
           <NEmpty
             v-if="buildSettings.douyinMaterialRules.length === 0"
             description="暂无抖音号匹配素材规则"
           />
 
-          <div v-else class="rule-list">
-            <div
-              v-for="rule in buildSettings.douyinMaterialRules"
-              :key="rule.id"
-              class="rule-item"
-            >
-              <div class="rule-summary">
-                <div class="rule-title-row">
-                  <span class="rule-name">{{
-                    rule.douyinAccount || "未命名规则"
-                  }}</span>
-                  <NTag
-                    size="small"
-                    :type="
-                      validateMaterialRange(rule.materialRange)
-                        ? 'success'
-                        : 'warning'
-                    "
-                  >
-                    {{ rule.materialRange || "未配置范围" }}
-                  </NTag>
-                </div>
-                <div class="rule-meta">
-                  <span>抖音号ID：{{ rule.douyinAccountId || "-" }}</span>
-                </div>
-                <div
-                  v-if="
-                    rule.materialRange &&
-                    !validateMaterialRange(rule.materialRange)
-                  "
-                  class="row-error"
+          <div v-else class="allocation-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>排名</th>
+                  <th>账号名称</th>
+                  <th>当前比例</th>
+                  <th>权重</th>
+                  <th>锁定</th>
+                  <th>行操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(rule, index) in buildSettings.douyinMaterialRules"
+                  :key="rule.id"
                 >
-                  序号范围格式不正确
-                </div>
-              </div>
-              <div class="rule-actions">
-                <NButton tertiary @click="openEditRuleModal(rule)"
-                  >编辑</NButton
-                >
-                <NButton
-                  type="error"
-                  tertiary
-                  @click="removeDouyinRule(rule.id)"
-                  >删除</NButton
-                >
-              </div>
-            </div>
+                  <td>#{{ index + 1 }}</td>
+                  <td>
+                    <div class="allocation-name-cell">
+                      <strong>{{ rule.douyinAccount || "未命名账号" }}</strong>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="percent-input-wrap">
+                      <NInputNumber
+                        :value="normalizeAllocationPercent(rule.percent)"
+                        :min="0"
+                        :max="
+                          getRowMaxSettablePercent(
+                            allocationRulesForMath,
+                            rule.id,
+                          )
+                        "
+                        :step="1"
+                        @update:value="
+                          (value) => handleRulePercentChange(rule.id, value)
+                        "
+                      />
+                      <span class="percent-suffix">%</span>
+                    </div>
+                  </td>
+                  <td>
+                    <NInputNumber
+                      :value="normalizeAllocationWeight(rule.weight)"
+                      :min="0"
+                      :step="1"
+                      @update:value="
+                        (value) => handleRuleWeightChange(rule.id, value)
+                      "
+                    />
+                  </td>
+                  <td>
+                    <NSwitch
+                      :value="Boolean(rule.locked)"
+                      @update:value="
+                        (value) => handleRuleLockChange(rule.id, value)
+                      "
+                    />
+                  </td>
+                  <td>
+                    <div class="rule-actions">
+                      <NButton
+                        tertiary
+                        size="small"
+                        @click="handleClearRulePercent(rule.id)"
+                      >
+                        清零
+                      </NButton>
+                      <NButton
+                        tertiary
+                        size="small"
+                        @click="handleSetRuleToMax(rule.id)"
+                      >
+                        设为最大
+                      </NButton>
+                      <NButton
+                        tertiary
+                        size="small"
+                        @click="openEditRuleModal(rule)"
+                      >
+                        编辑
+                      </NButton>
+                      <NButton
+                        tertiary
+                        size="small"
+                        type="error"
+                        @click="removeDouyinRule(rule.id)"
+                      >
+                        删除
+                      </NButton>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </NCard>
       </NCollapseItem>
@@ -2043,15 +3644,59 @@ onUnmounted(() => {
           <div class="table-header">
             <span>上传列表</span>
             <span class="table-header-desc"
-              >每部剧单独填写账户和短剧ID后手动触发</span
+              >保存时会自动补齐空账户，并同步当前渠道飞书账户表的占用状态</span
             >
+          </div>
+        </template>
+        <template #header-extra>
+          <div class="collapse-header-action" @click.stop>
+            <NTag size="small" :type="uploadListSaveStatusType">
+              {{ uploadListSaveStatusText }}
+            </NTag>
+            <NButton
+              type="primary"
+              size="small"
+              :disabled="!canSaveUploadList"
+              :loading="savingUploadList"
+              @click.stop="handleSaveUploadList"
+            >
+              {{ savingUploadList ? "保存中..." : "保存配置" }}
+            </NButton>
           </div>
         </template>
         <NCard class="table-card collapse-card">
           <div class="list-toolbar">
-            <span class="toolbar-hint"
-              >如果素材已上传但本地目录不可用，可以直接提交搭建</span
-            >
+            <div class="list-toolbar-left">
+              <div class="inline-switch">
+                <span class="auto-run-label">上传后删除本地素材目录</span>
+                <NSwitch
+                  :value="uploadConfig.deleteAfterUpload"
+                  @update:value="
+                    (value) => applyUploadConfig({ deleteAfterUpload: value })
+                  "
+                />
+              </div>
+              <div class="inline-switch">
+                <span class="auto-run-label">搭建前清空账户项目</span>
+                <NSwitch
+                  :value="uploadConfig.clearProjectsBeforeBuild"
+                  @update:value="
+                    (value) =>
+                      applyUploadConfig({ clearProjectsBeforeBuild: value })
+                  "
+                />
+              </div>
+              <div class="inline-switch">
+                <span class="auto-run-label">搭建后自动素材预览</span>
+                <NSwitch
+                  :value="uploadConfig.autoPreviewAfterBuild"
+                  @update:value="
+                    (value) =>
+                      applyUploadConfig({ autoPreviewAfterBuild: value })
+                  "
+                />
+              </div>
+            </div>
             <div class="list-actions">
               <NTooltip v-if="autoRunDisabledReason">
                 <template #trigger>
@@ -2085,7 +3730,19 @@ onUnmounted(() => {
                 <tr>
                   <th>剧名</th>
                   <th>素材数</th>
-                  <th>账户</th>
+                  <th>
+                    <div class="column-header-action">
+                      <span>账户</span>
+                      <NButton
+                        class="column-header-link"
+                        text
+                        :disabled="!canPullUploadListAccounts"
+                        @click="handlePullAccountsFromFeishu"
+                      >
+                        拉取账户
+                      </NButton>
+                    </div>
+                  </th>
                   <th>短剧ID</th>
                   <th>状态</th>
                   <th>进度</th>
@@ -2135,16 +3792,47 @@ onUnmounted(() => {
                       @update:value="(value) => handleAccountInput(row, value)"
                     />
                   </td>
-                  <td>
-                    <NInput
-                      :value="row.dramaId"
-                      placeholder="请输入短剧 ID"
-                      :disabled="
-                        row.status === 'uploading' ||
-                        row.buildStatus === 'building'
-                      "
-                      @update:value="(value) => handleDramaIdInput(row, value)"
-                    />
+                  <td class="drama-id-column">
+                    <div class="drama-id-cell">
+                      <NInput
+                        :value="row.dramaId"
+                        placeholder="自动获取短剧 ID"
+                        readonly
+                      >
+                        <template #suffix>
+                          <NButton
+                            quaternary
+                            circle
+                            size="tiny"
+                            class="drama-id-refresh-button"
+                            :disabled="
+                              row.dramaIdLoading ||
+                              !row.drama.trim() ||
+                              row.status === 'uploading' ||
+                              row.buildStatus === 'building'
+                            "
+                            @click="refreshDramaId(row)"
+                          >
+                            <template #icon>
+                              <NIcon>
+                                <RefreshOutline />
+                              </NIcon>
+                            </template>
+                          </NButton>
+                        </template>
+                      </NInput>
+                      <span
+                        v-if="row.dramaIdLoading"
+                        class="row-hint drama-id-feedback"
+                        >正在根据剧名查询短剧ID</span
+                      >
+                      <span
+                        v-else-if="row.dramaIdError"
+                        class="row-error row-error-inline drama-id-feedback"
+                      >
+                        {{ row.dramaIdError }}
+                      </span>
+                    </div>
                   </td>
                   <td>
                     <div class="status-stack">
@@ -2166,20 +3854,45 @@ onUnmounted(() => {
                   </td>
                   <td>
                     <div class="progress-cell">
-                      <span v-if="row.entryMode !== 'build-only'">
-                        上传 {{ row.successCount }}/{{
-                          row.totalFiles || row.materialCount
-                        }}
-                      </span>
-                      <span v-if="row.buildTotalRules > 0">
-                        搭建 {{ row.buildSuccessRuleCount }}/{{
-                          row.buildTotalRules
-                        }}
-                      </span>
+                      <div
+                        v-if="row.entryMode !== 'build-only'"
+                        class="inline-progress-block"
+                      >
+                        <span class="inline-progress-label">上传</span>
+                        <NProgress
+                          type="line"
+                          status="info"
+                          :percentage="getUploadProgressPercentage(row)"
+                          indicator-placement="inside"
+                          :processing="row.status === 'uploading'"
+                          :height="14"
+                          :border-radius="999"
+                          :fill-border-radius="999"
+                        />
+                      </div>
+                      <div
+                        v-if="shouldShowBuildProgress(row)"
+                        class="inline-progress-block"
+                      >
+                        <span class="inline-progress-label">搭建</span>
+                        <NProgress
+                          type="line"
+                          :status="
+                            row.buildStatus === 'failed' ? 'error' : 'success'
+                          "
+                          :percentage="getBuildProgressPercentage(row)"
+                          indicator-placement="inside"
+                          :processing="row.buildStatus === 'building'"
+                          :height="14"
+                          :border-radius="999"
+                          :fill-border-radius="999"
+                        />
+                      </div>
                       <span
                         v-if="
                           row.entryMode === 'build-only' &&
-                          row.buildTotalRules === 0
+                          row.buildTotalRules === 0 &&
+                          row.buildStatus === 'idle'
                         "
                         class="row-hint"
                       >
@@ -2232,26 +3945,35 @@ onUnmounted(() => {
                       <NTooltip v-else-if="getDisabledUploadTip(row)">
                         <template #trigger>
                           <span class="button-trigger">
-                            <NButton disabled>{{
+                            <NButton text class="action-link-button" disabled>{{
                               getUploadButtonText(row)
                             }}</NButton>
                           </span>
                         </template>
                         {{ getDisabledUploadTip(row) }}
                       </NTooltip>
-                      <NButton v-else type="primary" @click="startUpload(row)">
+                      <NButton
+                        v-else
+                        text
+                        class="action-link-button"
+                        @click="startUpload(row)"
+                      >
                         {{ getUploadButtonText(row) }}
                       </NButton>
                       <NButton
-                        secondary
-                        type="default"
+                        text
+                        class="remove-icon-button"
                         :disabled="
                           row.status === 'uploading' ||
                           row.buildStatus === 'building'
                         "
                         @click="removeRow(row)"
                       >
-                        移除
+                        <template #icon>
+                          <NIcon>
+                            <TrashOutline />
+                          </NIcon>
+                        </template>
                       </NButton>
                     </div>
                   </td>
@@ -2267,7 +3989,7 @@ onUnmounted(() => {
       v-model:show="ruleModalVisible"
       preset="card"
       :style="{ width: 'min(560px, calc(100vw - 32px))' }"
-      :title="editingRuleId ? '编辑规则' : '添加规则'"
+      :title="editingRuleId ? '编辑账号' : '添加账号'"
       :bordered="false"
       segmented
     >
@@ -2286,22 +4008,9 @@ onUnmounted(() => {
             placeholder="请输入抖音号ID"
           />
         </label>
-        <label class="build-field">
-          <span>序号范围</span>
-          <NInput
-            v-model:value="ruleForm.materialRange"
-            placeholder="请输入单个序号或范围序号，例如：01或者01-03"
-          />
-          <small
-            v-if="
-              ruleForm.materialRange &&
-              !validateMaterialRange(ruleForm.materialRange)
-            "
-            class="field-help field-help-error"
-          >
-            仅支持 01 或 01-03，且结束序号不能小于开始序号
-          </small>
-        </label>
+        <div class="field-help build-field-full">
+          添加后可在表格里继续编辑比例、上限、权重和锁定状态；保存配置后才会写入本地。
+        </div>
       </div>
       <template #footer>
         <div class="rule-modal-footer">
@@ -2388,7 +4097,7 @@ onUnmounted(() => {
     </NAlert>
 
     <NCollapse class="advanced-config">
-      <NCollapseItem title="巨量高级配置" name="advanced-config">
+      <NCollapseItem title="巨量上传配置" name="advanced-config">
         <div class="advanced-config-grid">
           <div class="config-row">
             <span class="config-label">每批文件数</span>
@@ -2493,32 +4202,53 @@ onUnmounted(() => {
       </NCollapseItem>
     </NCollapse>
 
-    <NCollapse class="log-panel">
+    <NCollapse class="section-collapse log-panel">
       <NCollapseItem title="上传日志" name="upload-logs">
-        <div class="log-container">
-          <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
-          <div
-            v-for="(log, index) in logs"
-            :key="`${log.time}-${index}`"
-            class="log-item"
-          >
-            <span class="log-time">[{{ log.time }}]</span>
-            <span class="log-message">{{ log.message }}</span>
+        <NCard class="table-card collapse-card log-card">
+          <div class="log-container">
+            <div v-if="logs.length === 0" class="log-empty">暂无日志</div>
+            <div
+              v-for="(log, index) in logs"
+              :key="`${log.time}-${index}`"
+              class="log-item"
+            >
+              <span class="log-time">[{{ log.time }}]</span>
+              <span class="log-message">{{ log.message }}</span>
+            </div>
           </div>
-        </div>
+        </NCard>
       </NCollapseItem>
       <NCollapseItem title="搭建日志" name="build-logs">
-        <div class="log-container">
-          <div v-if="buildLogs.length === 0" class="log-empty">暂无日志</div>
-          <div
-            v-for="(log, index) in buildLogs"
-            :key="`build-${log.time}-${index}`"
-            class="log-item"
-          >
-            <span class="log-time">[{{ log.time }}]</span>
-            <span class="log-message">{{ log.message }}</span>
+        <NCard class="table-card collapse-card log-card">
+          <div class="log-container">
+            <div v-if="buildLogs.length === 0" class="log-empty">暂无日志</div>
+            <div
+              v-for="(log, index) in buildLogs"
+              :key="`build-${log.time}-${index}`"
+              class="log-item"
+            >
+              <span class="log-time">[{{ log.time }}]</span>
+              <span class="log-message">{{ log.message }}</span>
+            </div>
           </div>
-        </div>
+        </NCard>
+      </NCollapseItem>
+      <NCollapseItem title="预览日志" name="preview-logs">
+        <NCard class="table-card collapse-card log-card">
+          <div class="log-container">
+            <div v-if="previewLogs.length === 0" class="log-empty">
+              暂无日志
+            </div>
+            <div
+              v-for="(log, index) in previewLogs"
+              :key="`preview-${log.time}-${index}`"
+              class="log-item"
+            >
+              <span class="log-time">[{{ log.time }}]</span>
+              <span class="log-message">{{ log.message }}</span>
+            </div>
+          </div>
+        </NCard>
       </NCollapseItem>
     </NCollapse>
   </div>
@@ -2537,37 +4267,6 @@ onUnmounted(() => {
     linear-gradient(180deg, #f8fbff 0%, #f3f5f8 100%);
 }
 
-.page-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  margin-bottom: 16px;
-  border: 1px solid #e7ebf0;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 30px rgba(37, 48, 77, 0.06);
-}
-
-.page-actions-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.page-actions-title {
-  color: #202531;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.page-actions-desc {
-  color: #7b8597;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .status-bar {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -2584,6 +4283,13 @@ onUnmounted(() => {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 12px 30px rgba(37, 48, 77, 0.06);
+}
+
+.status-item :deep(.n-tag),
+.status-stack :deep(.n-tag) {
+  align-self: flex-start;
+  width: auto;
+  max-width: 100%;
 }
 
 .status-label {
@@ -2609,7 +4315,6 @@ onUnmounted(() => {
 .table-card,
 .progress-card,
 .advanced-config,
-.log-panel,
 .build-config-card,
 .section-collapse {
   margin-bottom: 16px;
@@ -2620,34 +4325,96 @@ onUnmounted(() => {
 }
 
 .section-collapse :deep(.n-collapse-item__content-inner) {
-  padding-top: 12px;
+  padding: 12px 10px 10px;
 }
 
-.toolbar {
+.collapse-card :deep(.n-card__content),
+.collapse-card :deep(.n-card__footer) {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.table-card :deep(.n-card__content) {
+  padding-bottom: 20px;
+}
+
+.advanced-config :deep(.n-collapse-item) {
+  margin: 0 0 8px;
+  padding: 0 0 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  overflow: hidden;
+}
+
+.advanced-config :deep(.n-collapse-item__header) {
+  padding-left: 0;
+  padding-right: 0;
+  padding-top: 16px;
+}
+
+.advanced-config :deep(.n-collapse-item__content-inner) {
+  padding: 12px 12px 0;
+}
+
+.log-card :deep(.n-card__content) {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.log-panel :deep(.n-collapse-item:first-child .n-collapse-item__content-inner) {
+  padding-bottom: 0;
+}
+
+.setup-strip {
+  display: grid;
+  grid-template-columns: 180px 320px minmax(0, 1fr);
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.compact-field {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
+  min-width: 0;
 }
 
-.toolbar-main {
+.compact-field > span,
+.config-label {
+  color: #59657a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.config-label {
+  width: 108px;
+  flex: 0 0 108px;
+}
+
+.compact-field-sm {
+  min-width: 0;
+}
+
+.compact-field-template {
+  min-width: 0;
+}
+
+.compact-field-dir {
+  min-width: 0;
+}
+
+.directory-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.toolbar-label,
-.config-label {
-  width: 152px;
-  flex-shrink: 0;
-  color: #59657a;
-  font-size: 14px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .toolbar-input,
 .toolbar-select {
   flex: 1;
-  min-width: 260px;
+  min-width: 0;
 }
 
 .toolbar-hint,
@@ -2659,13 +4426,6 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-@media (max-width: 768px) {
-  .page-actions {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-
 .field-help {
   display: block;
   margin-top: 6px;
@@ -2673,22 +4433,6 @@ onUnmounted(() => {
 
 .field-help-error {
   color: #d03050;
-}
-
-.config-panel {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #eef2f6;
-}
-
-.template-panel {
-  margin-bottom: 18px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid #eef2f6;
-}
-
-.template-actions {
-  margin-top: 12px;
 }
 
 .config-row {
@@ -2710,6 +4454,128 @@ onUnmounted(() => {
 
 .list-toolbar {
   margin-bottom: 16px;
+}
+
+.list-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.inline-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rule-toolbar {
+  margin-bottom: 16px;
+  align-items: flex-start;
+}
+
+.rule-toolbar-copy {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rule-toolbar-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.allocation-summary-grid {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.allocation-summary-card {
+  flex: 1 0 0;
+  min-width: 160px;
+  padding: 14px 16px;
+  border: 1px solid #e6ebf2;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfcfe 0%, #f4f7fb 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.allocation-summary-card :deep(.n-tag) {
+  align-self: flex-start;
+}
+
+.allocation-summary-card strong {
+  color: #1e2430;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.allocation-summary-label {
+  color: #667089;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.allocation-alert {
+  margin-bottom: 16px;
+}
+
+.allocation-table {
+  overflow-x: auto;
+}
+
+.allocation-table table {
+  width: 100%;
+  min-width: 1040px;
+  border-collapse: collapse;
+}
+
+.allocation-table th,
+.allocation-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid #edf1f5;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.allocation-table th {
+  color: #667089;
+  font-size: 13px;
+  font-weight: 600;
+  background: #f7f9fc;
+}
+
+.allocation-name-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.allocation-secondary {
+  color: #8a94a7;
+  font-size: 12px;
+}
+
+.percent-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.percent-suffix {
+  color: #667089;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .list-actions {
@@ -2758,6 +4624,51 @@ onUnmounted(() => {
   gap: 16px 20px;
 }
 
+.build-config-alert {
+  margin-bottom: 16px;
+}
+
+.collapse-header-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.column-header-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 6px;
+}
+
+.column-header-link {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2080f0;
+  --n-color: transparent;
+  --n-color-hover: transparent;
+  --n-color-pressed: transparent;
+  --n-color-focus: transparent;
+  --n-ripple-color: transparent;
+}
+
+.column-header-link:deep(.n-button__content) {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.column-header-link:deep(.n-button__content),
+.action-link-button:deep(.n-button__content) {
+  color: #2080f0;
+}
+
+.column-header-link:deep(.n-button__state-border),
+.column-header-link:deep(.n-button__border) {
+  display: none;
+}
+
 .build-field {
   display: flex;
   flex-direction: column;
@@ -2774,57 +4685,10 @@ onUnmounted(() => {
   grid-column: 1 / -1;
 }
 
-.rule-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.rule-item {
-  padding: 16px;
-  border: 1px solid #edf1f5;
-  border-radius: 14px;
-  background: #fbfcfe;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-}
-
 .rule-actions {
   display: flex;
-  justify-content: flex-end;
   gap: 8px;
-  flex-shrink: 0;
-}
-
-.rule-summary {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.rule-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
-}
-
-.rule-name {
-  color: #1e2430;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.rule-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  color: #667089;
-  font-size: 13px;
 }
 
 .rule-modal-body {
@@ -2853,7 +4717,7 @@ onUnmounted(() => {
   padding: 14px 12px;
   border-bottom: 1px solid #edf1f5;
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .drama-table th {
@@ -2873,11 +4737,42 @@ onUnmounted(() => {
   min-width: 260px;
 }
 
+.drama-id-column {
+  position: relative;
+}
+
+.drama-id-cell {
+  position: relative;
+  min-width: 220px;
+}
+
+.drama-id-cell :deep(.n-input) {
+  flex: 1;
+}
+
+.drama-id-refresh-button {
+  color: #2080f0;
+}
+
 .row-error {
   margin-top: 8px;
   color: #d03050;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.row-error-inline {
+  margin-top: 0;
+}
+
+.drama-id-feedback {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status-stack,
@@ -2887,11 +4782,95 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+.progress-cell {
+  min-width: 180px;
+}
+
+.inline-progress-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-progress-label {
+  width: 28px;
+  flex: 0 0 28px;
+  color: #667089;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inline-progress-block :deep(.n-progress) {
+  flex: 1;
+}
+
+.inline-progress-block :deep(.n-progress-graph-line-rail) {
+  background: #e8edf5;
+}
+
+.inline-progress-block :deep(.n-progress-graph-line-fill) {
+  transition: width 0.2s ease;
+}
+
+.inline-progress-block :deep(.n-progress-text) {
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .operation-actions {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 8px;
-  align-items: flex-start;
+  align-items: center;
+}
+
+.action-link-button {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  --n-color: transparent;
+  --n-color-hover: transparent;
+  --n-color-pressed: transparent;
+  --n-color-focus: transparent;
+  --n-ripple-color: transparent;
+}
+
+.action-link-button:deep(.n-button__border),
+.action-link-button:deep(.n-button__state-border),
+.remove-icon-button:deep(.n-button__border),
+.remove-icon-button:deep(.n-button__state-border) {
+  display: none;
+}
+
+.remove-icon-button {
+  padding: 0;
+  min-width: auto;
+  color: #d03050;
+  --n-color: transparent;
+  --n-color-hover: transparent;
+  --n-color-pressed: transparent;
+  --n-color-focus: transparent;
+  --n-ripple-color: transparent;
+  --n-text-color: #d03050;
+  --n-text-color-hover: #d03050;
+  --n-text-color-pressed: #d03050;
+  --n-text-color-focus: #d03050;
+}
+
+.remove-icon-button:deep(.n-button__content) {
+  color: #d03050;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.remove-icon-button:deep(.n-button__icon) {
+  color: #d03050;
+}
+
+.remove-icon-button:deep(.n-icon) {
+  font-size: 13px;
+  color: #d03050;
 }
 
 .button-trigger {
@@ -2945,22 +4924,52 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .rule-item {
-    flex-direction: column;
+  .setup-strip {
+    grid-template-columns: 1fr;
   }
 
-  .rule-actions {
+  .directory-row {
+    flex-wrap: wrap;
+  }
+
+  .section-collapse :deep(.n-collapse-item__content-inner) {
+    padding-left: 6px;
+    padding-right: 6px;
+    padding-bottom: 8px;
+  }
+
+  .collapse-card :deep(.n-card__content),
+  .collapse-card :deep(.n-card__footer) {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .table-card :deep(.n-card__content) {
+    padding-bottom: 16px;
+  }
+
+  .advanced-config :deep(.n-collapse-item) {
+    margin-top: 8px;
+    padding-bottom: 10px;
+  }
+
+  .advanced-config :deep(.n-collapse-item__content-inner) {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .rule-toolbar,
+  .rule-toolbar-actions {
     width: 100%;
     justify-content: flex-start;
   }
 
-  .toolbar-main {
-    align-items: stretch;
+  .drama-id-field {
+    flex-wrap: wrap;
   }
 
-  .toolbar-label,
-  .config-label {
-    width: 100%;
+  .allocation-table table {
+    min-width: 880px;
   }
 }
 </style>
