@@ -1141,30 +1141,26 @@ export class JuliangService {
 
     // 使用 page.evaluate 在浏览器端一次性提取所有行数据，
     // 避免多次异步 Playwright 调用之间 DOM 变化导致的竞态超时
-    const uploadPanelSelector = this.config.selectors.uploadPanel;
     const errorKeywordsSource = this.uploadErrorKeywords.source;
     const ignoredTexts = this.ignoredUploadErrorTexts;
 
     const result = await this.page.evaluate(
       ({
-        panelSelector,
         errorKeywords,
         ignored,
       }: {
-        panelSelector: string;
         errorKeywords: string;
         ignored: string[];
       }) => {
-        const panel = document.querySelector(panelSelector);
-        if (!panel) return { progressCount: 0, rows: [] };
-
         const errorRegex = new RegExp(errorKeywords);
 
-        // 查找所有上传行的文件名容器（无论是否有进度条都会存在）
-        const nameTextElements = panel.querySelectorAll(
-          ".material-center-v2-oc-upload-table-name-text",
+        // 在整个页面查找所有进度条元素（与原逻辑一致，不限定在 uploadPanel 内）
+        const progressBars = document.querySelectorAll(
+          ".material-center-v2-oc-upload-table-name-progress",
         );
 
+        // 收集所有进度条行的父元素，用于去重
+        const progressRowParents = new Set<Element>();
         let progressCount = 0;
         const rows: Array<{
           fileName: string;
@@ -1173,14 +1169,45 @@ export class JuliangService {
           hasError: boolean;
         }> = [];
 
-        for (const nameText of nameTextElements) {
-          // 行容器是 nameText 的父元素
-          const row = nameText.parentElement;
+        // 先遍历有进度条的行
+        for (const progressBar of progressBars) {
+          const row = progressBar.parentElement;
           if (!row) continue;
+          progressRowParents.add(row);
+          progressCount++;
 
           const rowText = (row.innerText || "").trim().replace(/\s+/g, " ");
 
-          // 提取文件名
+          const fileNameEl = row.querySelector(
+            ".material-center-v2-oc-upload-table-name-text .material-center-v2-oc-typography-value-int",
+          );
+          const fileName = fileNameEl
+            ? (fileNameEl as HTMLElement).innerText?.trim() || ""
+            : "";
+
+          const isSuccess = !!row.querySelector(
+            ".material-center-v2-oc-upload-table-name-progress-success",
+          );
+
+          const hasErrorElement = !!row.querySelector(
+            '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"]',
+          );
+          const hasError = hasErrorElement;
+
+          rows.push({ fileName, rowText, isSuccess, hasError });
+        }
+
+        // 再查找没有进度条但有 name-text 的行（报错后进度条消失的行）
+        const nameTextElements = document.querySelectorAll(
+          ".material-center-v2-oc-upload-table-name-text",
+        );
+        for (const nameText of nameTextElements) {
+          const row = nameText.parentElement;
+          if (!row || progressRowParents.has(row)) continue;
+
+          // 检查这个行是否在上传区域内（有进度相关的兄弟元素或错误提示）
+          const rowText = (row.innerText || "").trim().replace(/\s+/g, " ");
+
           const fileNameEl = nameText.querySelector(
             ".material-center-v2-oc-typography-value-int",
           );
@@ -1188,37 +1215,27 @@ export class JuliangService {
             ? (fileNameEl as HTMLElement).innerText?.trim() || ""
             : "";
 
-          // 检查是否有进度条
-          const hasProgressBar = row.querySelector(
-            ".material-center-v2-oc-upload-table-name-progress",
-          );
-          if (hasProgressBar) {
-            progressCount++;
-          }
-
-          // 检查成功状态
-          const isSuccess = !!row.querySelector(
-            ".material-center-v2-oc-upload-table-name-progress-success",
-          );
-
-          // 检查错误状态：通过特定 class 或错误关键词
+          // 只有当行文本包含错误关键词时才认为是报错的上传行
           const hasErrorElement = !!row.querySelector(
             '.material-center-v2-oc-upload-table-name-progress-error, [class*="error"], [class*="fail"], [class*="danger"]',
           );
           const hasErrorKeyword =
-            !isSuccess &&
-            !hasProgressBar &&
             errorRegex.test(rowText) &&
             !ignored.some((t) => rowText.includes(t));
-          const hasError = hasErrorElement || hasErrorKeyword;
 
-          rows.push({ fileName, rowText, isSuccess, hasError });
+          if (hasErrorElement || hasErrorKeyword) {
+            rows.push({
+              fileName,
+              rowText,
+              isSuccess: false,
+              hasError: true,
+            });
+          }
         }
 
         return { progressCount, rows };
       },
       {
-        panelSelector: uploadPanelSelector,
         errorKeywords: errorKeywordsSource,
         ignored: ignoredTexts,
       },
