@@ -12,6 +12,7 @@ import {
   NSwitch,
   NCollapse,
   NCollapseItem,
+  NTooltip,
   useMessage,
 } from "naive-ui";
 import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
@@ -105,6 +106,7 @@ const completedTasks = ref<
     fileCount: number;
     status: "completed" | "failed" | "skipped";
     error?: string;
+    remark?: string;
     completedAt: string;
     duration: string;
   }>
@@ -979,7 +981,19 @@ onUnmounted(() => {
                   <td>{{ task.date }}</td>
                   <td>{{ task.fileCount }}</td>
                   <td class="completed-result-cell">
+                    <NTooltip v-if="task.remark" trigger="hover">
+                      <template #trigger>
+                        <NTag
+                          :type="getCompletedTaskResultType(task)"
+                          size="small"
+                        >
+                          {{ getCompletedTaskResultText(task) }}
+                        </NTag>
+                      </template>
+                      {{ task.remark }}
+                    </NTooltip>
                     <NTag
+                      v-else
                       :type="getCompletedTaskResultType(task)"
                       size="small"
                     >

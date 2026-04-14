@@ -2158,11 +2158,16 @@ export class JuliangService {
         }
       }
 
-      // 所有批次结束后，兜底重传之前放弃的文件
+      // 所有批次结束后，兜底重传之前放弃的文件（按 batchSize 分批，每批复用 uploadBatch 的超时轮回逻辑）
       if (allAbandonedFiles.length > 0 && !this.isCancelled && this.page && !this.page.isClosed()) {
         const retryTimeout = this.config.abandonedRetryTimeoutMinutes;
+        const retryBatchSize = this.config.batchSize;
+        const retryBatches: string[][] = [];
+        for (let i = 0; i < allAbandonedFiles.length; i += retryBatchSize) {
+          retryBatches.push(allAbandonedFiles.slice(i, i + retryBatchSize));
+        }
         this.log(
-          `所有批次完成后，尝试兜底重传 ${allAbandonedFiles.length} 个之前放弃的文件（${retryTimeout}分钟超时）`,
+          `所有批次完成后，尝试兜底重传 ${allAbandonedFiles.length} 个之前放弃的文件，分 ${retryBatches.length} 批（每批最多 ${retryBatchSize} 个，${retryTimeout}分钟超时）`,
         );
 
         // 临时调整超时为兜底重传超时
@@ -2170,45 +2175,65 @@ export class JuliangService {
         this.config.batchUploadTimeoutMinutes = retryTimeout;
 
         try {
-          // 刷新页面清理状态
-          await this.page.reload({ waitUntil: "networkidle", timeout: 60000 });
-          await this.page.waitForTimeout(5000);
+          let retryTotalSuccess = 0;
+          const retryStillFailed: string[] = [];
 
-          const retryResult = await this.uploadBatchInternal(
-            allAbandonedFiles,
-            totalBatches + 1, // 虚拟批次号
-            totalBatches + 1,
-            0,
-          );
+          for (let rb = 0; rb < retryBatches.length; rb++) {
+            if (this.isCancelled || !this.page || this.page.isClosed()) break;
 
-          if (retryResult.successCount > 0) {
-            totalSuccess += retryResult.successCount;
+            const retryFiles = retryBatches[rb];
+            const retryBatchIndex = totalBatches + rb + 1;
+            const retryTotalBatches = totalBatches + retryBatches.length;
             this.log(
-              `兜底重传成功 ${retryResult.successCount}/${allAbandonedFiles.length} 个文件`,
+              `兜底重传第 ${rb + 1}/${retryBatches.length} 批（批次号 ${retryBatchIndex}/${retryTotalBatches}），${retryFiles.length} 个文件`,
+            );
+
+            // 复用 uploadBatch，自带超时轮回和重试逻辑
+            const retryResult = await this.uploadBatch(
+              retryFiles,
+              retryBatchIndex,
+              retryTotalBatches,
+            );
+
+            retryTotalSuccess += retryResult.successCount;
+
+            if (retryResult.abandonedFiles && retryResult.abandonedFiles.length > 0) {
+              retryStillFailed.push(...retryResult.abandonedFiles);
+            } else if (!retryResult.success && retryResult.successCount < retryFiles.length) {
+              // uploadBatch 返回失败且没有 abandonedFiles，说明整批失败
+              retryStillFailed.push(...retryFiles);
+            }
+
+            // 批次间等待
+            if (rb < retryBatches.length - 1) {
+              await this.randomDelay(3000, 5000);
+            }
+          }
+
+          totalSuccess += retryTotalSuccess;
+          if (retryTotalSuccess > 0) {
+            this.log(
+              `兜底重传成功 ${retryTotalSuccess}/${allAbandonedFiles.length} 个文件`,
             );
           }
 
-          if (!retryResult.success) {
-            // 仍然失败的文件计入 ignored
-            const stillFailedFiles =
-              retryResult.remainingFiles || allAbandonedFiles;
+          if (retryStillFailed.length > 0) {
             ignoredFileNames.push(
-              ...stillFailedFiles.map((f) => basename(f)),
+              ...retryStillFailed.map((f) => basename(f)),
             );
             ignoredBatchErrors.push(
-              `兜底重传失败 ${stillFailedFiles.length} 个文件`,
+              `兜底重传失败 ${retryStillFailed.length} 个文件`,
             );
             this.log(
-              `兜底重传仍有 ${stillFailedFiles.length} 个文件失败，已计入忽略列表`,
+              `兜底重传仍有 ${retryStillFailed.length} 个文件失败，已计入忽略列表`,
             );
-          } else {
+          } else if (retryTotalSuccess > 0) {
             this.log(`兜底重传全部成功`);
           }
         } catch (error) {
           this.log(
             `兜底重传出错: ${error instanceof Error ? error.message : String(error)}`,
           );
-          // 出错时将所有放弃的文件计入 ignored
           ignoredFileNames.push(
             ...allAbandonedFiles.map((f) => basename(f)),
           );
@@ -2216,7 +2241,6 @@ export class JuliangService {
             `兜底重传出错: ${error instanceof Error ? error.message : String(error)}`,
           );
         } finally {
-          // 恢复超时配置
           this.config.batchUploadTimeoutMinutes = originalTimeout;
         }
       }

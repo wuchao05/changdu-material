@@ -29,6 +29,7 @@ export interface CompletedTask {
   fileCount: number;
   status: "completed" | "failed" | "skipped";
   error?: string;
+  remark?: string;
   completedAt: string;
   duration: string;
 }
@@ -310,6 +311,7 @@ export class JuliangSchedulerService {
     task: InternalTask,
     status: "completed" | "failed" | "skipped",
     startTime: number,
+    remark?: string,
   ) {
     const elapsed = Date.now() - startTime;
     const minutes = Math.floor(elapsed / 60000);
@@ -321,6 +323,7 @@ export class JuliangSchedulerService {
       fileCount: task.mp4Files?.length || 0,
       status,
       error: task.error,
+      remark,
       completedAt: new Date().toISOString(),
       duration,
     });
@@ -1087,20 +1090,15 @@ export class JuliangSchedulerService {
         task.error = "本地目录不存在或没有视频文件";
         this.log(`任务跳过: ${task.drama} - ${task.error}`);
 
-        // 更新飞书状态为"跳过上传"
-        const updateSuccess = await this.apiService.updateFeishuRecordStatus(
-          task.recordId,
+        // 更新飞书状态为"跳过上传"，备注写明跳过原因
+        await this.updateTaskFeishuStatus(
+          task,
           "跳过上传",
-          this.configService,
-          task.tableId,
+          1,
+          task.error,
         );
-        if (updateSuccess) {
-          this.log(`飞书状态已更新为"跳过上传": ${task.drama}`);
-        } else {
-          this.log(`更新飞书状态失败: ${task.drama}`);
-        }
 
-        this.addCompletedTask(task, "skipped", taskStartTime);
+        this.addCompletedTask(task, "skipped", taskStartTime, task.error);
         return true; // 返回 true 表示被跳过
       }
 
@@ -1153,19 +1151,15 @@ export class JuliangSchedulerService {
           task.updatedAt = new Date();
           this.log(`任务跳过: ${task.drama} - ${task.error}`);
 
-          const updateSuccess = await this.apiService.updateFeishuRecordStatus(
-            task.recordId,
+          // 更新飞书状态为"跳过上传"，备注写明跳过原因
+          await this.updateTaskFeishuStatus(
+            task,
             "跳过上传",
-            this.configService,
-            task.tableId,
+            1,
+            task.error,
           );
-          if (updateSuccess) {
-            this.log(`飞书状态已更新为"跳过上传": ${task.drama}`);
-          } else {
-            this.log(`更新飞书状态失败: ${task.drama}`);
-          }
 
-          this.addCompletedTask(task, "skipped", taskStartTime);
+          this.addCompletedTask(task, "skipped", taskStartTime, task.error);
           return true;
         }
 
@@ -1194,7 +1188,7 @@ export class JuliangSchedulerService {
             this.log(`已保留本地目录，便于人工补查: ${task.localPath}`);
           }
 
-          this.addCompletedTask(task, "completed", taskStartTime);
+          this.addCompletedTask(task, "completed", taskStartTime, uploadResult.remark);
           return false;
         }
 
