@@ -2591,6 +2591,11 @@ function stopAutoRun(reason?: string) {
   }
 }
 
+function notifyAutoRunSkippedFailure(reason: string) {
+  if (!autoRunEnabled.value) return;
+  message.warning(`${reason}，已自动跳过并继续后续剧目`);
+}
+
 function getNextAutoRunRow(): DramaUploadRow | null {
   for (const row of rows.value) {
     if (row.status === "pending") {
@@ -2889,6 +2894,7 @@ async function startUpload(row: DramaUploadRow) {
       row.status = "failed";
       row.error = result.error || "上传失败";
       message.error(`《${row.drama}》上传失败：${row.error}`);
+      notifyAutoRunSkippedFailure(`《${row.drama}》上传失败`);
       return;
     }
 
@@ -2920,7 +2926,7 @@ async function startUpload(row: DramaUploadRow) {
     row.status = "failed";
     row.error = error instanceof Error ? error.message : String(error);
     message.error(`《${row.drama}》上传失败：${row.error}`);
-    stopAutoRun(`自动运行已停止：《${row.drama}》上传失败`);
+    notifyAutoRunSkippedFailure(`《${row.drama}》上传失败`);
   } finally {
     if (autoRunEnabled.value) {
       queueMicrotask(() => {
@@ -2969,11 +2975,6 @@ async function clearExistingProjectsBeforeBuild(row: DramaUploadRow) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     message.error(`清理账户历史项目失败：${errorMessage}`);
-    if (autoRunEnabled.value) {
-      stopAutoRun(
-        `自动运行已停止：《${row.drama || "未命名剧目"}》清理账户历史项目失败`,
-      );
-    }
     return false;
   }
 }
@@ -2992,6 +2993,18 @@ async function startBuild(row: DramaUploadRow) {
 
   const cleared = await clearExistingProjectsBeforeBuild(row);
   if (!cleared) {
+    row.buildStatus = "failed";
+    row.buildError = "清理账户历史项目失败";
+    row.buildMessage = row.buildError;
+    row.buildTaskId = undefined;
+    notifyAutoRunSkippedFailure(
+      `《${row.drama || "未命名剧目"}》清理账户历史项目失败`,
+    );
+    if (autoRunEnabled.value) {
+      queueMicrotask(() => {
+        void maybeStartNextAutoTask();
+      });
+    }
     return;
   }
 
@@ -3070,7 +3083,7 @@ async function startBuild(row: DramaUploadRow) {
       row.buildMessage = row.buildError;
       row.buildTaskId = undefined;
       message.error(`《${row.drama}》搭建失败：${row.buildError}`);
-      stopAutoRun(`自动运行已停止：《${row.drama}》搭建失败`);
+      notifyAutoRunSkippedFailure(`《${row.drama}》搭建失败`);
       return;
     }
 
@@ -3103,7 +3116,7 @@ async function startBuild(row: DramaUploadRow) {
     row.buildMessage = row.buildError;
     row.buildTaskId = undefined;
     message.error(`《${row.drama}》搭建失败：${row.buildError}`);
-    stopAutoRun(`自动运行已停止：《${row.drama}》搭建失败`);
+    notifyAutoRunSkippedFailure(`《${row.drama}》搭建失败`);
   } finally {
     currentBuildProgress.value = null;
     if (autoRunEnabled.value) {

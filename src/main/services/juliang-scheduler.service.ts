@@ -332,6 +332,19 @@ export class JuliangSchedulerService {
     }
   }
 
+  private async deleteLocalMaterialDirectory(task: InternalTask) {
+    if (!task.localPath) {
+      return;
+    }
+
+    const deleteSuccess = await this.fileService.deleteFolder(task.localPath);
+    if (deleteSuccess.success) {
+      this.log(`本地目录已删除: ${task.localPath}`);
+    } else {
+      this.log(`删除本地目录失败: ${task.localPath}`);
+    }
+  }
+
   /**
    * 获取已完成任务列表
    */
@@ -1091,12 +1104,7 @@ export class JuliangSchedulerService {
         this.log(`任务跳过: ${task.drama} - ${task.error}`);
 
         // 更新飞书状态为"跳过上传"，备注写明跳过原因
-        await this.updateTaskFeishuStatus(
-          task,
-          "跳过上传",
-          1,
-          task.error,
-        );
+        await this.updateTaskFeishuStatus(task, "跳过上传", 1, task.error);
 
         this.addCompletedTask(task, "skipped", taskStartTime, task.error);
         return true; // 返回 true 表示被跳过
@@ -1152,12 +1160,7 @@ export class JuliangSchedulerService {
           this.log(`任务跳过: ${task.drama} - ${task.error}`);
 
           // 更新飞书状态为"跳过上传"，备注写明跳过原因
-          await this.updateTaskFeishuStatus(
-            task,
-            "跳过上传",
-            1,
-            task.error,
-          );
+          await this.updateTaskFeishuStatus(task, "跳过上传", 1, task.error);
 
           this.addCompletedTask(task, "skipped", taskStartTime, task.error);
           return true;
@@ -1184,11 +1187,14 @@ export class JuliangSchedulerService {
             this.log(`飞书状态更新最终失败，但任务已部分上传: ${task.drama}`);
           }
 
-          if (task.localPath) {
-            this.log(`已保留本地目录，便于人工补查: ${task.localPath}`);
-          }
+          await this.deleteLocalMaterialDirectory(task);
 
-          this.addCompletedTask(task, "completed", taskStartTime, uploadResult.remark);
+          this.addCompletedTask(
+            task,
+            "completed",
+            taskStartTime,
+            uploadResult.remark,
+          );
           return false;
         }
 
@@ -1226,16 +1232,7 @@ export class JuliangSchedulerService {
       }
 
       // 6. 删除本地素材目录（无论飞书更新是否成功）
-      if (task.localPath) {
-        const deleteSuccess = await this.fileService.deleteFolder(
-          task.localPath,
-        );
-        if (deleteSuccess.success) {
-          this.log(`本地目录已删除: ${task.localPath}`);
-        } else {
-          this.log(`删除本地目录失败: ${task.localPath}`);
-        }
-      }
+      await this.deleteLocalMaterialDirectory(task);
 
       task.status = "completed";
       task.updatedAt = new Date();

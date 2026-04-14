@@ -504,6 +504,7 @@ export class WebSessionService {
       {
         method: "GET",
         params: {
+          delivery_status: 1,
           permission_statuses: "3,4",
           page_index: 0,
           page_size: 10,
