@@ -148,17 +148,7 @@ function normalizeRuntimeUser(
     defaultChannelId: String(user.defaultChannelId || "").trim(),
     permissions: {
       syncAccount: Boolean(user.permissions?.syncAccount),
-      desktopMenus:
-        user.userType === "admin"
-          ? {
-              download: true,
-              materialClip: true,
-              upload: true,
-              juliangUpload: true,
-              uploadBuild: true,
-              juliangBuild: true,
-            }
-          : normalizeDesktopMenus(user.permissions?.desktopMenus),
+      desktopMenus: normalizeDesktopMenus(user.permissions?.desktopMenus),
     },
     feishu: {
       dramaListTableId: String(user.feishu?.dramaListTableId || "").trim(),
