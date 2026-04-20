@@ -85,6 +85,82 @@ export class ApiService {
     expireTime: 0,
   };
 
+  private getErrorMessage(error: unknown): string {
+    if (axios.isAxiosError(error)) {
+      const data = error.response?.data as
+        | { message?: string; msg?: string; error?: string }
+        | undefined;
+      return [error.message, data?.message, data?.msg, data?.error]
+        .filter(Boolean)
+        .join(" ");
+    }
+
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private isXtTokenInvalidError(error: unknown): boolean {
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      return true;
+    }
+
+    const normalizedMessage = this.getErrorMessage(error).toLowerCase();
+    if (normalizedMessage.includes("请先登录")) {
+      return true;
+    }
+
+    return (
+      (normalizedMessage.includes("token") ||
+        normalizedMessage.includes("401")) &&
+      (normalizedMessage.includes("过期") ||
+        normalizedMessage.includes("失效") ||
+        normalizedMessage.includes("expired") ||
+        normalizedMessage.includes("invalid") ||
+        normalizedMessage.includes("unauthorized") ||
+        normalizedMessage.includes("登录"))
+    );
+  }
+
+  private async withXtTokenRetry<T>(
+    configService: ConfigService,
+    actionName: string,
+    operation: (xtToken: string) => Promise<T>,
+  ): Promise<T> {
+    const runWithCurrentToken = async (): Promise<T> => {
+      const apiConfig = await configService.getApiConfig();
+      const xtToken = String(apiConfig.xtToken || "").trim();
+
+      if (!xtToken) {
+        throw new Error("请先配置 XT Token");
+      }
+
+      return await operation(xtToken);
+    };
+
+    try {
+      return await runWithCurrentToken();
+    } catch (error) {
+      if (!this.isXtTokenInvalidError(error)) {
+        throw error;
+      }
+
+      console.warn(
+        `[ApiService] ${actionName} 检测到 XT Token 可能失效，尝试刷新会话后重试`,
+        this.getErrorMessage(error),
+      );
+
+      const refreshedSession = await configService.refreshRuntimeSession();
+      const refreshedXtToken = String(
+        refreshedSession?.runtimeUser?.xtToken || "",
+      ).trim();
+
+      if (!refreshedXtToken) {
+        throw error;
+      }
+
+      return await operation(refreshedXtToken);
+    }
+  }
+
   private async parseRemoteJsonResponse<T>(
     response: Response,
     defaultErrorMessage: string,
@@ -798,12 +874,6 @@ export class ApiService {
     }>,
     configService: ConfigService,
   ): Promise<unknown> {
-    const apiConfig = await configService.getApiConfig();
-
-    if (!apiConfig.xtToken) {
-      throw new Error("请先配置 XT Token");
-    }
-
     console.log(
       `[ApiService] 开始提交素材到素材库，共 ${materials.length} 个素材`,
     );
@@ -834,18 +904,36 @@ export class ApiService {
       materials.map((m) => m.name).join(", "),
     );
 
-    const response = await axios.post(
-      "https://splay-admin.lnkaishi.cn/material/add",
-      requestData,
-      {
-        headers: {
-          "Content-Type": "application/json",
-          token: apiConfig.xtToken,
-        },
-        params: {
-          team_id: "500039",
-        },
-        timeout: 10000,
+    const response = await this.withXtTokenRetry(
+      configService,
+      "提交素材库",
+      async (xtToken) => {
+        const response = await axios.post(
+          "https://splay-admin.lnkaishi.cn/material/add",
+          requestData,
+          {
+            headers: {
+              "Content-Type": "application/json",
+              token: xtToken,
+            },
+            params: {
+              team_id: "500039",
+            },
+            timeout: 10000,
+          },
+        );
+
+        if (
+          response.data?.code === -100 ||
+          response.data?.message === "请先登录" ||
+          response.data?.msg === "请先登录"
+        ) {
+          throw new Error(
+            response.data?.message || response.data?.msg || "请先登录",
+          );
+        }
+
+        return response;
       },
     );
 
@@ -868,29 +956,41 @@ export class ApiService {
     key: string,
     configService: ConfigService,
   ): Promise<MaterialLibraryItem[]> {
-    const apiConfig = await configService.getApiConfig();
+    const response = await this.withXtTokenRetry(
+      configService,
+      "查询素材库",
+      async (xtToken) => {
+        const response = await axios.get<MaterialLibraryListResponse>(
+          "https://splay-admin.yncctech.com/material/list",
+          {
+            headers: {
+              token: xtToken,
+            },
+            params: {
+              team_id: "500039",
+              page: 1,
+              page_size: 1000,
+              style: "",
+              audit_status: "",
+              ad_labels: "",
+              category_id: -1,
+              key,
+            },
+            timeout: 10000,
+          },
+        );
 
-    if (!apiConfig.xtToken) {
-      throw new Error("请先配置 XT Token");
-    }
+        if (
+          response.data?.code === -100 ||
+          response.data?.message === "请先登录" ||
+          response.data?.msg === "请先登录"
+        ) {
+          throw new Error(
+            response.data?.message || response.data?.msg || "请先登录",
+          );
+        }
 
-    const response = await axios.get<MaterialLibraryListResponse>(
-      "https://splay-admin.yncctech.com/material/list",
-      {
-        headers: {
-          token: apiConfig.xtToken,
-        },
-        params: {
-          team_id: "500039",
-          page: 1,
-          page_size: 1000,
-          style: "",
-          audit_status: "",
-          ad_labels: "",
-          category_id: -1,
-          key,
-        },
-        timeout: 10000,
+        return response;
       },
     );
 
@@ -908,28 +1008,40 @@ export class ApiService {
     channelId: string,
     configService: ConfigService,
   ): Promise<MaterialPushResponse> {
-    const apiConfig = await configService.getApiConfig();
+    const response = await this.withXtTokenRetry(
+      configService,
+      "推送素材",
+      async (xtToken) => {
+        const response = await axios.post<MaterialPushResponse>(
+          "https://splay-admin.yncctech.com/material/push",
+          {
+            ids,
+            ad_account_ids: adAccountIds,
+            channel_id: channelId,
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              token: xtToken,
+            },
+            params: {
+              team_id: "500039",
+            },
+            timeout: 10000,
+          },
+        );
 
-    if (!apiConfig.xtToken) {
-      throw new Error("请先配置 XT Token");
-    }
+        if (
+          response.data?.code === -100 ||
+          response.data?.message === "请先登录" ||
+          response.data?.msg === "请先登录"
+        ) {
+          throw new Error(
+            response.data?.message || response.data?.msg || "请先登录",
+          );
+        }
 
-    const response = await axios.post<MaterialPushResponse>(
-      "https://splay-admin.yncctech.com/material/push",
-      {
-        ids,
-        ad_account_ids: adAccountIds,
-        channel_id: channelId,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          token: apiConfig.xtToken,
-        },
-        params: {
-          team_id: "500039",
-        },
-        timeout: 10000,
+        return response;
       },
     );
 

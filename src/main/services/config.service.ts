@@ -495,6 +495,23 @@ export class ConfigService {
     return await this.webSessionService.getSession();
   }
 
+  async refreshRuntimeSession(): Promise<SessionRuntimeData | null> {
+    try {
+      const currentSession = await this.webSessionService.getSession();
+      if (!currentSession) {
+        console.warn("[ConfigService] 当前没有有效登录会话，无法刷新 XT Token");
+        return null;
+      }
+
+      const refreshedSession = await this.webSessionService.refreshSession();
+      console.log("[ConfigService] 会话刷新成功，已重新获取最新 XT Token");
+      return refreshedSession;
+    } catch (error) {
+      console.error("[ConfigService] 刷新运行时会话失败:", error);
+      return null;
+    }
+  }
+
   getWebSessionHeaders(
     extraHeaders: Record<string, string> = {},
   ): Record<string, string> {
