@@ -175,9 +175,6 @@ const api = {
   saveApiConfig: (config: unknown) =>
     ipcRenderer.invoke("config:saveApiConfig", config),
 
-  // 远程 Auth 配置获取
-  fetchAuthConfig: () => ipcRenderer.invoke("config:fetchAuthConfig"),
-
   // 远程配置同步
   syncRemoteConfig: () => ipcRenderer.invoke("config:syncFromRemote"),
   pushRemoteConfig: () => ipcRenderer.invoke("config:pushToRemote"),
@@ -341,6 +338,12 @@ const api = {
     ipcRenderer.invoke("api:upload", filePath, options),
   submitMaterial: (materials: unknown) =>
     ipcRenderer.invoke("api:submitMaterial", materials),
+  pushDramaMaterials: (params: {
+    dramaName: string;
+    materialNames: string[];
+    adAccountIds: string;
+    channelId?: string;
+  }) => ipcRenderer.invoke("api:pushDramaMaterials", params),
   onUploadProgress: (callback: (progress: UploadProgress) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,

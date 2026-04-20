@@ -93,6 +93,7 @@ interface RuntimeUserProfile {
   userType: "admin" | "normal";
   channelIds: string[];
   defaultChannelId: string;
+  xtToken?: string;
   permissions?: RuntimePermissions;
   feishu?: {
     dramaListTableId: string;
@@ -606,7 +607,6 @@ interface Api {
   deleteDaren: (id: string) => Promise<void>;
   getApiConfig: () => Promise<ApiConfig>;
   saveApiConfig: (config: ApiConfig) => Promise<void>;
-  fetchAuthConfig: () => Promise<{ success: boolean; error?: string }>;
   syncRemoteConfig: () => Promise<{
     synced: boolean;
     version?: number;
@@ -730,6 +730,16 @@ interface Api {
     options: unknown,
   ) => Promise<{ success: boolean; url: string }>;
   submitMaterial: (materials: unknown) => Promise<unknown>;
+  pushDramaMaterials: (params: {
+    dramaName: string;
+    materialNames: string[];
+    adAccountIds: string;
+    channelId?: string;
+  }) => Promise<{
+    ids: number[];
+    matchedNames: string[];
+    missingNames: string[];
+  }>;
   onUploadProgress: (
     callback: (progress: UploadProgress) => void,
   ) => () => void;

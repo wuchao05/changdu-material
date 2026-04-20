@@ -527,6 +527,46 @@ async function processDownloadedArchive(
   }
 }
 
+async function copyText(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+async function handleCopyDownloadLink(task: DownloadTask) {
+  try {
+    if (!task.downloadUrl) {
+      task.downloadUrl = await getDownloadUrl(task.imagexUri);
+    }
+
+    if (!task.downloadUrl) {
+      message.error("当前剧集暂无可复制的下载链接");
+      return;
+    }
+
+    await copyText(task.downloadUrl);
+    message.success(`已复制 ${task.dramaName} 的下载链接`);
+  } catch (error) {
+    console.error("[Download] 复制下载链接失败:", error);
+    message.error("复制下载链接失败");
+  }
+}
+
 // 下载单个任务（进度停滞检测 + 绝对超时检测）
 async function downloadSingleTask(
   task: DownloadTask,
@@ -1532,6 +1572,23 @@ const columns: DataTableColumns<DownloadTask> = [
         return `${(speed / 1024 / 1024).toFixed(2)} MB/s`;
       }
     },
+  },
+  {
+    title: "下载链接",
+    key: "downloadLink",
+    width: 100,
+    render: (row) =>
+      h(
+        NButton,
+        {
+          text: true,
+          type: "primary",
+          onClick: () => {
+            void handleCopyDownloadLink(row);
+          },
+        },
+        { default: () => "复制链接" },
+      ),
   },
   {
     title: "操作",

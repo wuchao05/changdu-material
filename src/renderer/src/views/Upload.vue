@@ -36,7 +36,19 @@ import { useApiConfigStore } from "../stores/apiConfig";
 type VideoStatus = "pending" | "uploading" | "success" | "error";
 
 // 剧集状态类型
-type DramaStatus = "pending" | "uploading" | "success" | "partial" | "error";
+type DramaStatus =
+  | "pending"
+  | "uploading"
+  | "pending_push"
+  | "success"
+  | "partial"
+  | "error";
+
+interface FeishuDramaMapping {
+  recordId: string;
+  tableId: string;
+  accountId?: string;
+}
 
 interface VideoMaterial {
   fileName: string;
@@ -75,7 +87,9 @@ const apiConfigStore = useApiConfigStore();
 
 // State
 const selectedDate = ref<number>(Date.now());
-const rootFolder = ref<string>(localStorage.getItem('upload-root-folder') || ""); // 上传根目录，从 localStorage 加载
+const rootFolder = ref<string>(
+  localStorage.getItem("upload-root-folder") || "",
+); // 上传根目录，从 localStorage 加载
 
 // 计算实际扫描路径：根目录 + "日期导出"
 const scanFolder = computed(() => {
@@ -103,12 +117,11 @@ const showHelpModal = ref(false);
 const selectedVideos = ref<Set<string>>(new Set());
 
 // 飞书记录映射：剧名 -> recordId/tableId（用于更新“当前状态”）
-const feishuRecordMap = ref<
-  Record<string, { recordId: string; tableId: string }>
->({});
-// 记录已设置为“上传中/待搭建”的剧，避免重复更新
+const feishuRecordMap = ref<Record<string, FeishuDramaMapping>>({});
+// 记录已设置为“上传中/待搭建/待推送”的剧，避免重复更新
 const feishuUploadingSet = ref<Set<string>>(new Set());
 const feishuBuiltPendingSet = ref<Set<string>>(new Set());
+const dramaPendingPushSet = ref<Set<string>>(new Set());
 
 // 上传进度跟踪
 const uploadStartTime = ref<number>(0);
@@ -119,16 +132,16 @@ const timeInterval = ref<ReturnType<typeof setInterval> | null>(null);
 const stats = computed(() => {
   const total = videoMaterials.value.length;
   const uploaded = videoMaterials.value.filter(
-    (v) => v.status === "success"
+    (v) => v.status === "success",
   ).length;
   const failed = videoMaterials.value.filter(
-    (v) => v.status === "error"
+    (v) => v.status === "error",
   ).length;
   const pending = videoMaterials.value.filter(
-    (v) => v.status === "pending"
+    (v) => v.status === "pending",
   ).length;
   const uploadingCount = videoMaterials.value.filter(
-    (v) => v.status === "uploading"
+    (v) => v.status === "uploading",
   ).length;
 
   return { total, uploaded, failed, pending, uploadingCount };
@@ -148,7 +161,7 @@ const isAllUploadsCompleted = computed(() => {
 // 当前选中的视频数量
 const selectedVideoCount = computed(() => {
   return videoMaterials.value.filter((v) =>
-    selectedVideos.value.has(v.fileName)
+    selectedVideos.value.has(v.fileName),
   ).length;
 });
 
@@ -156,14 +169,14 @@ const selectedVideoCount = computed(() => {
 const isAllSelected = computed(() => {
   if (videoMaterials.value.length === 0) return false;
   return videoMaterials.value.every((v) =>
-    selectedVideos.value.has(v.fileName)
+    selectedVideos.value.has(v.fileName),
   );
 });
 
 const isIndeterminate = computed(() => {
   if (videoMaterials.value.length === 0) return false;
   const selectedCount = videoMaterials.value.filter((v) =>
-    selectedVideos.value.has(v.fileName)
+    selectedVideos.value.has(v.fileName),
   ).length;
   return selectedCount > 0 && selectedCount < videoMaterials.value.length;
 });
@@ -197,7 +210,7 @@ async function selectRootFolder() {
     if (folder) {
       rootFolder.value = folder;
       // 保存到 localStorage
-      localStorage.setItem('upload-root-folder', folder);
+      localStorage.setItem("upload-root-folder", folder);
       message.success(`已选择上传根目录: ${folder}`);
     }
   } catch (error) {
@@ -220,6 +233,7 @@ async function scanFromFeishu() {
   feishuRecordMap.value = {};
   feishuUploadingSet.value = new Set();
   feishuBuiltPendingSet.value = new Set();
+  dramaPendingPushSet.value = new Set();
 
   try {
     // 1. 获取当前达人的状态表 ID
@@ -253,10 +267,11 @@ async function scanFromFeishu() {
             feishuRecordMap.value[dramaName] = {
               recordId: item.record_id,
               tableId,
+              accountId: extractTextFromField(item.fields["账户"]),
             };
           }
         }
-      }
+      },
     );
 
     if (pendingDramas.size === 0) {
@@ -275,12 +290,12 @@ async function scanFromFeishu() {
     // 5. 过滤出待上传剧集的视频
     const date = formatDateForPath(selectedDate.value);
     const filteredMaterials = materials.filter((m) =>
-      pendingDramas.has(m.dramaName)
+      pendingDramas.has(m.dramaName),
     );
 
     if (filteredMaterials.length === 0) {
       message.info(
-        `找到 ${materials.length} 个视频，但没有匹配飞书表中待上传的剧集`
+        `找到 ${materials.length} 个视频，但没有匹配飞书表中待上传的剧集`,
       );
       return;
     }
@@ -300,7 +315,7 @@ async function scanFromFeishu() {
     videoMaterials.value.forEach((v) => selectedVideos.value.add(v.fileName));
 
     message.success(
-      `找到 ${filteredMaterials.length} 个待上传视频（共 ${pendingDramas.size} 个剧集）`
+      `找到 ${filteredMaterials.length} 个待上传视频（共 ${pendingDramas.size} 个剧集）`,
     );
   } catch (error) {
     message.error("查询飞书待上传剧集失败");
@@ -314,7 +329,7 @@ async function scanFromFeishu() {
 async function updateFeishuDramaStatus(
   dramaName: string,
   status: string,
-  remark?: string
+  remark?: string,
 ) {
   try {
     if (!apiConfigStore.loaded) {
@@ -335,7 +350,7 @@ async function updateFeishuDramaStatus(
         const searchResult = (await window.api.feishuRequest(
           `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/search`,
           {
-            field_names: ["剧名", "当前状态"],
+            field_names: ["剧名", "当前状态", "账户"],
             page_size: 10,
             filter: {
               conjunction: "and",
@@ -348,17 +363,25 @@ async function updateFeishuDramaStatus(
               ],
             },
           },
-          "POST"
+          "POST",
         )) as {
           code?: number;
           data?: {
-            items?: Array<{ record_id: string; fields: Record<string, unknown> }>;
+            items?: Array<{
+              record_id: string;
+              fields: Record<string, unknown>;
+            }>;
           };
         };
         if (searchResult.code === 0 && searchResult.data?.items?.length) {
-          recordId = searchResult.data.items[0].record_id;
+          const currentItem = searchResult.data.items[0];
+          recordId = currentItem.record_id;
           // 缓存起来，后续不用再查
-          feishuRecordMap.value[dramaName] = { recordId, tableId };
+          feishuRecordMap.value[dramaName] = {
+            recordId,
+            tableId,
+            accountId: extractTextFromField(currentItem.fields?.["账户"]),
+          };
           console.log(`[Upload] 查询到 recordId: ${recordId}`);
         }
       } catch (e) {
@@ -394,7 +417,7 @@ async function updateFeishuDramaStatus(
     const result = (await window.api.feishuRequest(
       `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/${recordId}`,
       { fields },
-      "PUT"
+      "PUT",
     )) as { code?: number; msg?: string };
 
     if (result.code !== 0) {
@@ -416,6 +439,7 @@ async function scanVideos() {
   videoMaterials.value = [];
   groupedMaterials.value = [];
   selectedVideos.value = new Set();
+  dramaPendingPushSet.value = new Set();
 
   try {
     // 使用拼接后的日期目录扫描
@@ -472,6 +496,15 @@ function updateGroupedMaterials() {
 
   groupedMaterials.value = Array.from(groups.entries()).map(
     ([dramaName, videos]) => {
+      if (dramaPendingPushSet.value.has(dramaName)) {
+        return {
+          dramaName,
+          videos,
+          status: "pending_push" as DramaStatus,
+          expanded: false,
+        };
+      }
+
       const allSuccess = videos.every((v) => v.status === "success");
       const allError = videos.every((v) => v.status === "error");
       const hasUploading = videos.some((v) => v.status === "uploading");
@@ -489,7 +522,7 @@ function updateGroupedMaterials() {
         status,
         expanded: false,
       };
-    }
+    },
   );
 }
 
@@ -501,7 +534,7 @@ async function startUpload() {
   }
 
   const selectedFiles = videoMaterials.value.filter(
-    (v) => selectedVideos.value.has(v.fileName) && v.status === "pending"
+    (v) => selectedVideos.value.has(v.fileName) && v.status === "pending",
   );
 
   if (selectedFiles.length === 0) {
@@ -567,7 +600,7 @@ function cancelUpload() {
 // 提交到素材库
 async function submitToMaterialLibrary() {
   const successVideos = videoMaterials.value.filter(
-    (v) => v.status === "success" && v.url && !v.isSubmitted
+    (v) => v.status === "success" && v.url && !v.isSubmitted,
   );
 
   if (successVideos.length === 0) {
@@ -596,7 +629,7 @@ async function submitToMaterialLibrary() {
           duration: Math.round(videoInfo.duration),
           size: Math.ceil((v.size / 1024 / 1024) * 1000), // MB * 1000
         };
-      })
+      }),
     );
 
     await window.api.submitMaterial(materials);
@@ -627,7 +660,7 @@ function toggleDramaSelection(dramaName: string) {
   if (!group) return;
 
   const allSelected = group.videos.every((v) =>
-    selectedVideos.value.has(v.fileName)
+    selectedVideos.value.has(v.fileName),
   );
 
   if (allSelected) {
@@ -655,14 +688,14 @@ function isDramaIndeterminate(dramaName: string): boolean {
   const group = groupedMaterials.value.find((g) => g.dramaName === dramaName);
   if (!group || group.videos.length === 0) return false;
   const selectedCount = group.videos.filter((v) =>
-    selectedVideos.value.has(v.fileName)
+    selectedVideos.value.has(v.fileName),
   ).length;
   return selectedCount > 0 && selectedCount < group.videos.length;
 }
 
 // 获取剧集状态标签类型
 function getDramaStatusType(
-  status: DramaStatus
+  status: DramaStatus,
 ): "default" | "success" | "error" | "warning" | "info" {
   const typeMap: Record<
     DramaStatus,
@@ -670,6 +703,7 @@ function getDramaStatusType(
   > = {
     pending: "default",
     uploading: "info",
+    pending_push: "warning",
     success: "success",
     partial: "warning",
     error: "error",
@@ -681,6 +715,7 @@ function getDramaStatusText(status: DramaStatus): string {
   const textMap: Record<DramaStatus, string> = {
     pending: "待上传",
     uploading: "上传中",
+    pending_push: "待推送",
     success: "已完成",
     partial: "部分完成",
     error: "失败",
@@ -734,6 +769,23 @@ async function retryUpload(video: VideoMaterial) {
   }
 }
 
+function buildPendingPushRemark(
+  failCount: number,
+  pushError?: string,
+): string | undefined {
+  const parts: string[] = [];
+
+  if (failCount > 0) {
+    parts.push(`有 ${failCount} 个视频上传失败，已提交成功视频`);
+  }
+
+  if (pushError) {
+    parts.push(`推送失败：${pushError}`);
+  }
+
+  return parts.length > 0 ? parts.join("；") : undefined;
+}
+
 // 调度下一次自动上传检查
 function scheduleNextUploadCheck() {
   if (!autoUploadEnabled.value) return;
@@ -743,7 +795,7 @@ function scheduleNextUploadCheck() {
   nextAutoUploadTime.value = next.toLocaleTimeString();
 
   console.log(
-    `[AutoUpload] 调度下一次检查，${autoUploadIntervalMinutes.value} 分钟后`
+    `[AutoUpload] 调度下一次检查，${autoUploadIntervalMinutes.value} 分钟后`,
   );
 
   autoUploadTimeout.value = setTimeout(() => {
@@ -763,10 +815,10 @@ function toggleAutoUpload(enabled: boolean) {
 
   if (enabled) {
     console.log(
-      `[AutoUpload] 开启自动上传，轮询间隔: ${autoUploadIntervalMinutes.value} 分钟`
+      `[AutoUpload] 开启自动上传，轮询间隔: ${autoUploadIntervalMinutes.value} 分钟`,
     );
     message.info(
-      `自动上传已开启，每 ${autoUploadIntervalMinutes.value} 分钟检查一次`
+      `自动上传已开启，每 ${autoUploadIntervalMinutes.value} 分钟检查一次`,
     );
 
     // 立即开始第一次循环
@@ -858,10 +910,7 @@ async function runAutoUploadCycle(): Promise<boolean> {
 
     // 提取剧名列表和飞书记录映射
     const pendingDramas = new Set<string>();
-    const newFeishuRecordMap: Record<
-      string,
-      { recordId: string; tableId: string }
-    > = {};
+    const newFeishuRecordMap: Record<string, FeishuDramaMapping> = {};
 
     response.data.items.forEach(
       (item: { fields: Record<string, unknown>; record_id?: string }) => {
@@ -872,10 +921,11 @@ async function runAutoUploadCycle(): Promise<boolean> {
             newFeishuRecordMap[dramaName] = {
               recordId: item.record_id,
               tableId,
+              accountId: extractTextFromField(item.fields["账户"]),
             };
           }
         }
-      }
+      },
     );
 
     if (pendingDramas.size === 0) {
@@ -885,7 +935,7 @@ async function runAutoUploadCycle(): Promise<boolean> {
 
     console.log(
       `[AutoUpload] 找到 ${pendingDramas.size} 个待上传剧集:`,
-      Array.from(pendingDramas)
+      Array.from(pendingDramas),
     );
 
     // 扫描 rootFolder 下所有"*导出"目录
@@ -904,7 +954,10 @@ async function runAutoUploadCycle(): Promise<boolean> {
 
     // 获取所有导出目录并扫描
     const rootEntries = await window.api.listExportDirs(rootFolder.value);
-    console.log(`[AutoUpload] 找到 ${rootEntries.length} 个导出目录:`, rootEntries);
+    console.log(
+      `[AutoUpload] 找到 ${rootEntries.length} 个导出目录:`,
+      rootEntries,
+    );
 
     for (const exportDir of rootEntries) {
       const scanPath = `${rootFolder.value}${sep}${exportDir}`;
@@ -927,14 +980,14 @@ async function runAutoUploadCycle(): Promise<boolean> {
 
       // 过滤出待上传剧集的视频
       const filteredMaterials = materials.filter((m) =>
-        pendingDramas.has(m.dramaName)
+        pendingDramas.has(m.dramaName),
       );
 
       if (filteredMaterials.length === 0) continue;
 
       const dateStr = exportDir.replace("导出", "");
       console.log(
-        `[AutoUpload] ${exportDir} 找到 ${filteredMaterials.length} 个待上传视频`
+        `[AutoUpload] ${exportDir} 找到 ${filteredMaterials.length} 个待上传视频`,
       );
 
       newMaterials.push(
@@ -944,7 +997,7 @@ async function runAutoUploadCycle(): Promise<boolean> {
           date: dateStr,
           status: "pending" as VideoStatus,
           progress: 0,
-        }))
+        })),
       );
     }
 
@@ -958,6 +1011,7 @@ async function runAutoUploadCycle(): Promise<boolean> {
       feishuRecordMap.value = newFeishuRecordMap;
       feishuUploadingSet.value = new Set();
       feishuBuiltPendingSet.value = new Set();
+      dramaPendingPushSet.value = new Set();
 
       // 全选新添加的视频
       newMaterials.forEach((v) => selectedVideos.value.add(v.fileName));
@@ -989,7 +1043,7 @@ onMounted(() => {
   // 监听上传进度
   unsubscribeProgress = window.api.onTosUploadProgress((progress) => {
     const video = videoMaterials.value.find(
-      (v) => v.fileName === progress.fileName
+      (v) => v.fileName === progress.fileName,
     );
     if (video) {
       video.status = progress.status as VideoStatus;
@@ -1014,7 +1068,7 @@ onMounted(() => {
   // 监听上传完成
   unsubscribeComplete = window.api.onTosUploadComplete((result) => {
     const video = videoMaterials.value.find(
-      (v) => v.fileName === result.fileName
+      (v) => v.fileName === result.fileName,
     );
     if (video) {
       if (result.success) {
@@ -1032,22 +1086,31 @@ onMounted(() => {
 
       // 获取该剧集所有已选中的视频
       const selectedDramaVideos = videoMaterials.value.filter(
-        (v) => v.dramaName === dramaName && selectedVideos.value.has(v.fileName)
+        (v) =>
+          v.dramaName === dramaName && selectedVideos.value.has(v.fileName),
       );
 
       // 检查是否所有已选中的视频都已完成（成功或最终失败，不包括上传中）
       // 注意：只有当该剧集没有任何视频处于 uploading 状态时，才认为完成
-      const hasUploadingVideos = selectedDramaVideos.some((v) => v.status === "uploading");
+      const hasUploadingVideos = selectedDramaVideos.some(
+        (v) => v.status === "uploading",
+      );
       const dramaAllCompleted =
         selectedDramaVideos.length > 0 &&
         !hasUploadingVideos &&
-        selectedDramaVideos.every((v) => v.status === "success" || v.status === "error");
+        selectedDramaVideos.every(
+          (v) => v.status === "success" || v.status === "error",
+        );
 
       if (dramaAllCompleted && !feishuBuiltPendingSet.value.has(dramaName)) {
         // 统计失败数量
-        const failedVideos = selectedDramaVideos.filter((v) => v.status === "error");
+        const failedVideos = selectedDramaVideos.filter(
+          (v) => v.status === "error",
+        );
         const failCount = failedVideos.length;
-        const successVideos = selectedDramaVideos.filter((v) => v.status === "success");
+        const successVideos = selectedDramaVideos.filter(
+          (v) => v.status === "success",
+        );
 
         feishuBuiltPendingSet.value.add(dramaName);
 
@@ -1057,18 +1120,18 @@ onMounted(() => {
             // 如果失败数量 > 2，标记为失败
             if (failCount > 2) {
               console.error(
-                `[Upload] 剧《${dramaName}》上传失败，${failCount} 个视频失败，超过阈值`
+                `[Upload] 剧《${dramaName}》上传失败，${failCount} 个视频失败，超过阈值`,
               );
 
               // 更新飞书状态为"上传失败"
               await updateFeishuDramaStatus(
                 dramaName,
                 "上传失败",
-                `有 ${failCount} 个视频上传失败`
+                `有 ${failCount} 个视频上传失败`,
               );
 
               message.error(
-                `剧《${dramaName}》有 ${failCount} 个视频上传失败，已标记为上传失败`
+                `剧《${dramaName}》有 ${failCount} 个视频上传失败，已标记为上传失败`,
               );
 
               // 从已处理集合中移除，以便下次可以重新上传
@@ -1078,7 +1141,7 @@ onMounted(() => {
 
             // 失败数量 ≤ 2，判定为成功，继续提交素材库
             console.log(
-              `[Upload] 剧《${dramaName}》上传完成（${successVideos.length} 成功，${failCount} 失败），开始获取视频信息并提交到素材库`
+              `[Upload] 剧《${dramaName}》上传完成（${successVideos.length} 成功，${failCount} 失败），开始获取视频信息并提交到素材库`,
             );
 
             // 获取该剧的本地素材目录
@@ -1087,8 +1150,8 @@ onMounted(() => {
               ? dramaVideo.filePath.substring(
                   0,
                   dramaVideo.filePath.lastIndexOf(
-                    dramaVideo.filePath.includes("\\") ? "\\" : "/"
-                  )
+                    dramaVideo.filePath.includes("\\") ? "\\" : "/",
+                  ),
                 )
               : null;
 
@@ -1116,7 +1179,7 @@ onMounted(() => {
 
             // 检查是否还有有效的素材可以提交
             if (materials.length === 0) {
-              throw new Error('没有可用的视频素材提交');
+              throw new Error("没有可用的视频素材提交");
             }
 
             // 2. 提交到素材库（带重试机制，最多3次）
@@ -1127,17 +1190,18 @@ onMounted(() => {
             for (let attempt = 1; attempt <= maxRetry; attempt++) {
               try {
                 console.log(
-                  `[Upload] 剧《${dramaName}》提交素材库，第 ${attempt}/${maxRetry} 次尝试`
+                  `[Upload] 剧《${dramaName}》提交素材库，第 ${attempt}/${maxRetry} 次尝试`,
                 );
                 await window.api.submitMaterial(materials);
                 submitSuccess = true;
                 console.log(`[Upload] ✓ 剧《${dramaName}》素材库提交成功`);
                 break;
               } catch (error) {
-                lastError = error instanceof Error ? error : new Error(String(error));
+                lastError =
+                  error instanceof Error ? error : new Error(String(error));
                 console.error(
                   `[Upload] 剧《${dramaName}》素材库提交失败 (${attempt}/${maxRetry}):`,
-                  lastError.message
+                  lastError.message,
                 );
                 if (attempt < maxRetry) {
                   // 等待2秒后重试
@@ -1152,59 +1216,104 @@ onMounted(() => {
                 v.isSubmitted = true;
               });
 
-              // 3. 更新飞书状态为"待搭建"
-              console.log(`[Upload] 剧《${dramaName}》更新飞书状态为"待搭建"`);
-              await updateFeishuDramaStatus(dramaName, "待搭建");
+              // 3. 更新飞书状态为"待推送"，等待素材查询与推送完成
+              const pendingPushRemark = buildPendingPushRemark(failCount);
+              dramaPendingPushSet.value.add(dramaName);
+              updateGroupedMaterials();
+              console.log(`[Upload] 剧《${dramaName}》更新飞书状态为"待推送"`);
+              await updateFeishuDramaStatus(
+                dramaName,
+                "待推送",
+                pendingPushRemark,
+              );
 
-              // 如果有失败的视频，在备注中说明
-              if (failCount > 0) {
+              const dramaMapping = feishuRecordMap.value[dramaName];
+              const adAccountIds = (dramaMapping?.accountId || "").trim();
+
+              try {
+                console.log(`[Upload] 剧《${dramaName}》开始查询素材并推送`);
+                await window.api.pushDramaMaterials({
+                  dramaName,
+                  materialNames: successVideos.map((v) => v.fileName),
+                  adAccountIds,
+                  channelId: "101",
+                });
+
+                dramaPendingPushSet.value.delete(dramaName);
+                updateGroupedMaterials();
+
+                console.log(
+                  `[Upload] 剧《${dramaName}》推送成功，更新飞书状态为"待搭建"`,
+                );
                 await updateFeishuDramaStatus(
                   dramaName,
                   "待搭建",
-                  `有 ${failCount} 个视频上传失败，已提交成功视频`
+                  pendingPushRemark,
                 );
+              } catch (pushError) {
+                const pushErrorMessage =
+                  pushError instanceof Error
+                    ? pushError.message
+                    : String(pushError);
+                console.error(
+                  `[Upload] 剧《${dramaName}》推送失败:`,
+                  pushError,
+                );
+                await updateFeishuDramaStatus(
+                  dramaName,
+                  "待推送",
+                  buildPendingPushRemark(failCount, pushErrorMessage),
+                );
+                message.warning(
+                  `剧《${dramaName}》素材已提交，但推送失败，当前保持待推送：${pushErrorMessage}`,
+                );
+                return;
               }
 
-              // 4. 删除本地目录（只要剧集成功，就删除目录）
+              // 4. 删除本地目录（推送成功后再删除）
               if (dramaFolderPath) {
                 console.log(`[Upload] 剧《${dramaName}》开始删除本地目录`);
-                const deleteResult = await window.api.deleteFolder(dramaFolderPath);
+                const deleteResult =
+                  await window.api.deleteFolder(dramaFolderPath);
                 if (deleteResult.success) {
                   console.log(`[Upload] ✓ 成功删除目录: ${dramaFolderPath}`);
-                  const msg = failCount > 0
-                    ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败），本地素材已清理`
-                    : `剧《${dramaName}》已完成，本地素材已清理`;
+                  const msg =
+                    failCount > 0
+                      ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败），本地素材已清理`
+                      : `剧《${dramaName}》已完成，本地素材已清理`;
                   message.success(msg);
                 } else {
                   console.error(
                     `[Upload] ✗ 删除目录失败: ${dramaFolderPath}`,
-                    deleteResult.error
+                    deleteResult.error,
                   );
-                  const msg = failCount > 0
-                    ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败），但本地素材清理失败`
-                    : `剧《${dramaName}》已完成，但本地素材清理失败`;
+                  const msg =
+                    failCount > 0
+                      ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败），但本地素材清理失败`
+                      : `剧《${dramaName}》已完成，但本地素材清理失败`;
                   message.warning(msg);
                 }
               } else {
-                const msg = failCount > 0
-                  ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败）`
-                  : `剧《${dramaName}》已完成`;
+                const msg =
+                  failCount > 0
+                    ? `剧《${dramaName}》已完成（${successVideos.length} 成功，${failCount} 失败）`
+                    : `剧《${dramaName}》已完成`;
                 message.success(msg);
               }
             } else {
               // 提交失败：更新飞书状态为"上传失败"，备注说明原因，不删除本地素材
               console.error(
-                `[Upload] ✗ 剧《${dramaName}》素材库提交失败，${maxRetry}次重试均失败`
+                `[Upload] ✗ 剧《${dramaName}》素材库提交失败，${maxRetry}次重试均失败`,
               );
               message.error(
-                `剧《${dramaName}》素材库提交失败，已标记为上传失败，请重新上传`
+                `剧《${dramaName}》素材库提交失败，已标记为上传失败，请重新上传`,
               );
 
               // 更新飞书状态为"上传失败"，并添加备注
               await updateFeishuDramaStatus(
                 dramaName,
                 "上传失败",
-                "提交到素材库失败，请重新上传"
+                "提交到素材库失败，请重新上传",
               );
 
               // 从已处理集合中移除，以便下次可以重新上传
@@ -1212,15 +1321,20 @@ onMounted(() => {
             }
           } catch (error) {
             // 捕获所有未处理的异常
-            console.error(`[Upload] 剧《${dramaName}》处理过程中发生错误:`, error);
-            message.error(`剧《${dramaName}》处理失败: ${error instanceof Error ? error.message : String(error)}`);
+            console.error(
+              `[Upload] 剧《${dramaName}》处理过程中发生错误:`,
+              error,
+            );
+            message.error(
+              `剧《${dramaName}》处理失败: ${error instanceof Error ? error.message : String(error)}`,
+            );
 
             // 更新飞书状态为"上传失败"
             try {
               await updateFeishuDramaStatus(
                 dramaName,
                 "上传失败",
-                `处理失败: ${error instanceof Error ? error.message : String(error)}`
+                `处理失败: ${error instanceof Error ? error.message : String(error)}`,
               );
             } catch (feishuError) {
               console.error(`[Upload] 更新飞书状态失败:`, feishuError);
@@ -1242,10 +1356,10 @@ onMounted(() => {
         stopTimeTracking();
 
         const successCount = videoMaterials.value.filter(
-          (v) => v.status === "success"
+          (v) => v.status === "success",
         ).length;
         const failCount = videoMaterials.value.filter(
-          (v) => v.status === "error"
+          (v) => v.status === "error",
         ).length;
 
         if (failCount > 0) {
@@ -1698,18 +1812,27 @@ onUnmounted(() => {
         <section class="help-section">
           <h3 class="help-title">🔁 重试与容错机制</h3>
           <ul class="help-list">
-            <li><strong>单个视频重试：</strong>上传失败自动重试 3 次，间隔 2 秒</li>
-            <li><strong>超时重试：</strong>单个视频上传超过 20 分钟自动取消并重试</li>
-            <li><strong>素材库重试：</strong>提交素材库失败自动重试 3 次，间隔 2 秒</li>
+            <li>
+              <strong>单个视频重试：</strong>上传失败自动重试 3 次，间隔 2 秒
+            </li>
+            <li>
+              <strong>超时重试：</strong>单个视频上传超过 20 分钟自动取消并重试
+            </li>
+            <li>
+              <strong>素材库重试：</strong>提交素材库失败自动重试 3 次，间隔 2
+              秒
+            </li>
             <li>
               <strong>剧集判定规则：</strong
               >某剧所有视频上传完成后，统计失败数量：
             </li>
             <li class="help-sub-item">
-              • 失败 ≤ 2 个：判定成功，提交成功的视频到素材库，飞书状态改为"待搭建"，删除本地目录
+              • 失败 ≤ 2
+              个：判定成功，提交成功的视频到素材库，先改为"待推送"并自动推送，推送完成后飞书状态改为"待搭建"，再删除本地目录
             </li>
             <li class="help-sub-item">
-              • 失败 > 2 个：判定失败，飞书状态改为"上传失败"，不提交素材库，保留本地目录
+              • 失败 > 2
+              个：判定失败，飞书状态改为"上传失败"，不提交素材库，保留本地目录
             </li>
           </ul>
         </section>

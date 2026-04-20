@@ -541,6 +541,10 @@ function registerIpcHandlers(): void {
     return await apiService.submitToMaterialLibrary(materials, configService);
   });
 
+  ipcMain.handle("api:pushDramaMaterials", async (_event, params) => {
+    return await apiService.queryAndPushDramaMaterials(params, configService);
+  });
+
   ipcMain.handle(
     "juliang-build:getPendingDramas",
     async (_event, tableId?: string) => {

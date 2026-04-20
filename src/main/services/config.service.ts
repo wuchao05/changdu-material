@@ -135,75 +135,6 @@ export class ConfigService {
     this.webSessionService = webSessionService;
   }
 
-  // ==================== Auth 配置获取 ====================
-
-  /**
-   * 从 cxyy.top/api/auth/config 获取常读配置和素材库 Token
-   * 只覆盖常读配置和 xtToken，不影响飞书、TOS 固定配置
-   */
-  async fetchAuthConfig(): Promise<{ success: boolean; error?: string }> {
-    try {
-      console.log("[ConfigService] 开始获取 Auth 配置...");
-      const axios = (await import("axios")).default;
-      const response = await axios.get("https://cxyy.top/api/auth/config", {
-        timeout: 15000,
-      });
-
-      // 兼容两种返回格式：
-      // 1) { tokens, platforms, ... }
-      // 2) { code, message, data: { tokens, platforms, ... } }
-      const raw = response.data;
-      const data = raw?.data && typeof raw.data === "object" ? raw.data : raw;
-      if (!data || typeof data !== "object") {
-        return { success: false, error: "响应数据为空" };
-      }
-
-      // 读取当前本地配置
-      const localConfig = await this.getApiConfig();
-
-      // 映射 tokens.xh → xtToken
-      if (!data.tokens?.xh) {
-        localConfig.xtToken = "";
-        await this.saveApiConfig(localConfig);
-        console.warn("[ConfigService] Auth 配置缺少 tokens.xh，已清空 xtToken");
-        return { success: false, error: "Auth 配置缺少 tokens.xh" };
-      }
-      localConfig.xtToken = data.tokens.xh;
-
-      // 映射 platforms.changdu.sr → sanrouChangdu
-      const sr = data.platforms?.changdu?.sr;
-      if (sr) {
-        if (sr.cookie) localConfig.sanrouChangdu.cookie = sr.cookie;
-        if (sr.distributorId)
-          localConfig.sanrouChangdu.distributorId = sr.distributorId;
-        if (sr.appId) localConfig.sanrouChangdu.changduAppId = sr.appId;
-        if (sr.adUserId)
-          localConfig.sanrouChangdu.changduAdUserId = sr.adUserId;
-        if (sr.rootAdUserId)
-          localConfig.sanrouChangdu.changduRootAdUserId = sr.rootAdUserId;
-      }
-
-      // 映射 platforms.changdu.mr → meiriChangdu
-      const mr = data.platforms?.changdu?.mr;
-      if (mr) {
-        if (mr.cookie) localConfig.meiriChangdu.cookie = mr.cookie;
-        if (mr.distributorId)
-          localConfig.meiriChangdu.distributorId = mr.distributorId;
-        if (mr.appId) localConfig.meiriChangdu.changduAppId = mr.appId;
-        if (mr.adUserId) localConfig.meiriChangdu.changduAdUserId = mr.adUserId;
-        if (mr.rootAdUserId)
-          localConfig.meiriChangdu.changduRootAdUserId = mr.rootAdUserId;
-      }
-
-      await this.saveApiConfig(localConfig);
-      console.log("[ConfigService] Auth 配置获取并保存成功");
-      return { success: true };
-    } catch (error) {
-      console.error("[ConfigService] Auth 配置获取失败:", error);
-      return { success: false, error: String(error) };
-    }
-  }
-
   // ==================== 远程配置同步 ====================
 
   /**
@@ -223,10 +154,10 @@ export class ConfigService {
         return { synced: false, error: "远程配置为空" };
       }
 
-      // 远程 API 配置不再落地，避免覆盖本地固定值与 Auth 动态值
+      // 远程 API 配置不再落地，避免覆盖当前登录渠道的运行时配置与固定值
       if (remoteConfig.apiConfig) {
         console.log(
-          "[ConfigService] 检测到远程 API 配置，已按策略忽略（常读/xtToken 走 Auth，飞书/TOS 走固定值）",
+          "[ConfigService] 检测到远程 API 配置，已按策略忽略（常读/XT Token 走当前登录渠道，飞书/TOS 走固定值）",
         );
       }
 
@@ -243,14 +174,6 @@ export class ConfigService {
         "[ConfigService] ✓ 远程配置同步完成，版本:",
         remoteConfig.version,
       );
-      // 远程同步后，立即从 Auth 接口回填 xtToken，避免使用远程旧值
-      const authResult = await this.fetchAuthConfig();
-      if (!authResult.success) {
-        console.warn(
-          "[ConfigService] 远程同步后获取 Auth 配置失败:",
-          authResult.error,
-        );
-      }
       return { synced: true, version: remoteConfig.version };
     } catch (error) {
       console.error("[ConfigService] ✗ 远程配置同步失败:", error);
@@ -537,6 +460,7 @@ export class ConfigService {
       feishuAppToken: FIXED_FEISHU_APP_TOKEN,
       tosBucket: FIXED_TOS_BUCKET,
       tosRegion: FIXED_TOS_REGION,
+      xtToken: String(config.xtToken || defaultConfig.xtToken || "").trim(),
     };
   }
 
@@ -676,7 +600,7 @@ export class ConfigService {
       tosAccessKeySecret: "",
       tosBucket: FIXED_TOS_BUCKET,
       tosRegion: FIXED_TOS_REGION,
-      xtToken: "",
+      xtToken: String(runtimeConfig.runtimeUser?.xtToken || "").trim(),
     });
   }
 

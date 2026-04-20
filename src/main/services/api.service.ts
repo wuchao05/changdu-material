@@ -22,6 +22,27 @@ export interface UploadProgress {
   percent: string;
 }
 
+interface MaterialLibraryItem {
+  id: number;
+  name: string;
+}
+
+interface MaterialLibraryListResponse {
+  code: number;
+  msg?: string;
+  message?: string;
+  data?: {
+    list?: MaterialLibraryItem[];
+  };
+}
+
+interface MaterialPushResponse {
+  code: number;
+  msg?: string;
+  message?: string;
+  data?: Record<string, unknown>;
+}
+
 export interface RemoteDailyBuildPendingDramaRecord {
   record_id: string;
   _tableId?: string;
@@ -841,5 +862,178 @@ export class ApiService {
     console.log(`[ApiService] ✓ 素材库提交成功`);
 
     return response.data;
+  }
+
+  async queryMaterialLibraryByKey(
+    key: string,
+    configService: ConfigService,
+  ): Promise<MaterialLibraryItem[]> {
+    const apiConfig = await configService.getApiConfig();
+
+    if (!apiConfig.xtToken) {
+      throw new Error("请先配置 XT Token");
+    }
+
+    const response = await axios.get<MaterialLibraryListResponse>(
+      "https://splay-admin.yncctech.com/material/list",
+      {
+        headers: {
+          token: apiConfig.xtToken,
+        },
+        params: {
+          team_id: "500039",
+          page: 1,
+          page_size: 1000,
+          style: "",
+          audit_status: "",
+          ad_labels: "",
+          category_id: -1,
+          key,
+        },
+        timeout: 10000,
+      },
+    );
+
+    const result = response.data;
+    if (result.code !== 0) {
+      throw new Error(result.message || result.msg || "查询素材库失败");
+    }
+
+    return result.data?.list || [];
+  }
+
+  async pushMaterialsToAccount(
+    ids: string,
+    adAccountIds: string,
+    channelId: string,
+    configService: ConfigService,
+  ): Promise<MaterialPushResponse> {
+    const apiConfig = await configService.getApiConfig();
+
+    if (!apiConfig.xtToken) {
+      throw new Error("请先配置 XT Token");
+    }
+
+    const response = await axios.post<MaterialPushResponse>(
+      "https://splay-admin.yncctech.com/material/push",
+      {
+        ids,
+        ad_account_ids: adAccountIds,
+        channel_id: channelId,
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          token: apiConfig.xtToken,
+        },
+        params: {
+          team_id: "500039",
+        },
+        timeout: 10000,
+      },
+    );
+
+    const result = response.data;
+    if (result.code !== 0) {
+      throw new Error(result.message || result.msg || "推送素材失败");
+    }
+
+    return result;
+  }
+
+  private buildMaterialQueryKey(materialName: string): string {
+    const normalizedName = String(materialName || "")
+      .trim()
+      .replace(/\.[^.]+$/, "");
+
+    return normalizedName.replace(/-\d+$/, "");
+  }
+
+  async queryAndPushDramaMaterials(
+    params: {
+      dramaName: string;
+      materialNames: string[];
+      adAccountIds: string;
+      channelId?: string;
+    },
+    configService: ConfigService,
+  ): Promise<{
+    ids: number[];
+    matchedNames: string[];
+    missingNames: string[];
+  }> {
+    const dramaName = String(params.dramaName || "").trim();
+    const materialNames = Array.from(
+      new Set(
+        (params.materialNames || [])
+          .map((name) => String(name || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    const adAccountIds = String(params.adAccountIds || "").trim();
+    const channelId = String(params.channelId || "101").trim() || "101";
+
+    if (!dramaName) {
+      throw new Error("剧名不能为空");
+    }
+    if (materialNames.length === 0) {
+      throw new Error("没有可推送的素材名称");
+    }
+    if (!adAccountIds) {
+      throw new Error("飞书账户字段为空，无法推送素材");
+    }
+
+    const expectedNames = new Set(materialNames);
+    const queryKey = this.buildMaterialQueryKey(materialNames[0]);
+
+    if (!queryKey) {
+      throw new Error("无法从素材名称生成查询 key");
+    }
+
+    console.log(`[ApiService] 查询剧集素材: ${dramaName}, key=${queryKey}`);
+
+    const list = await this.queryMaterialLibraryByKey(queryKey, configService);
+    const latestItemByName = new Map<string, MaterialLibraryItem>();
+
+    for (const item of list) {
+      const itemName = String(item.name || "").trim();
+      if (!expectedNames.has(itemName) || latestItemByName.has(itemName)) {
+        continue;
+      }
+      latestItemByName.set(itemName, item);
+    }
+
+    const matchedItems = materialNames
+      .map((name) => latestItemByName.get(name))
+      .filter((item): item is MaterialLibraryItem => Boolean(item));
+
+    const matchedNames = matchedItems.map((item) => item.name);
+    const matchedNameSet = new Set(matchedNames);
+    const missingNames = materialNames.filter(
+      (name) => !matchedNameSet.has(name),
+    );
+
+    if (missingNames.length > 0) {
+      throw new Error(`素材库中仍未查询到素材: ${missingNames.join(", ")}`);
+    }
+
+    const ids = matchedItems.map((item) => item.id);
+
+    await this.pushMaterialsToAccount(
+      ids.join(","),
+      adAccountIds,
+      channelId,
+      configService,
+    );
+
+    console.log(
+      `[ApiService] ✓ 剧集素材推送成功: ${dramaName}, ids=${ids.join(",")}, adAccountIds=${adAccountIds}`,
+    );
+
+    return {
+      ids,
+      matchedNames,
+      missingNames: [],
+    };
   }
 }

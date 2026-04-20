@@ -61,6 +61,7 @@ export interface RuntimeUserProfile {
   userType: "admin" | "normal";
   channelIds: string[];
   defaultChannelId: string;
+  xtToken?: string;
   permissions?: RuntimePermissions;
   feishu?: RuntimeFeishuConfig;
   douyinMaterialMatches?: Array<{
@@ -146,6 +147,7 @@ function normalizeRuntimeUser(
       ? user.channelIds.map((item) => String(item || "").trim()).filter(Boolean)
       : [],
     defaultChannelId: String(user.defaultChannelId || "").trim(),
+    xtToken: String(user.xtToken || "").trim(),
     permissions: {
       syncAccount: Boolean(user.permissions?.syncAccount),
       desktopMenus: normalizeDesktopMenus(user.permissions?.desktopMenus),
