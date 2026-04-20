@@ -330,6 +330,7 @@ async function updateFeishuDramaStatus(
   dramaName: string,
   status: string,
   remark?: string,
+  extraFields?: Record<string, string>,
 ) {
   try {
     if (!apiConfigStore.loaded) {
@@ -404,6 +405,7 @@ async function updateFeishuDramaStatus(
       dramaName,
       status,
       remark: remark || "(无备注)",
+      extraFields: extraFields || {},
       tableId,
       recordId,
     });
@@ -412,6 +414,9 @@ async function updateFeishuDramaStatus(
     const fields: Record<string, string> = { 当前状态: status };
     if (remark !== undefined) {
       fields["备注"] = remark;
+    }
+    if (extraFields) {
+      Object.assign(fields, extraFields);
     }
 
     const result = (await window.api.feishuRequest(
@@ -1232,7 +1237,7 @@ onMounted(() => {
 
               try {
                 console.log(`[Upload] 剧《${dramaName}》开始查询素材并推送`);
-                await window.api.pushDramaMaterials({
+                const pushResult = await window.api.pushDramaMaterials({
                   dramaName,
                   materialNames: successVideos.map((v) => v.fileName),
                   adAccountIds,
@@ -1249,6 +1254,9 @@ onMounted(() => {
                   dramaName,
                   "待搭建",
                   pendingPushRemark,
+                  {
+                    推送素材ID: String(pushResult.ids[0]),
+                  },
                 );
               } catch (pushError) {
                 const pushErrorMessage =
