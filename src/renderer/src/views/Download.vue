@@ -1772,7 +1772,7 @@ const columns: DataTableColumns<DownloadTask> = [
             >
             <NInputNumber
               v-model:value="autoDownloadIntervalMinutes"
-              :min="20"
+              :min="1"
               :max="720"
               :disabled="autoDownloadEnabled"
               style="width: 90px"

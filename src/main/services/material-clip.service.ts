@@ -362,8 +362,11 @@ export class MaterialClipService {
   private mainWindow: BrowserWindow | null = null;
   private runningProcess: ChildProcessByStdio<null, Readable, Readable> | null =
     null;
-  private aiHighlightProcess: ChildProcessByStdio<null, Readable, Readable> | null =
-    null;
+  private aiHighlightProcess: ChildProcessByStdio<
+    null,
+    Readable,
+    Readable
+  > | null = null;
   private installingProcess: ChildProcessByStdio<
     null,
     Readable,
@@ -408,7 +411,10 @@ export class MaterialClipService {
   }
 
   async getAiHighlightState(): Promise<MaterialClipAiHighlightState> {
-    if (!this.aiHighlightState.running && this.aiHighlightState.status === "idle") {
+    if (
+      !this.aiHighlightState.running &&
+      this.aiHighlightState.status === "idle"
+    ) {
       await this.refreshAiHighlightQueue();
     }
     return this.getAiHighlightStateSnapshot();
@@ -434,11 +440,11 @@ export class MaterialClipService {
       this.runState.currentDramaDate,
     );
     const currentRecordId =
-      this.runState.currentRecordId ??
-      currentDramaCandidate?.recordId ??
-      null;
+      this.runState.currentRecordId ?? currentDramaCandidate?.recordId ?? null;
     const currentDramaName =
-      this.runState.currentDramaName ?? currentDramaCandidate?.dramaName ?? null;
+      this.runState.currentDramaName ??
+      currentDramaCandidate?.dramaName ??
+      null;
     const currentDramaDate =
       this.runState.currentDramaDate ?? currentDramaCandidate?.date ?? null;
 
@@ -653,7 +659,9 @@ export class MaterialClipService {
     return { success: true };
   }
 
-  async refreshPendingQueue(configOverride?: unknown): Promise<MaterialClipRunState> {
+  async refreshPendingQueue(
+    configOverride?: unknown,
+  ): Promise<MaterialClipRunState> {
     const config = await this.getConfig(configOverride);
     await this.refreshPendingDramas(config);
     return this.getRunStateSnapshot();
@@ -696,11 +704,17 @@ export class MaterialClipService {
 
     const environmentStatus = await this.getEnvironmentStatus();
     if (!environmentStatus.ready) {
-      return { success: false, error: "素材剪辑环境未就绪，请先完成运行时导入和环境安装" };
+      return {
+        success: false,
+        error: "素材剪辑环境未就绪，请先完成运行时导入和环境安装",
+      };
     }
 
     if (this.runningProcess) {
-      return { success: false, error: "素材剪辑运行中，暂时不能执行 AI 高光识别" };
+      return {
+        success: false,
+        error: "素材剪辑运行中，暂时不能执行 AI 高光识别",
+      };
     }
 
     if (this.aiHighlightProcess) {
@@ -1059,7 +1073,9 @@ export class MaterialClipService {
     };
   }
 
-  private async prepareConfigInput(config: unknown): Promise<MaterialClipConfig> {
+  private async prepareConfigInput(
+    config: unknown,
+  ): Promise<MaterialClipConfig> {
     if (!isPlainObject(config)) {
       throw new Error("配置必须是 JSON 对象");
     }
@@ -1161,7 +1177,10 @@ export class MaterialClipService {
         "";
       return account || "xh";
     } catch (error) {
-      console.warn("[MaterialClip] 获取当前账号失败，回退默认素材标识 xh:", error);
+      console.warn(
+        "[MaterialClip] 获取当前账号失败，回退默认素材标识 xh:",
+        error,
+      );
       return "xh";
     }
   }
@@ -1188,7 +1207,11 @@ export class MaterialClipService {
       return null;
     }
 
-    const configPath = path.join(runtime.runtimeRoot, "configs", "default.yaml");
+    const configPath = path.join(
+      runtime.runtimeRoot,
+      "configs",
+      "default.yaml",
+    );
     return fs.existsSync(configPath) ? configPath : null;
   }
 
@@ -1236,7 +1259,9 @@ export class MaterialClipService {
         ];
       } else {
         normalized.canvas = DEFAULT_CLIP_CANVAS;
-        normalized.reference_resolution = [...DEFAULT_CLIP_REFERENCE_RESOLUTION];
+        normalized.reference_resolution = [
+          ...DEFAULT_CLIP_REFERENCE_RESOLUTION,
+        ];
       }
     }
 
@@ -1262,6 +1287,11 @@ export class MaterialClipService {
         : "https://open.feishu.cn/open-apis/bitable/v1";
     normalized.feishu.highlight_start_field_name = "高光起始点";
 
+    normalized.feishu_watcher.poll_interval = Math.max(
+      60,
+      Math.floor(Number(normalized.feishu_watcher.poll_interval || 1200)),
+    );
+
     normalized.ai_highlight.script_path =
       typeof normalized.ai_highlight.script_path === "string"
         ? normalized.ai_highlight.script_path
@@ -1284,7 +1314,10 @@ export class MaterialClipService {
     } else {
       normalized.highlight_start_points_by_drama = Object.fromEntries(
         Object.entries(normalized.highlight_start_points_by_drama)
-          .map(([key, value]) => [key.trim(), typeof value === "string" ? value : ""])
+          .map(([key, value]) => [
+            key.trim(),
+            typeof value === "string" ? value : "",
+          ])
           .filter(([key, value]) => Boolean(key) && Boolean(value.trim())),
       );
     }
@@ -1476,7 +1509,8 @@ export class MaterialClipService {
   private async refreshPendingDramas(
     config?: MaterialClipConfig,
   ): Promise<void> {
-    const resolvedConfig = config ?? this.activeRunConfig ?? (await this.getConfig());
+    const resolvedConfig =
+      config ?? this.activeRunConfig ?? (await this.getConfig());
     const pendingDramas = await this.fetchPendingDramas(resolvedConfig);
     const excludedRecordIds = new Set<string>();
     const excludedDramaNames = new Set<string>();
@@ -1528,7 +1562,9 @@ export class MaterialClipService {
     config: MaterialClipConfig,
   ): Promise<MaterialClipAiHighlightDrama[]> {
     const pendingDramas = await this.fetchPendingDramas(config);
-    const onlyPriorityRating = Boolean(config.ai_highlight.only_priority_rating);
+    const onlyPriorityRating = Boolean(
+      config.ai_highlight.only_priority_rating,
+    );
     const targetRating = config.feishu.priority_rating_value?.trim() || "红标";
     const filteredPendingDramas = onlyPriorityRating
       ? pendingDramas.filter((item) => item.rating?.trim() === targetRating)
@@ -1567,7 +1603,9 @@ export class MaterialClipService {
     const candidates = [
       config.default_source_dir,
       config.backup_source_dir,
-    ].filter((item, index, array) => item.trim() && array.indexOf(item) === index);
+    ].filter(
+      (item, index, array) => item.trim() && array.indexOf(item) === index,
+    );
 
     for (const candidate of candidates) {
       try {
@@ -1600,7 +1638,9 @@ export class MaterialClipService {
       const dramaDir = path.join(sourceRoot, entry.name);
       try {
         const files = await fsp.readdir(dramaDir);
-        const hasEpisode = files.some((fileName) => fileName.toLowerCase().endsWith(".mp4"));
+        const hasEpisode = files.some((fileName) =>
+          fileName.toLowerCase().endsWith(".mp4"),
+        );
         if (hasEpisode) {
           dramaMap.set(entry.name, dramaDir);
         }
@@ -1614,7 +1654,9 @@ export class MaterialClipService {
 
   private updateAiHighlightDrama(
     recordId: string,
-    updater: (item: MaterialClipAiHighlightDrama) => MaterialClipAiHighlightDrama,
+    updater: (
+      item: MaterialClipAiHighlightDrama,
+    ) => MaterialClipAiHighlightDrama,
   ) {
     const index = this.aiHighlightState.dramas.findIndex(
       (item) => item.recordId === recordId,
@@ -1623,7 +1665,9 @@ export class MaterialClipService {
       return;
     }
 
-    this.aiHighlightState.dramas[index] = updater(this.aiHighlightState.dramas[index]);
+    this.aiHighlightState.dramas[index] = updater(
+      this.aiHighlightState.dramas[index],
+    );
     this.touchAiHighlightState();
     this.emitAiHighlightState();
   }
@@ -1675,7 +1719,9 @@ export class MaterialClipService {
       TARGET_HIGHLIGHTS_PER_DRAMA: String(
         config.ai_highlight.target_highlights_per_drama,
       ),
-      GROUP_HIGHLIGHT_BUFFER: String(config.ai_highlight.group_highlight_buffer),
+      GROUP_HIGHLIGHT_BUFFER: String(
+        config.ai_highlight.group_highlight_buffer,
+      ),
       VIDEO_FPS: String(config.ai_highlight.video_fps),
       ANALYZE_FIRST_PORTION_ONLY: String(
         config.ai_highlight.analyze_first_portion_only,
@@ -1684,9 +1730,7 @@ export class MaterialClipService {
       AUTO_RETRY_INSUFFICIENT_GROUPS: String(
         config.ai_highlight.auto_retry_insufficient_groups,
       ),
-      MAX_AUTO_RETRY_ROUNDS: String(
-        config.ai_highlight.max_auto_retry_rounds,
-      ),
+      MAX_AUTO_RETRY_ROUNDS: String(config.ai_highlight.max_auto_retry_rounds),
       ENABLE_POLLING: "false",
       DASHSCOPE_USE_PROXY: "false",
     };
@@ -1717,7 +1761,8 @@ export class MaterialClipService {
       await this.updateFeishuRecordFields(
         drama.recordId,
         {
-          [config.feishu.highlight_start_field_name || "高光起始点"]: highlightText,
+          [config.feishu.highlight_start_field_name || "高光起始点"]:
+            highlightText,
         },
         config,
       );
@@ -1740,7 +1785,9 @@ export class MaterialClipService {
         updatedAt: new Date().toISOString(),
       }));
     } finally {
-      await fsp.rm(workRoot, { recursive: true, force: true }).catch(() => undefined);
+      await fsp
+        .rm(workRoot, { recursive: true, force: true })
+        .catch(() => undefined);
     }
   }
 
@@ -1778,8 +1825,7 @@ export class MaterialClipService {
     }
 
     const ratingField = config.feishu.rating_field_name || "评级";
-    const douyinField =
-      config.feishu.douyin_material_field_name || "抖音素材";
+    const douyinField = config.feishu.douyin_material_field_name || "抖音素材";
     const highlightField =
       config.feishu.highlight_start_field_name || "高光起始点";
     const endpoint = `/open-apis/bitable/v1/apps/${config.feishu.app_token}/tables/${config.feishu.table_id}/records/search`;
@@ -1864,7 +1910,9 @@ export class MaterialClipService {
       fullDate,
       rating: this.extractFieldText(record.fields[ratingField]),
       uploadTime,
-      plannedMaterials: this.parseDouyinMaterialCount(record.fields[douyinField]),
+      plannedMaterials: this.parseDouyinMaterialCount(
+        record.fields[douyinField],
+      ),
       highlightStartPoints: this.extractFieldMultilineText(
         record.fields[highlightField],
       ),
@@ -1939,7 +1987,11 @@ export class MaterialClipService {
       }
 
       if (aPriority === 1 && bPriority === 1) {
-        if (a.uploadTime !== null && b.uploadTime !== null && a.uploadTime !== b.uploadTime) {
+        if (
+          a.uploadTime !== null &&
+          b.uploadTime !== null &&
+          a.uploadTime !== b.uploadTime
+        ) {
           return b.uploadTime - a.uploadTime;
         }
         if (a.uploadTime !== null && b.uploadTime === null) {
@@ -1988,7 +2040,11 @@ export class MaterialClipService {
         return aSecondaryPriority - bSecondaryPriority;
       }
 
-      if (a.uploadTime !== null && b.uploadTime !== null && a.uploadTime !== b.uploadTime) {
+      if (
+        a.uploadTime !== null &&
+        b.uploadTime !== null &&
+        a.uploadTime !== b.uploadTime
+      ) {
         return b.uploadTime - a.uploadTime;
       }
       if (a.uploadTime !== null && b.uploadTime === null) {
@@ -2135,7 +2191,10 @@ export class MaterialClipService {
       fullDate: matched?.fullDate || null,
       rating: matched?.rating || this.runState.currentDramaRating || null,
       plannedMaterials:
-        matched?.plannedMaterials || plannedMaterials || completedMaterials || null,
+        matched?.plannedMaterials ||
+        plannedMaterials ||
+        completedMaterials ||
+        null,
       completedMaterials,
       completedAt: new Date().toISOString(),
       elapsedSeconds,
@@ -2158,7 +2217,9 @@ export class MaterialClipService {
     );
   }
 
-  private normalizeDisplayText(value: string | null | undefined): string | null {
+  private normalizeDisplayText(
+    value: string | null | undefined,
+  ): string | null {
     const normalized = value?.trim();
     if (!normalized || normalized === "未知" || normalized === "未知日期") {
       return null;
@@ -2301,7 +2362,9 @@ export class MaterialClipService {
     };
   }
 
-  private selectPathModule(pathValue: string): typeof path.win32 | typeof path.posix {
+  private selectPathModule(
+    pathValue: string,
+  ): typeof path.win32 | typeof path.posix {
     const normalized = (pathValue || "").trim();
     if (/^[A-Za-z]:[\\/]/.test(normalized) || normalized.includes("\\")) {
       return path.win32;
@@ -2483,7 +2546,8 @@ export class MaterialClipService {
     recordId: string,
     config?: MaterialClipConfig,
   ): Promise<void> {
-    const resolvedConfig = config ?? this.activeRunConfig ?? (await this.getConfig());
+    const resolvedConfig =
+      config ?? this.activeRunConfig ?? (await this.getConfig());
     const updated = await this.apiService.updateFeishuRecordStatus(
       recordId,
       resolvedConfig.feishu.pending_status_value,
@@ -2577,7 +2641,8 @@ export class MaterialClipService {
           }
           resolve({
             success: false,
-            error: `${stderr || stdout}`.trim() || `taskkill 退出码 ${code ?? -1}`,
+            error:
+              `${stderr || stdout}`.trim() || `taskkill 退出码 ${code ?? -1}`,
           });
         });
       });
@@ -2594,7 +2659,9 @@ export class MaterialClipService {
       this.log(
         `终止素材剪辑进程失败：${taskkillResult.error || "taskkill 未能结束进程"}`,
       );
-      throw new Error("停止轮询剪辑失败，请稍后重试；如仍失败，请手动关闭相关 Python/FFmpeg 进程");
+      throw new Error(
+        "停止轮询剪辑失败，请稍后重试；如仍失败，请手动关闭相关 Python/FFmpeg 进程",
+      );
     }
 
     try {
@@ -2726,11 +2793,7 @@ export class MaterialClipService {
       this.runState.completedMaterials = Number(completed);
       this.runState.totalMaterials = Number(total);
       this.runState.remainingMaterials = 0;
-      this.upsertProcessedDrama(
-        dramaName,
-        Number(completed),
-        Number(total),
-      );
+      this.upsertProcessedDrama(dramaName, Number(completed), Number(total));
       this.runState.message = `《${dramaName}》已完成，生成 ${completed}/${total} 条素材`;
       shouldRefreshPending = true;
     }
@@ -2923,7 +2986,9 @@ export class MaterialClipService {
       }
     }
 
-    throw new Error("运行时内未找到 AI 高光脚本，请重新导入包含完整脚本的运行时包");
+    throw new Error(
+      "运行时内未找到 AI 高光脚本，请重新导入包含完整脚本的运行时包",
+    );
   }
 
   private sanitizePathSegment(value: string): string {
@@ -3289,7 +3354,10 @@ export class MaterialClipService {
     }
   }
 
-  private formatCommandSpawnError(command: string, error: NodeJS.ErrnoException) {
+  private formatCommandSpawnError(
+    command: string,
+    error: NodeJS.ErrnoException,
+  ) {
     if (error.code === "ENOENT") {
       return `未找到命令：${command}`;
     }
@@ -3297,7 +3365,9 @@ export class MaterialClipService {
     return error.message;
   }
 
-  private buildCommandEnv(extraEnv?: Record<string, string>): NodeJS.ProcessEnv {
+  private buildCommandEnv(
+    extraEnv?: Record<string, string>,
+  ): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...extraEnv,
@@ -3316,7 +3386,9 @@ export class MaterialClipService {
     return env;
   }
 
-  private getWindowsPathEntries(env: NodeJS.ProcessEnv = process.env): string[] {
+  private getWindowsPathEntries(
+    env: NodeJS.ProcessEnv = process.env,
+  ): string[] {
     const registryPathEntries = [
       ...this.readWindowsRegistryPath(
         "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
@@ -3417,15 +3489,11 @@ export class MaterialClipService {
       const stderrChunks: Buffer[] = [];
 
       child.stdout.on("data", (chunk) => {
-        stdoutChunks.push(
-          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
-        );
+        stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
 
       child.stderr.on("data", (chunk) => {
-        stderrChunks.push(
-          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
-        );
+        stderrChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       });
 
       child.once("error", (error) => {
@@ -3568,7 +3636,9 @@ export class MaterialClipService {
       startedAt: new Date().toISOString(),
       lastUpdatedAt: new Date().toISOString(),
       pollIntervalSeconds:
-        params.mode === "auto" ? params.config.feishu_watcher.poll_interval : null,
+        params.mode === "auto"
+          ? params.config.feishu_watcher.poll_interval
+          : null,
       lastPollAt: null,
       nextPollAt: null,
       message:

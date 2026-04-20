@@ -1471,7 +1471,7 @@ onUnmounted(() => {
             <span style="color: #666; font-size: 13px">间隔(分钟)</span>
             <NInputNumber
               v-model:value="autoUploadIntervalMinutes"
-              :min="20"
+              :min="1"
               :max="720"
               :disabled="autoUploadEnabled"
               style="width: 80px"
