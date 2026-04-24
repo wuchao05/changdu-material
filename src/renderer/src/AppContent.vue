@@ -598,8 +598,8 @@ onMounted(async () => {
 }
 
 .app-sider :deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover .menu-icon-shell) {
-  background: #ffffff;
-  border-color: #cbd5e1;
+  background: transparent;
+  border-color: transparent;
   color: #334155;
 }
 
