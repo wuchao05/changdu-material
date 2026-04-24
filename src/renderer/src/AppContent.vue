@@ -341,7 +341,7 @@ onMounted(async () => {
       <NLayout has-sider class="main-layout">
         <NLayoutSider
           bordered
-          class="app-sider"
+          :class="['app-sider', { 'app-sider--collapsed': collapsed }]"
           collapse-mode="width"
           :collapsed-width="64"
           :width="180"
@@ -619,37 +619,49 @@ onMounted(async () => {
   box-shadow: none;
 }
 
+.app-sider--collapsed :deep(.n-layout-sider-scroll-container) {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.app-sider :deep(.n-menu--collapsed) {
+  width: 64px;
+}
+
 .app-sider :deep(.n-menu--collapsed .n-menu-item) {
   height: 52px;
+  display: flex;
+  justify-content: center;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
+  width: 52px;
   height: 52px;
+  display: grid !important;
+  place-items: center;
+  position: relative;
   padding-left: 0 !important;
   padding-right: 0;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed::before) {
-  width: 52px;
-  height: 52px;
-  top: 50%;
-  left: 50%;
-  right: auto;
-  bottom: auto;
-  transform: translate(-50%, -50%);
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  height: auto;
+  transform: none;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content__icon) {
   width: 32px !important;
   height: 32px !important;
-  margin-right: 0 !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  margin-right: 0 !important;
+  transform: none !important;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content-header),
