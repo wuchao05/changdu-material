@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, h, KeepAlive } from "vue";
+import type { Component } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
   NLayout,
@@ -13,15 +14,15 @@ import {
 } from "naive-ui";
 import {
   CloudUploadOutline,
-  CloudDownloadOutline,
-  SettingsOutline,
-  LogOutOutline,
-  RefreshOutline,
-  EyeOffOutline,
-  RocketOutline,
-  CubeOutline,
-  ConstructOutline,
   CutOutline,
+  DownloadOutline,
+  EyeOffOutline,
+  HammerOutline,
+  LayersOutline,
+  LogOutOutline,
+  OptionsOutline,
+  RefreshOutline,
+  RocketOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useApiConfigStore } from "./stores/apiConfig";
@@ -41,6 +42,12 @@ const activeKey = ref("upload");
 const refreshing = ref(false);
 const switchingChannel = ref(false);
 
+function renderMenuIcon(icon: Component) {
+  return h("span", { class: "menu-icon-shell" }, [
+    h(NIcon, { size: 17 }, { default: () => h(icon) }),
+  ]);
+}
+
 // 根据权限动态生成菜单选项
 const menuOptions = computed(() => {
   const options: Array<{
@@ -54,7 +61,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "剧目下载",
       key: "download",
-      icon: () => h(NIcon, null, { default: () => h(CloudDownloadOutline) }),
+      icon: () => renderMenuIcon(DownloadOutline),
     });
   }
 
@@ -63,7 +70,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "素材剪辑",
       key: "material-clip",
-      icon: () => h(NIcon, null, { default: () => h(CutOutline) }),
+      icon: () => renderMenuIcon(CutOutline),
     });
   }
 
@@ -72,7 +79,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "形天上传",
       key: "upload",
-      icon: () => h(NIcon, null, { default: () => h(CloudUploadOutline) }),
+      icon: () => renderMenuIcon(CloudUploadOutline),
     });
   }
 
@@ -81,7 +88,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "巨量上传",
       key: "juliang",
-      icon: () => h(NIcon, null, { default: () => h(RocketOutline) }),
+      icon: () => renderMenuIcon(RocketOutline),
     });
   }
 
@@ -90,7 +97,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "上传搭建",
       key: "upload-build",
-      icon: () => h(NIcon, null, { default: () => h(ConstructOutline) }),
+      icon: () => renderMenuIcon(HammerOutline),
     });
   }
 
@@ -99,7 +106,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "巨量搭建",
       key: "juliang-build",
-      icon: () => h(NIcon, null, { default: () => h(CubeOutline) }),
+      icon: () => renderMenuIcon(LayersOutline),
     });
   }
 
@@ -108,7 +115,7 @@ const menuOptions = computed(() => {
     options.push({
       label: "菜单配置",
       key: "settings",
-      icon: () => h(NIcon, null, { default: () => h(SettingsOutline) }),
+      icon: () => renderMenuIcon(OptionsOutline),
     });
   }
 
@@ -334,6 +341,7 @@ onMounted(async () => {
       <NLayout has-sider class="main-layout">
         <NLayoutSider
           bordered
+          class="app-sider"
           collapse-mode="width"
           :collapsed-width="64"
           :width="200"
@@ -342,9 +350,6 @@ onMounted(async () => {
           @collapse="collapsed = true"
           @expand="collapsed = false"
         >
-          <div class="sider-header">
-            <span v-if="!collapsed" class="logo-text">菜单管理</span>
-          </div>
           <NMenu
             :collapsed="collapsed"
             :collapsed-width="64"
@@ -522,21 +527,92 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.sider-header {
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 600;
-  color: #333;
-  border-bottom: 1px solid #e8e8e8;
+.app-sider {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
-.logo-text {
-  color: #1e293b;
+.app-sider :deep(.n-layout-sider-scroll-container) {
+  padding: 14px 10px 76px;
+}
+
+.app-sider :deep(.n-menu) {
+  --n-item-height: 42px;
+}
+
+.app-sider :deep(.n-menu-item) {
+  margin: 3px 0;
+}
+
+.app-sider :deep(.n-menu-item-content) {
+  border-radius: 14px;
+  color: #475569;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.app-sider :deep(.n-menu-item-content::before) {
+  left: 0;
+  right: 0;
+  border-radius: 14px;
+}
+
+.app-sider :deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover) {
+  color: #0f172a;
+}
+
+.app-sider :deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover::before) {
+  background: #f1f5f9;
+}
+
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--selected) {
+  color: #0f172a;
   font-weight: 700;
-  letter-spacing: 0.02em;
+}
+
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--selected::before) {
+  background: linear-gradient(135deg, #eff6ff 0%, #e0f2fe 100%);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.12);
+}
+
+.app-sider :deep(.n-menu-item-content-header) {
+  font-size: 14px;
+  letter-spacing: 0.01em;
+}
+
+.menu-icon-shell {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #64748b;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.app-sider :deep(.n-menu-item-content:not(.n-menu-item-content--selected):hover .menu-icon-shell) {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--selected .menu-icon-shell) {
+  background: #dbeafe;
+  border-color: #bfdbfe;
+  color: #2563eb;
+  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.12);
+}
+
+.app-sider :deep(.n-menu--collapsed .menu-icon-shell) {
+  width: 32px;
+  height: 32px;
 }
 
 .sider-footer {
