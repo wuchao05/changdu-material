@@ -604,10 +604,10 @@ onMounted(async () => {
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--selected .menu-icon-shell) {
-  background: #dbeafe;
-  border-color: #bfdbfe;
+  background: transparent;
+  border-color: transparent;
   color: #2563eb;
-  box-shadow: 0 6px 14px rgba(37, 99, 235, 0.12);
+  box-shadow: none;
 }
 
 .app-sider :deep(.n-menu--collapsed .menu-icon-shell) {
