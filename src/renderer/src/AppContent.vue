@@ -657,7 +657,7 @@ onMounted(async () => {
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content__icon) {
   position: absolute;
   top: 50%;
-  left: 50%;
+  left: calc(50% + 6px) !important;
   width: 32px !important;
   height: 32px !important;
   display: inline-flex;
@@ -675,7 +675,7 @@ onMounted(async () => {
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .menu-icon-shell) {
   width: 32px;
   height: 32px;
-  transform: translateX(12px);
+  transform: none;
 }
 
 .sider-footer {
