@@ -267,8 +267,7 @@ onMounted(async () => {
     <div class="title-bar" style="-webkit-app-region: drag">
       <div class="title-bar-text">
         <span class="product-logo product-logo--title" aria-hidden="true">
-          <span class="product-logo-card product-logo-card--back"></span>
-          <span class="product-logo-card product-logo-card--front">
+          <span class="product-logo-card">
             <span class="product-logo-play"></span>
           </span>
         </span>
@@ -344,21 +343,7 @@ onMounted(async () => {
           @expand="collapsed = false"
         >
           <div class="sider-header">
-            <div v-if="!collapsed" class="sider-brand">
-              <span class="product-logo product-logo--sider" aria-hidden="true">
-                <span class="product-logo-card product-logo-card--back"></span>
-                <span class="product-logo-card product-logo-card--front">
-                  <span class="product-logo-play"></span>
-                </span>
-              </span>
-              <span class="logo-text">素材管理</span>
-            </div>
-            <span v-else class="product-logo product-logo--collapsed" aria-hidden="true">
-              <span class="product-logo-card product-logo-card--back"></span>
-              <span class="product-logo-card product-logo-card--front">
-                <span class="product-logo-play"></span>
-              </span>
-            </span>
+            <span v-if="!collapsed" class="logo-text">菜单管理</span>
           </div>
           <NMenu
             :collapsed="collapsed"
@@ -458,38 +443,27 @@ onMounted(async () => {
     inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
+.product-logo::before {
+  content: "";
+  position: absolute;
+  width: 48%;
+  height: 42%;
+  top: 26%;
+  left: 23%;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #fb923c 0%, #ef4444 100%);
+  opacity: 0.58;
+  transform: rotate(-12deg);
+  box-shadow: 0 4px 10px rgba(239, 68, 68, 0.16);
+}
+
 .product-logo--title {
   width: 28px;
   height: 28px;
 }
 
-.product-logo--sider {
-  width: 30px;
-  height: 30px;
-}
-
-.product-logo--collapsed {
-  width: 32px;
-  height: 32px;
-}
-
 .product-logo-card {
   position: absolute;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #fb923c 0%, #ef4444 100%);
-  box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
-}
-
-.product-logo-card--back {
-  width: 48%;
-  height: 42%;
-  top: 26%;
-  left: 23%;
-  opacity: 0.58;
-  transform: rotate(-12deg);
-}
-
-.product-logo-card--front {
   width: 50%;
   height: 46%;
   right: 20%;
@@ -497,7 +471,10 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #fb923c 0%, #ef4444 100%);
   transform: rotate(5deg);
+  box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
 }
 
 .product-logo-play {
@@ -554,12 +531,6 @@ onMounted(async () => {
   font-weight: 600;
   color: #333;
   border-bottom: 1px solid #e8e8e8;
-}
-
-.sider-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .logo-text {
