@@ -535,6 +535,10 @@ onMounted(async () => {
   padding: 14px 10px 76px;
 }
 
+.app-sider--collapsed :deep(.n-layout-sider-scroll-container) {
+  padding: 14px 0 76px;
+}
+
 .app-sider :deep(.n-menu) {
   --n-item-height: 42px;
 }
@@ -619,11 +623,6 @@ onMounted(async () => {
   box-shadow: none;
 }
 
-.app-sider--collapsed :deep(.n-layout-sider-scroll-container) {
-  padding-left: 0;
-  padding-right: 0;
-}
-
 .app-sider :deep(.n-menu--collapsed) {
   width: 56px;
 }
@@ -635,11 +634,11 @@ onMounted(async () => {
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed) {
+  position: relative;
   width: 48px;
   height: 48px;
   display: grid !important;
   place-items: center;
-  position: relative;
   padding-left: 0 !important;
   padding-right: 0;
 }
@@ -672,6 +671,7 @@ onMounted(async () => {
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .menu-icon-shell) {
   width: 32px;
   height: 32px;
+  transform: none;
 }
 
 .sider-footer {
