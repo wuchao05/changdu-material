@@ -22,7 +22,6 @@ import {
   CubeOutline,
   ConstructOutline,
   CutOutline,
-  NutritionOutline,
 } from "@vicons/ionicons5";
 import { useAuthStore } from "./stores/auth";
 import { useApiConfigStore } from "./stores/apiConfig";
@@ -267,10 +266,11 @@ onMounted(async () => {
     <!-- 自定义标题栏 -->
     <div class="title-bar" style="-webkit-app-region: drag">
       <div class="title-bar-text">
-        <span class="app-icon">
-          <NIcon size="16">
-            <NutritionOutline />
-          </NIcon>
+        <span class="product-logo product-logo--title" aria-hidden="true">
+          <span class="product-logo-card product-logo-card--back"></span>
+          <span class="product-logo-card product-logo-card--front">
+            <span class="product-logo-play"></span>
+          </span>
         </span>
         <span class="brand-text">番茄挂载工具</span>
         <span v-if="currentUserChannelLabel" class="user-info">
@@ -344,8 +344,21 @@ onMounted(async () => {
           @expand="collapsed = false"
         >
           <div class="sider-header">
-            <span v-if="!collapsed" class="logo-text">素材管理</span>
-            <span v-else>📺</span>
+            <div v-if="!collapsed" class="sider-brand">
+              <span class="product-logo product-logo--sider" aria-hidden="true">
+                <span class="product-logo-card product-logo-card--back"></span>
+                <span class="product-logo-card product-logo-card--front">
+                  <span class="product-logo-play"></span>
+                </span>
+              </span>
+              <span class="logo-text">素材管理</span>
+            </div>
+            <span v-else class="product-logo product-logo--collapsed" aria-hidden="true">
+              <span class="product-logo-card product-logo-card--back"></span>
+              <span class="product-logo-card product-logo-card--front">
+                <span class="product-logo-play"></span>
+              </span>
+            </span>
           </div>
           <NMenu
             :collapsed="collapsed"
@@ -430,16 +443,70 @@ onMounted(async () => {
   color: #0f172a;
 }
 
-.app-icon {
-  width: 26px;
-  height: 26px;
+.product-logo {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #ffe1dc 0%, #ffd1cc 100%);
-  color: #d9485f;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 68% 24%, rgba(255, 255, 255, 0.95) 0 2px, transparent 3px),
+    linear-gradient(135deg, #fff7ed 0%, #fed7aa 100%);
+  box-shadow:
+    0 10px 24px rgba(234, 88, 12, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.product-logo--title {
+  width: 28px;
+  height: 28px;
+}
+
+.product-logo--sider {
+  width: 30px;
+  height: 30px;
+}
+
+.product-logo--collapsed {
+  width: 32px;
+  height: 32px;
+}
+
+.product-logo-card {
+  position: absolute;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #fb923c 0%, #ef4444 100%);
+  box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
+}
+
+.product-logo-card--back {
+  width: 48%;
+  height: 42%;
+  top: 26%;
+  left: 23%;
+  opacity: 0.58;
+  transform: rotate(-12deg);
+}
+
+.product-logo-card--front {
+  width: 50%;
+  height: 46%;
+  right: 20%;
+  bottom: 21%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(5deg);
+}
+
+.product-logo-play {
+  width: 0;
+  height: 0;
+  margin-left: 1px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid rgba(255, 255, 255, 0.96);
 }
 
 .brand-text {
@@ -489,10 +556,16 @@ onMounted(async () => {
   border-bottom: 1px solid #e8e8e8;
 }
 
+.sider-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .logo-text {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #1e293b;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .sider-footer {
