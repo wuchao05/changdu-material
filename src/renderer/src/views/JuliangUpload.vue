@@ -1453,7 +1453,7 @@ onUnmounted(() => {
   color: #d4d4d4;
   padding: 12px;
   border-radius: 6px;
-  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  font-family: var(--app-font-family);
   font-size: 12px;
   line-height: 1.6;
 }

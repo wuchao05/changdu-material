@@ -8,12 +8,18 @@ importers:
 
   .:
     dependencies:
+      '@chinese-fonts/maple-mono-cn':
+        specifier: 2.0.0
+        version: 2.0.0
       '@electron-toolkit/preload':
         specifier: ^3.0.1
         version: 3.0.2(electron@31.7.7)
       '@electron-toolkit/utils':
         specifier: ^3.0.0
         version: 3.0.0(electron@31.7.7)
+      '@fontsource/maple-mono':
+        specifier: 5.2.6
+        version: 5.2.6
       '@playwright/browser-chromium':
         specifier: ^1.58.2
         version: 1.58.2
@@ -208,6 +214,9 @@ packages:
   '@babel/types@7.28.6':
     resolution: {integrity: sha512-0ZrskXVEHSWIqZM/sQZ4EV3jZJXRkio/WCxaqKZP1g//CEWEPSfeZFcms4XeKBCHU0ZKnIkdJeU/kF+eRp5lBg==}
     engines: {node: '>=6.9.0'}
+
+  '@chinese-fonts/maple-mono-cn@2.0.0':
+    resolution: {integrity: sha512-DrPvr2/SjeGBtOspkJY6ygFlPnltCCJlmZIgVbupHp3tvxBrIjBz8aIT1obCxqz61cJP9eNU977tse7c8NiLZw==}
 
   '@css-render/plugin-bem@0.15.14':
     resolution: {integrity: sha512-QK513CJ7yEQxm/P3EwsI+d+ha8kSOcjGvD6SevM41neEMxdULE+18iuQK6tEChAWMOQNQPLG/Rw3Khb69r5neg==}
@@ -435,6 +444,9 @@ packages:
   '@eslint/js@8.57.1':
     resolution: {integrity: sha512-d9zaMRSTIKDLhctzH12MtXvJKSSUhaHcjV+2Z+GK+EEY7XKpP5yR4x+N3TAcHTcu963nIr+TMcCb4DBCYX1z6Q==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+
+  '@fontsource/maple-mono@5.2.6':
+    resolution: {integrity: sha512-+VAD7z8nyTkaiz2/Ww639Z5Kp/YJIL4dNMQxydqSMafNb5nKxFeoRq6W3g9WJ04IcBjdBmn0dKFNk90lyz7K+w==}
 
   '@humanwhocodes/config-array@0.13.0':
     resolution: {integrity: sha512-DZLEEqFWQFiyK6h5YIeynKx7JlvCYWL0cImfSRXZ9l4Sg2efkFGTuFf6vzXjK1cq6IYkU+Eg/JizXw+TD2vRNw==}
@@ -2719,6 +2731,8 @@ snapshots:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
 
+  '@chinese-fonts/maple-mono-cn@2.0.0': {}
+
   '@css-render/plugin-bem@0.15.14(css-render@0.15.14)':
     dependencies:
       css-render: 0.15.14
@@ -2904,6 +2918,8 @@ snapshots:
       - supports-color
 
   '@eslint/js@8.57.1': {}
+
+  '@fontsource/maple-mono@5.2.6': {}
 
   '@humanwhocodes/config-array@0.13.0':
     dependencies:

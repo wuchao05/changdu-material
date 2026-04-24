@@ -2413,7 +2413,7 @@ onUnmounted(() => {
 }
 
 .editor-panel :deep(textarea) {
-  font-family: "SFMono-Regular", "Monaco", "Menlo", monospace;
+  font-family: var(--app-font-family);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -2434,7 +2434,7 @@ onUnmounted(() => {
   background: #111827;
   color: #e5e7eb;
   padding: 14px;
-  font-family: "SFMono-Regular", "Monaco", "Menlo", monospace;
+  font-family: var(--app-font-family);
   font-size: 12px;
   line-height: 1.7;
 }
