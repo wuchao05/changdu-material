@@ -619,29 +619,45 @@ onMounted(async () => {
   box-shadow: none;
 }
 
-.app-sider :deep(.n-menu--collapsed .n-menu-item-content) {
-  display: block;
+.app-sider :deep(.n-menu--collapsed .n-menu-item) {
+  height: 52px;
+}
+
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
+  height: 52px;
   padding-left: 0 !important;
   padding-right: 0;
 }
 
-.app-sider :deep(.n-menu--collapsed .n-menu-item-content__icon) {
-  position: absolute;
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed::before) {
+  width: 52px;
+  height: 52px;
   top: 50%;
   left: 50%;
-  width: auto !important;
-  height: auto !important;
-  margin-right: 0 !important;
+  right: auto;
+  bottom: auto;
   transform: translate(-50%, -50%);
 }
 
-.app-sider :deep(.n-menu--collapsed .n-menu-item-content-header),
-.app-sider :deep(.n-menu--collapsed .n-menu-item-content__arrow) {
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content__icon) {
+  width: 32px !important;
+  height: 32px !important;
+  margin-right: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content-header),
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content__arrow) {
   display: none;
 }
 
-.app-sider :deep(.n-menu--collapsed .menu-icon-shell) {
+.app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .menu-icon-shell) {
   width: 32px;
   height: 32px;
 }
