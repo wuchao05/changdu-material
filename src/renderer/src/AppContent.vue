@@ -365,7 +365,7 @@ onMounted(async () => {
               </template>
               退出登录
             </NButton>
-            <NButton v-else quaternary @click="handleLogout">
+            <NButton v-else quaternary class="sider-logout-button" @click="handleLogout">
               <template #icon>
                 <NIcon><LogOutOutline /></NIcon>
               </template>
@@ -683,6 +683,19 @@ onMounted(async () => {
   bottom: 12px;
   left: 12px;
   right: 12px;
+}
+
+.app-sider--collapsed .sider-footer {
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.sider-logout-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
 }
 
 .main-content {
