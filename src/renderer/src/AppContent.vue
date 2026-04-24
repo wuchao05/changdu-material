@@ -343,7 +343,7 @@ onMounted(async () => {
           bordered
           :class="['app-sider', { 'app-sider--collapsed': collapsed }]"
           collapse-mode="width"
-          :collapsed-width="64"
+          :collapsed-width="56"
           :width="180"
           :collapsed="collapsed"
           show-trigger
@@ -352,7 +352,7 @@ onMounted(async () => {
         >
           <NMenu
             :collapsed="collapsed"
-            :collapsed-width="64"
+            :collapsed-width="56"
             :collapsed-icon-size="22"
             :options="menuOptions"
             :value="activeKey"
@@ -625,18 +625,18 @@ onMounted(async () => {
 }
 
 .app-sider :deep(.n-menu--collapsed) {
-  width: 64px;
+  width: 56px;
 }
 
 .app-sider :deep(.n-menu--collapsed .n-menu-item) {
-  height: 52px;
+  height: 48px;
   display: flex;
   justify-content: center;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed) {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   display: grid !important;
   place-items: center;
   position: relative;
