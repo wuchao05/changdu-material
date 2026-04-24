@@ -628,39 +628,43 @@ onMounted(async () => {
 }
 
 .app-sider :deep(.n-menu--collapsed .n-menu-item) {
+  width: 56px;
   height: 48px;
   display: flex;
+  align-items: center;
   justify-content: center;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed) {
   position: relative;
-  width: 48px;
+  display: block !important;
+  width: 56px !important;
+  min-width: 56px;
   height: 48px;
-  display: grid !important;
-  place-items: center;
-  padding-left: 0 !important;
-  padding-right: 0;
+  padding: 0 !important;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed::before) {
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  width: auto;
-  height: auto;
-  transform: none;
+  width: 48px;
+  height: 48px;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content__icon) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 32px !important;
   height: 32px !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   margin-right: 0 !important;
-  transform: none !important;
+  transform: translate(-50%, -50%) !important;
 }
 
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .n-menu-item-content-header),
