@@ -675,7 +675,7 @@ onMounted(async () => {
 .app-sider :deep(.n-menu-item-content.n-menu-item-content--collapsed .menu-icon-shell) {
   width: 32px;
   height: 32px;
-  transform: none;
+  transform: translateX(12px);
 }
 
 .sider-footer {
