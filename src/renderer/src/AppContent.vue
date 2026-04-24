@@ -620,16 +620,26 @@ onMounted(async () => {
 }
 
 .app-sider :deep(.n-menu--collapsed .n-menu-item-content) {
-  display: flex;
+  display: grid;
+  grid-template-areas: "icon";
+  grid-template-columns: 1fr;
   align-items: center;
-  justify-content: center;
+  justify-items: center;
   padding-left: 0 !important;
   padding-right: 0;
 }
 
 .app-sider :deep(.n-menu--collapsed .n-menu-item-content__icon) {
+  grid-area: icon;
   width: auto !important;
+  height: auto !important;
   margin-right: 0 !important;
+  justify-self: center;
+}
+
+.app-sider :deep(.n-menu--collapsed .n-menu-item-content-header),
+.app-sider :deep(.n-menu--collapsed .n-menu-item-content__arrow) {
+  display: none;
 }
 
 .app-sider :deep(.n-menu--collapsed .menu-icon-shell) {
