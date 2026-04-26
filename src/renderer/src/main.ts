@@ -4,6 +4,7 @@ import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import naive from 'naive-ui'
 import App from './App.vue'
 import router from './router'
+import './assets/fonts'
 import './assets/main.css'
 
 const app = createApp(App)
