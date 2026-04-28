@@ -442,8 +442,8 @@ const api = {
     ipcRenderer.invoke("material-preview:clearLogs"),
 
   // ==================== 巨量调度器 ====================
-  juliangSchedulerStart: (darenId?: string) =>
-    ipcRenderer.invoke("juliang:scheduler:start", darenId),
+  juliangSchedulerStart: (darenId?: string, tableId?: string) =>
+    ipcRenderer.invoke("juliang:scheduler:start", darenId, tableId),
   juliangSchedulerStop: () => ipcRenderer.invoke("juliang:scheduler:stop"),
   juliangSchedulerGetStatus: () =>
     ipcRenderer.invoke("juliang:scheduler:getStatus"),
@@ -455,8 +455,8 @@ const api = {
     ipcRenderer.invoke("juliang:scheduler:getLogs"),
   juliangSchedulerClearLogs: () =>
     ipcRenderer.invoke("juliang:scheduler:clearLogs"),
-  juliangSchedulerFetchNow: (darenId?: string) =>
-    ipcRenderer.invoke("juliang:scheduler:fetchNow", darenId),
+  juliangSchedulerFetchNow: (darenId?: string, tableId?: string) =>
+    ipcRenderer.invoke("juliang:scheduler:fetchNow", darenId, tableId),
   juliangSchedulerCancelAll: () =>
     ipcRenderer.invoke("juliang:scheduler:cancelAll"),
   juliangSchedulerGetCompletedTasks: () =>

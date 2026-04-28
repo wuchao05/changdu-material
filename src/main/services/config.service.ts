@@ -19,6 +19,7 @@ export interface DarenInfo {
   label: string; // 名称
   password?: string; // 登录密码
   feishuDramaStatusTableId?: string; // 飞书剧集状态表 ID
+  feishuTableGroups?: RuntimeFeishuTableGroup[];
   enableUpload?: boolean; // 启用上传功能
   enableDownload?: boolean; // 启用下载功能
   enableJuliang?: boolean; // 启用巨量上传功能
@@ -28,6 +29,17 @@ export interface DarenInfo {
   changduConfigType?: "sanrou" | "meiri" | "custom"; // 常读配置类型：散柔/每日/定制
   customChangduConfig?: ChangduConfig; // 定制的常读配置（当 changduConfigType 为 'custom' 时使用）
   uploadBuildSettings?: UploadBuildSettings; // 上传搭建配置（按达人隔离）
+}
+
+export interface RuntimeFeishuTableGroup {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  feishu?: {
+    dramaListTableId?: string;
+    dramaStatusTableId?: string;
+    accountTableId?: string;
+  };
 }
 
 export interface DarenConfig {
@@ -304,6 +316,9 @@ export class ConfigService {
       label: daren.label || "",
       password: daren.password || "",
       feishuDramaStatusTableId: daren.feishuDramaStatusTableId || "",
+      feishuTableGroups: Array.isArray(daren.feishuTableGroups)
+        ? daren.feishuTableGroups
+        : [],
       enableUpload: daren.enableUpload ?? true,
       enableDownload: daren.enableDownload ?? true,
       enableJuliang: daren.enableJuliang ?? false, // 默认不启用巨量上传
@@ -650,6 +665,7 @@ export class ConfigService {
       id: runtimeUser?.id || runtimeConfig.user.id,
       label: runtimeUser?.nickname || runtimeConfig.user.nickname,
       feishuDramaStatusTableId: runtimeConfig.feishu.dramaStatusTableId,
+      feishuTableGroups: runtimeConfig.feishu.tableGroups,
       enableUpload: desktopMenus?.upload,
       enableDownload: desktopMenus?.download,
       enableJuliang: desktopMenus?.juliangUpload,

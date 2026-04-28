@@ -787,11 +787,11 @@ function registerIpcHandlers(): void {
   // ==================== 巨量调度器 ====================
   ipcMain.handle(
     "juliang:scheduler:start",
-    async (_event, darenId?: string) => {
+    async (_event, darenId?: string, tableId?: string) => {
       if (mainWindow) {
         juliangScheduler.setMainWindow(mainWindow);
       }
-      return await juliangScheduler.start(darenId);
+      return await juliangScheduler.start(darenId, tableId);
     },
   );
 
@@ -824,8 +824,8 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "juliang:scheduler:fetchNow",
-    async (_event, darenId?: string) => {
-      return await juliangScheduler.fetchNow(darenId);
+    async (_event, darenId?: string, tableId?: string) => {
+      return await juliangScheduler.fetchNow(darenId, tableId);
     },
   );
 

@@ -56,6 +56,12 @@ interface DownloadTask {
   stallCheckTimer?: any; // 停滞检测定时器
 }
 
+interface FeishuDownloadRecord {
+  fields: Record<string, unknown>;
+  record_id: string;
+  _tableId: string;
+}
+
 const message = useMessage();
 const darenStore = useDarenStore();
 const authStore = useAuthStore();
@@ -135,11 +141,11 @@ async function fetchPendingDownloads(): Promise<boolean> {
   try {
     // 获取配置
     const appToken = apiConfigStore.config.feishuAppToken;
-    const tableId = darenStore.currentDaren?.feishuDramaStatusTableId;
+    const tableGroup = darenStore.currentPrimaryFeishuTableGroup;
 
     console.log("[Download] 配置信息:", {
       appToken: appToken ? `${appToken.substring(0, 10)}...` : "未配置",
-      tableId: tableId || "未配置",
+      tableId: tableGroup?.tableId || "未配置",
       currentDaren: darenStore.currentDaren?.label || "无",
       isAdmin: authStore.isAdmin,
     });
@@ -150,7 +156,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
       return false;
     }
 
-    if (!tableId) {
+    if (!tableGroup?.tableId) {
       console.error("[Download] 错误: 当前达人未配置状态表 ID");
       message.error("当前达人未配置状态表 ID");
       return false;
@@ -158,7 +164,6 @@ async function fetchPendingDownloads(): Promise<boolean> {
 
     // 1. 查询飞书中待下载状态的剧集
     console.log("[Download] 步骤1: 查询飞书待下载剧集");
-    const feishuUrl = `/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/search`;
     const feishuPayload = {
       filter: {
         conjunction: "and",
@@ -172,11 +177,13 @@ async function fetchPendingDownloads(): Promise<boolean> {
       },
       field_names: ["剧名", "日期", "上架时间"],
     };
-    console.log("[Download] 飞书请求 URL:", feishuUrl);
     console.log(
       "[Download] 飞书请求参数:",
       JSON.stringify(feishuPayload, null, 2),
     );
+
+    const feishuUrl = `/open-apis/bitable/v1/apps/${appToken}/tables/${tableGroup.tableId}/records/search`;
+    console.log("[Download] 飞书请求 URL:", feishuUrl);
 
     const feishuResult = (await window.api.feishuRequest(
       feishuUrl,
@@ -186,14 +193,19 @@ async function fetchPendingDownloads(): Promise<boolean> {
         items?: Array<{ fields: Record<string, unknown>; record_id: string }>;
       };
     };
+    const feishuItems: FeishuDownloadRecord[] = (feishuResult.data?.items || []).map(
+      (item) => ({
+        ...item,
+        _tableId: tableGroup.tableId,
+      }),
+    );
 
     console.log("[Download] 飞书返回结果:", {
-      hasData: !!feishuResult.data,
-      itemsCount: feishuResult.data?.items?.length || 0,
-      items: feishuResult.data?.items,
+      itemsCount: feishuItems.length,
+      items: feishuItems,
     });
 
-    if (!feishuResult.data?.items?.length) {
+    if (!feishuItems.length) {
       console.log("[Download] 飞书中没有待下载的剧集");
       message.info("没有待下载的剧集");
       return false;
@@ -260,8 +272,9 @@ async function fetchPendingDownloads(): Promise<boolean> {
       }
     };
 
-    for (let i = 0; i < feishuResult.data.items.length; i++) {
-      const item = feishuResult.data.items[i];
+    for (let i = 0; i < feishuItems.length; i++) {
+      const item = feishuItems[i];
+      const tableId = item._tableId;
       const dramaName =
         (item.fields["剧名"] as Array<{ text: string }>)?.[0]?.text || "";
       // 清理剧名，去除前后空格
@@ -284,7 +297,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
         publishTimeReadable: publishTime
           ? dayjs(publishTime).format("YYYY-MM-DD HH:mm:ss")
           : "无",
-        进度: `${i + 1}/${feishuResult.data.items.length}`,
+        进度: `${i + 1}/${feishuItems.length}`,
       });
 
       // 查询该剧在常读下载中心的完成状态（task_status=2）
@@ -309,12 +322,12 @@ async function fetchPendingDownloads(): Promise<boolean> {
             imagex_uri: changduTask.imagex_uri,
             total: changduResult.total,
             record_id: item.record_id,
-            tableId: tableId,
+            tableId,
           });
 
           tasks.push({
             id: item.record_id,
-            tableId: tableId!, // 保存 tableId 以便更新时使用
+            tableId, // 保存 tableId 以便更新时使用
             dramaName: cleanDramaName,
             bookId: changduTask.book_id || "",
             date,
@@ -336,7 +349,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
       }
 
       // 每次查询后延迟 1 秒，避免请求过快（最后一个不需要延迟）
-      if (i < feishuResult.data.items.length - 1) {
+      if (i < feishuItems.length - 1) {
         console.log("[Download] 等待 1 秒后继续...");
         await delay(1000);
       }
@@ -344,7 +357,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
 
     console.log("[Download] ===== 查询完成 =====");
     console.log("[Download] 最终匹配结果:", {
-      飞书待下载剧集数: feishuResult.data.items.length,
+      飞书待下载剧集数: feishuItems.length,
       成功匹配任务数: tasks.length,
     });
 
@@ -1051,12 +1064,12 @@ async function updateFeishuStatus(
   const appToken = apiConfigStore.config.feishuAppToken;
   // 优先使用任务中保存的 tableId（查询时确定的），否则使用当前达人配置
   const tableId =
-    task.tableId || darenStore.currentDaren?.feishuDramaStatusTableId;
+    task.tableId || darenStore.currentPrimaryFeishuTableGroup?.tableId;
 
   console.log("[Download] 飞书配置检查:", {
     appToken: appToken ? `${appToken.substring(0, 10)}...` : "未配置",
     taskTableId: task.tableId || "未保存",
-    darenTableId: darenStore.currentDaren?.feishuDramaStatusTableId || "未配置",
+    darenTableId: darenStore.currentPrimaryFeishuTableGroup?.tableId || "未配置",
     finalTableId: tableId || "未配置",
     currentDaren: darenStore.currentDaren?.label || "无",
   });

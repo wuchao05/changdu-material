@@ -726,7 +726,7 @@ let currentDramaTimer: number | null = null;
 
 const prettyConfig = computed(() => configEditorText.value.trim());
 const currentClipTableId = computed(
-  () => darenStore.currentDaren?.feishuDramaStatusTableId?.trim() || "",
+  () => darenStore.currentPrimaryFeishuTableGroup?.tableId || "",
 );
 
 function applyClipFixedFields(draft: MaterialClipConfig): MaterialClipConfig {

@@ -142,6 +142,13 @@ const channelOptions = computed(() =>
 );
 
 const currentChannelId = computed(() => sessionStore.currentChannel?.id || "");
+const tableGroupOptions = computed(() =>
+  darenStore.currentFeishuStatusTableGroups.map((group) => ({
+    label: group.name,
+    value: group.id,
+  })),
+);
+const currentTableGroupId = computed(() => darenStore.currentPrimaryFeishuTableGroup?.id || "");
 const currentUserChannelLabel = computed(() => {
   const userLabel = authStore.currentUser?.label || authStore.currentUser?.id || "";
   const channelName = sessionStore.currentChannel?.name || "";
@@ -249,6 +256,10 @@ async function handleChannelChange(channelId: string) {
   }
 }
 
+function handleTableGroupChange(groupId: string) {
+  darenStore.setSelectedFeishuTableGroup(groupId);
+}
+
 onMounted(async () => {
   await sessionStore.loadSession();
   apiConfigStore.applySessionData(sessionStore.session);
@@ -292,6 +303,14 @@ onMounted(async () => {
           style="width: 180px"
           :loading="switchingChannel"
           @update:value="handleChannelChange"
+        />
+        <NSelect
+          v-if="authStore.isLoggedIn && tableGroupOptions.length > 1"
+          :value="currentTableGroupId"
+          :options="tableGroupOptions"
+          size="small"
+          style="width: 160px"
+          @update:value="handleTableGroupChange"
         />
         <NButton
           v-if="authStore.isLoggedIn"

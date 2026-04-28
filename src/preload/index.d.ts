@@ -55,6 +55,7 @@ interface DarenInfo {
   label: string;
   password?: string;
   feishuDramaStatusTableId?: string;
+  feishuTableGroups?: RuntimeFeishuTableGroup[];
   enableUpload?: boolean;
   enableDownload?: boolean;
   enableJuliang?: boolean;
@@ -99,6 +100,7 @@ interface RuntimeUserProfile {
     dramaListTableId: string;
     dramaStatusTableId: string;
     accountTableId: string;
+    tableGroups: RuntimeFeishuTableGroup[];
   };
   douyinMaterialMatches?: Array<{
     id: string;
@@ -114,6 +116,17 @@ interface RuntimeUserProfile {
     createdAt?: string;
     updatedAt?: string;
   }>;
+}
+
+interface RuntimeFeishuTableGroup {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  feishu?: {
+    dramaListTableId?: string;
+    dramaStatusTableId?: string;
+    accountTableId?: string;
+  };
 }
 
 interface SessionRuntimeData {
@@ -148,6 +161,7 @@ interface SessionRuntimeData {
     dramaListTableId: string;
     dramaStatusTableId: string;
     accountTableId: string;
+    tableGroups: RuntimeFeishuTableGroup[];
   };
   buildConfig: {
     secretKey: string;
@@ -893,7 +907,7 @@ interface Api {
   materialPreviewClearLogs: () => Promise<{ success: boolean }>;
 
   // 巨量调度器
-  juliangSchedulerStart: (darenId?: string) => Promise<JuliangSchedulerResult>;
+  juliangSchedulerStart: (darenId?: string, tableId?: string) => Promise<JuliangSchedulerResult>;
   juliangSchedulerStop: () => Promise<{ success: boolean }>;
   juliangSchedulerGetStatus: () => Promise<{
     status: "idle" | "running" | "stopped";
@@ -916,6 +930,7 @@ interface Api {
   juliangSchedulerClearLogs: () => Promise<{ success: boolean }>;
   juliangSchedulerFetchNow: (
     darenId?: string,
+    tableId?: string,
   ) => Promise<JuliangSchedulerFetchResult>;
   juliangSchedulerCancelAll: () => Promise<JuliangSchedulerResult>;
   juliangSchedulerGetCompletedTasks: () => Promise<JuliangCompletedTask[]>;

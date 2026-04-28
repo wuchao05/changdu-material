@@ -59,6 +59,12 @@ export interface InternalTask {
   updatedAt: Date;
 }
 
+interface StatusTableTarget {
+  id: string;
+  name: string;
+  tableId: string;
+}
+
 // 调度器配置
 export interface SchedulerConfig {
   fetchIntervalMinutes: number; // 查询间隔（分钟）
@@ -70,6 +76,7 @@ export class JuliangSchedulerService {
   private queue: InternalTask[] = [];
   private taskMap: Map<string, InternalTask> = new Map();
   private scopedDarenId: string | null = null;
+  private scopedTableId: string | null = null;
   private fetchTimer: NodeJS.Timeout | null = null;
   private isTaskProcessing = false;
   private isCancelled = false; // 取消标志
@@ -375,12 +382,16 @@ export class JuliangSchedulerService {
   /**
    * 启动调度器
    */
-  async start(darenId?: string): Promise<{ success: boolean; error?: string }> {
+  async start(
+    darenId?: string,
+    tableId?: string,
+  ): Promise<{ success: boolean; error?: string }> {
     if (this.status === "running") {
       return { success: false, error: "调度器已在运行中" };
     }
 
     this.scopedDarenId = darenId?.trim() || null;
+    this.scopedTableId = tableId?.trim() || null;
 
     // 重新加载配置，确保使用最新值
     this.loadConfig();
@@ -389,6 +400,9 @@ export class JuliangSchedulerService {
       this.log(`当前调度仅处理达人: ${this.scopedDarenId}`);
     } else {
       this.log("当前调度处理所有启用巨量上传的达人");
+    }
+    if (this.scopedTableId) {
+      this.log(`当前调度仅处理表格 ID: ${this.scopedTableId}`);
     }
 
     if (!this.config.localRootDir) {
@@ -445,6 +459,7 @@ export class JuliangSchedulerService {
 
     this.log("调度器已停止");
     this.scopedDarenId = null;
+    this.scopedTableId = null;
   }
 
   /**
@@ -452,6 +467,7 @@ export class JuliangSchedulerService {
    */
   async fetchNow(
     darenId?: string,
+    tableId?: string,
   ): Promise<{ success: boolean; count: number; error?: string }> {
     if (this.status !== "running") {
       return { success: false, count: 0, error: "调度器未运行" };
@@ -476,6 +492,7 @@ export class JuliangSchedulerService {
       }
 
       const requestDarenId = darenId?.trim() || null;
+      const requestTableId = tableId?.trim() || null;
       if (
         requestDarenId &&
         this.scopedDarenId &&
@@ -486,6 +503,20 @@ export class JuliangSchedulerService {
           count: 0,
           error: `当前调度已绑定达人 ${this.scopedDarenId}，请停止后重新启动`,
         };
+      }
+      if (
+        requestTableId &&
+        this.scopedTableId &&
+        requestTableId !== this.scopedTableId
+      ) {
+        return {
+          success: false,
+          count: 0,
+          error: `当前调度已绑定表格 ${this.scopedTableId}，请停止后重新启动`,
+        };
+      }
+      if (requestTableId && !this.scopedTableId) {
+        this.scopedTableId = requestTableId;
       }
 
       this.log("手动触发：立即查询飞书任务");
@@ -529,9 +560,9 @@ export class JuliangSchedulerService {
 
         // 从队列中移除被取消的任务
         this.queue = this.queue.filter(
-          (t) => t.recordId !== cancelledTask.recordId,
+          (t) => this.getTaskMapKey(t) !== this.getTaskMapKey(cancelledTask),
         );
-        this.taskMap.delete(cancelledTask.recordId);
+        this.taskMap.delete(this.getTaskMapKey(cancelledTask));
 
         this.log("当前上传任务已取消");
 
@@ -603,64 +634,71 @@ export class JuliangSchedulerService {
           `达人配置详情: ${JSON.stringify({ id: daren.id, label: daren.label, feishuDramaStatusTableId: daren.feishuDramaStatusTableId, changduConfigType: daren.changduConfigType })}`,
         );
 
-        if (!daren.feishuDramaStatusTableId) {
+        const tableTargets = this.getDarenStatusTableTargets(daren);
+        if (!tableTargets.length) {
           this.log(`达人 ${daren.label} 未配置飞书表格 ID，跳过`);
           continue;
         }
 
         this.log(
-          `达人 ${daren.label} 飞书表格 ID: ${daren.feishuDramaStatusTableId}`,
+          `达人 ${daren.label} 飞书表格 ID: ${tableTargets.map((target) => target.tableId).join(", ")}`,
         );
 
-        try {
-          // 查询所有待上传的剧
-          const result = await this.apiService.getPendingUploadDramas(
-            this.configService,
-            daren.feishuDramaStatusTableId,
-          );
-
-          this.log(
-            `达人 ${daren.label} 查询结果: code=${result.code}, items=${result.data?.items?.length || 0}`,
-          );
-
-          if (result.code !== 0) {
-            this.log(`达人 ${daren.label} 查询失败: ${result.msg}`);
-            continue;
-          }
-
-          if (!result.data?.items || result.data.items.length === 0) {
-            this.log(`达人 ${daren.label} 没有待上传的任务`);
-            continue;
-          }
-
-          // 先解析所有记录
-          const tasks: InternalTask[] = [];
-          for (const item of result.data.items) {
-            this.log(
-              `解析记录: ${item.record_id}, 剧名原始值=${JSON.stringify(item.fields["剧名"])}, 日期=${item.fields["日期"]}`,
+        for (const target of tableTargets) {
+          try {
+            // 查询所有待上传的剧
+            const result = await this.apiService.getPendingUploadDramas(
+              this.configService,
+              target.tableId,
             );
-            const task = this.parseFeishuRecord(item, daren);
-            if (task) {
-              tasks.push(task);
-            }
-          }
 
-          // 按优先级排序：正在处理/更早日期的任务优先
-          tasks.sort((a, b) => this.compareTaskPriority(a, b));
-          this.log(
-            `达人 ${daren.label} 共 ${tasks.length} 个任务（已按优先级排序）`,
-          );
+            this.log(
+              `达人 ${daren.label} 表格组「${target.name}」查询结果: code=${result.code}, items=${result.data?.items?.length || 0}`,
+            );
 
-          // 添加到队列
-          for (const task of tasks) {
-            if (this.addTask(task)) {
-              totalAdded++;
+            if (result.code !== 0) {
+              this.log(
+                `达人 ${daren.label} 表格组「${target.name}」查询失败: ${result.msg}`,
+              );
+              continue;
             }
+
+            if (!result.data?.items || result.data.items.length === 0) {
+              this.log(
+                `达人 ${daren.label} 表格组「${target.name}」没有待上传的任务`,
+              );
+              continue;
+            }
+
+            // 先解析所有记录
+            const tasks: InternalTask[] = [];
+            for (const item of result.data.items) {
+              this.log(
+                `解析记录: ${item.record_id}, 剧名原始值=${JSON.stringify(item.fields["剧名"])}, 日期=${item.fields["日期"]}`,
+              );
+              const task = this.parseFeishuRecord(item, daren, target.tableId);
+              if (task) {
+                tasks.push(task);
+              }
+            }
+
+            // 按优先级排序：正在处理/更早日期的任务优先
+            tasks.sort((a, b) => this.compareTaskPriority(a, b));
+            this.log(
+              `达人 ${daren.label} 表格组「${target.name}」共 ${tasks.length} 个任务（已按优先级排序）`,
+            );
+
+            // 添加到队列
+            for (const task of tasks) {
+              if (this.addTask(task)) {
+                totalAdded++;
+              }
+            }
+          } catch (error) {
+            this.log(
+              `达人 ${daren.label} 表格组「${target.name}」查询异常: ${error instanceof Error ? error.message : String(error)}`,
+            );
           }
-        } catch (error) {
-          this.log(
-            `达人 ${daren.label} 查询异常: ${error instanceof Error ? error.message : String(error)}`,
-          );
         }
       }
 
@@ -697,6 +735,36 @@ export class JuliangSchedulerService {
     return enabledDarens.filter((d) => d.id === this.scopedDarenId);
   }
 
+  private getDarenStatusTableTargets(daren: DarenInfo): StatusTableTarget[] {
+    const groups = Array.isArray(daren.feishuTableGroups)
+      ? daren.feishuTableGroups
+          .filter((group) => group.enabled !== false)
+          .map((group, index) => ({
+            id: String(group.id || (index === 0 ? "default" : `group-${index + 1}`)).trim(),
+            name: String(group.name || (index === 0 ? "默认表格" : `表格组 ${index + 1}`)).trim(),
+            tableId: String(group.feishu?.dramaStatusTableId || "").trim(),
+          }))
+          .filter((group) => group.tableId)
+      : [];
+
+    const scopedTableId = this.scopedTableId;
+    if (groups.length > 0) {
+      return scopedTableId
+        ? groups.filter((group) => group.tableId === scopedTableId)
+        : groups;
+    }
+
+    const tableId = String(daren.feishuDramaStatusTableId || "").trim();
+    if (!tableId || (scopedTableId && scopedTableId !== tableId)) {
+      return [];
+    }
+    return [{ id: "default", name: "默认表格", tableId }];
+  }
+
+  private getTaskMapKey(task: Pick<InternalTask, "recordId" | "tableId">): string {
+    return `${task.tableId || "default"}:${task.recordId}`;
+  }
+
   /**
    * 解析飞书字段值（飞书可能返回数组或对象格式）
    */
@@ -730,6 +798,7 @@ export class JuliangSchedulerService {
   private parseFeishuRecord(
     record: { record_id: string; fields: Record<string, unknown> },
     daren: DarenInfo,
+    tableId: string,
   ): InternalTask | null {
     try {
       const fields = record.fields;
@@ -782,7 +851,7 @@ export class JuliangSchedulerService {
         date: String(date),
         account,
         accountId: String(accountId), // 使用飞书表格中的账户字段
-        tableId: daren.feishuDramaStatusTableId || "",
+        tableId,
         status: "pending",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -799,7 +868,8 @@ export class JuliangSchedulerService {
    * 添加任务到队列
    */
   private addTask(task: InternalTask): boolean {
-    const existingTask = this.taskMap.get(task.recordId);
+    const taskKey = this.getTaskMapKey(task);
+    const existingTask = this.taskMap.get(taskKey);
 
     // 防止重复入队；如果本地是失败任务且飞书仍然是待上传，则恢复为待处理
     if (existingTask) {
@@ -824,7 +894,7 @@ export class JuliangSchedulerService {
 
     this.queue.push(task);
     this.queue = this.getPrioritizedTasks(this.queue);
-    this.taskMap.set(task.recordId, task);
+    this.taskMap.set(taskKey, task);
     this.log(`任务已入队: ${task.drama} (${task.date})`);
 
     return true;
@@ -838,7 +908,7 @@ export class JuliangSchedulerService {
 
     this.queue = this.queue.filter((task) => {
       if (task.status === "completed" || task.status === "skipped") {
-        this.taskMap.delete(task.recordId);
+        this.taskMap.delete(this.getTaskMapKey(task));
         return false;
       }
       return true;

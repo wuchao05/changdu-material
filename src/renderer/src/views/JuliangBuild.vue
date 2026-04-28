@@ -5,7 +5,7 @@ import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue';
 import { NButton, NCard, NDataTable, NEmpty, NSelect, NSpace, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import QueueRuleTooltip from '../components/QueueRuleTooltip.vue';
-import { useDarenStore, type DarenInfo } from '../stores/daren';
+import { useDarenStore } from '../stores/daren';
 import { useApiConfigStore } from '../stores/apiConfig';
 
 interface PendingDramaRecord {
@@ -78,8 +78,7 @@ const intervalOptions = [
   { label: '2 小时', value: 120 },
 ];
 
-const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
-const currentTableId = computed(() => currentDaren.value?.feishuDramaStatusTableId?.trim() || '');
+const currentTableId = computed(() => darenStore.currentPrimaryFeishuTableGroup?.tableId || '');
 const schedulerRunning = computed(() => schedulerStatus.value?.enabled === true);
 const hasRunningTask = computed(() => Boolean(schedulerStatus.value?.currentTask));
 const historyRows = computed<HistoryRow[]>(() =>
@@ -854,7 +853,7 @@ onUnmounted(() => {
           <NButton
             :bordered="false"
             type="primary"
-            :disabled="!selectedInterval || schedulerRunning"
+            :disabled="!selectedInterval || !currentTableId || schedulerRunning"
             :loading="startingScheduler"
             @click="handleStartScheduler"
           >

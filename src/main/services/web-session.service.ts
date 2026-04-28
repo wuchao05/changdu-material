@@ -23,6 +23,18 @@ export interface RuntimeFeishuConfig {
   dramaListTableId: string;
   dramaStatusTableId: string;
   accountTableId: string;
+  tableGroups: RuntimeFeishuTableGroup[];
+}
+
+export interface RuntimeFeishuTableGroup {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  feishu?: {
+    dramaListTableId?: string;
+    dramaStatusTableId?: string;
+    accountTableId?: string;
+  };
 }
 
 export interface RuntimeChannelSummary {
@@ -131,6 +143,32 @@ function normalizeDesktopMenus(menus?: Partial<DesktopMenus>): DesktopMenus {
   };
 }
 
+function normalizeFeishuTableGroups(groups?: unknown): RuntimeFeishuTableGroup[] {
+  if (!Array.isArray(groups)) {
+    return [];
+  }
+
+  return groups
+    .map((group, index) => {
+      const source = group as Partial<RuntimeFeishuTableGroup> | null;
+      if (!source || typeof source !== "object") {
+        return null;
+      }
+
+      return {
+        id: String(source.id || (index === 0 ? "default" : `group-${index + 1}`)).trim(),
+        name: String(source.name || (index === 0 ? "默认表格" : `表格组 ${index + 1}`)).trim(),
+        enabled: source.enabled !== false,
+        feishu: {
+          dramaListTableId: String(source.feishu?.dramaListTableId || "").trim(),
+          dramaStatusTableId: String(source.feishu?.dramaStatusTableId || "").trim(),
+          accountTableId: String(source.feishu?.accountTableId || "").trim(),
+        },
+      };
+    })
+    .filter((group): group is RuntimeFeishuTableGroup => Boolean(group));
+}
+
 function normalizeRuntimeUser(
   user?: Partial<RuntimeUserProfile> | null,
 ): RuntimeUserProfile | null {
@@ -156,6 +194,7 @@ function normalizeRuntimeUser(
       dramaListTableId: String(user.feishu?.dramaListTableId || "").trim(),
       dramaStatusTableId: String(user.feishu?.dramaStatusTableId || "").trim(),
       accountTableId: String(user.feishu?.accountTableId || "").trim(),
+      tableGroups: normalizeFeishuTableGroups(user.feishu?.tableGroups),
     },
     douyinMaterialMatches: Array.isArray(user.douyinMaterialMatches)
       ? user.douyinMaterialMatches.map((item) => ({
@@ -234,6 +273,7 @@ function normalizeSessionRuntimeData(
       dramaListTableId: String(data.feishu?.dramaListTableId || "").trim(),
       dramaStatusTableId: String(data.feishu?.dramaStatusTableId || "").trim(),
       accountTableId: String(data.feishu?.accountTableId || "").trim(),
+      tableGroups: normalizeFeishuTableGroups(data.feishu?.tableGroups),
     },
     buildConfig: {
       secretKey: String(data.buildConfig?.secretKey || "").trim(),

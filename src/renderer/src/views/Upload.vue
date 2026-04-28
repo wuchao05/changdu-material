@@ -50,6 +50,12 @@ interface FeishuDramaMapping {
   accountId?: string;
 }
 
+interface PendingUploadRecord {
+  fields: Record<string, unknown>;
+  record_id?: string;
+  _tableId: string;
+}
+
 interface VideoMaterial {
   fileName: string;
   filePath: string;
@@ -236,43 +242,42 @@ async function scanFromFeishu() {
   dramaPendingPushSet.value = new Set();
 
   try {
-    // 1. 获取当前达人的状态表 ID
-    const currentDaren = darenStore.currentDaren;
-    const tableId = currentDaren?.feishuDramaStatusTableId?.trim();
-    if (!tableId) {
+    // 1. 获取全局选中的状态表格组
+    const tableGroup = darenStore.currentPrimaryFeishuTableGroup;
+    if (!tableGroup?.tableId) {
       message.warning("当前达人未配置飞书剧集状态表 ID");
       return;
     }
 
     // 2. 查询飞书待上传剧集
-    const response = await window.api.feishuGetPendingUpload(tableId);
+    const response = await window.api.feishuGetPendingUpload(tableGroup.tableId);
+    const pendingItems: PendingUploadRecord[] = (response.data?.items || []).map(
+      (item: { fields: Record<string, unknown>; record_id?: string }) => ({
+        ...item,
+        _tableId: tableGroup.tableId,
+      }),
+    );
 
-    if (
-      !response.data ||
-      !response.data.items ||
-      !response.data.items.length === 0
-    ) {
+    if (!pendingItems.length) {
       message.info("飞书表中暂无待上传的剧集");
       return;
     }
 
     // 3. 提取剧名列表 + 缓存 record_id（后续用于更新状态）
     const pendingDramas = new Set<string>();
-    response.data.items.forEach(
-      (item: { fields: Record<string, unknown>; record_id?: string }) => {
-        const dramaName = extractTextFromField(item.fields["剧名"]);
-        if (dramaName) {
-          pendingDramas.add(dramaName);
-          if (item.record_id && tableId) {
-            feishuRecordMap.value[dramaName] = {
-              recordId: item.record_id,
-              tableId,
-              accountId: extractTextFromField(item.fields["账户"]),
-            };
-          }
+    pendingItems.forEach((item) => {
+      const dramaName = extractTextFromField(item.fields["剧名"]);
+      if (dramaName) {
+        pendingDramas.add(dramaName);
+        if (item.record_id && item._tableId) {
+          feishuRecordMap.value[dramaName] = {
+            recordId: item.record_id,
+            tableId: item._tableId,
+            accountId: extractTextFromField(item.fields["账户"]),
+          };
         }
-      },
-    );
+      }
+    });
 
     if (pendingDramas.size === 0) {
       message.info("未找到有效的剧名");
@@ -339,9 +344,7 @@ async function updateFeishuDramaStatus(
 
     const appToken = apiConfigStore.config.feishuAppToken;
     let mapping = feishuRecordMap.value[dramaName];
-    const tableId =
-      mapping?.tableId ||
-      darenStore.currentDaren?.feishuDramaStatusTableId?.trim();
+    const tableId = mapping?.tableId || darenStore.currentPrimaryFeishuTableGroup?.tableId;
     let recordId = mapping?.recordId;
 
     // 如果没有缓存 recordId，实时查询飞书获取
@@ -892,23 +895,24 @@ async function runAutoUploadCycle(): Promise<boolean> {
   lastAutoUploadTime.value = now.toLocaleTimeString();
 
   try {
-    // 获取当前达人的状态表 ID
-    const currentDaren = darenStore.currentDaren;
-    const tableId = currentDaren?.feishuDramaStatusTableId?.trim();
-    if (!tableId) {
+    // 获取全局选中的状态表格组
+    const tableGroup = darenStore.currentPrimaryFeishuTableGroup;
+    if (!tableGroup?.tableId) {
       console.warn("[AutoUpload] 当前达人未配置飞书剧集状态表 ID");
       return false;
     }
 
     // 查询所有待上传剧集（不按日期过滤）
     console.log("[AutoUpload] 查询所有待上传剧集...");
-    const response = await window.api.feishuGetPendingUpload(tableId);
+    const response = await window.api.feishuGetPendingUpload(tableGroup.tableId);
+    const pendingItems: PendingUploadRecord[] = (response.data?.items || []).map(
+      (item: { fields: Record<string, unknown>; record_id?: string }) => ({
+        ...item,
+        _tableId: tableGroup.tableId,
+      }),
+    );
 
-    if (
-      !response.data ||
-      !response.data.items ||
-      response.data.items.length === 0
-    ) {
+    if (pendingItems.length === 0) {
       console.log("[AutoUpload] 无待上传剧集");
       return false;
     }
@@ -917,21 +921,19 @@ async function runAutoUploadCycle(): Promise<boolean> {
     const pendingDramas = new Set<string>();
     const newFeishuRecordMap: Record<string, FeishuDramaMapping> = {};
 
-    response.data.items.forEach(
-      (item: { fields: Record<string, unknown>; record_id?: string }) => {
-        const dramaName = extractTextFromField(item.fields["剧名"]);
-        if (dramaName) {
-          pendingDramas.add(dramaName);
-          if (item.record_id && tableId) {
-            newFeishuRecordMap[dramaName] = {
-              recordId: item.record_id,
-              tableId,
-              accountId: extractTextFromField(item.fields["账户"]),
-            };
-          }
+    pendingItems.forEach((item) => {
+      const dramaName = extractTextFromField(item.fields["剧名"]);
+      if (dramaName) {
+        pendingDramas.add(dramaName);
+        if (item.record_id && item._tableId) {
+          newFeishuRecordMap[dramaName] = {
+            recordId: item.record_id,
+            tableId: item._tableId,
+            accountId: extractTextFromField(item.fields["账户"]),
+          };
         }
-      },
-    );
+      }
+    });
 
     if (pendingDramas.size === 0) {
       console.log("[AutoUpload] 未找到有效剧名");

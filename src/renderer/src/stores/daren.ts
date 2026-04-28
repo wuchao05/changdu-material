@@ -56,6 +56,7 @@ export interface DarenInfo {
   id: string;
   label: string;
   feishuDramaStatusTableId?: string;
+  feishuTableGroups?: RuntimeFeishuTableGroup[];
   enableUpload?: boolean;
   enableDownload?: boolean;
   enableJuliang?: boolean;
@@ -63,6 +64,13 @@ export interface DarenInfo {
   enableUploadBuild?: boolean;
   enableMaterialClip?: boolean;
   uploadBuildSettings?: UploadBuildSettings;
+}
+
+export interface FeishuStatusTableGroup {
+  id: string;
+  name: string;
+  tableId: string;
+  accountTableId: string;
 }
 
 function createDefaultBuildSettings(nickname = "小鱼"): UploadBuildSettings {
@@ -158,6 +166,27 @@ function buildSettingsStorageKey(userId: string, channelId: string) {
   return `upload-build-settings:${userId}:${channelId}`;
 }
 
+function tableGroupSelectionStorageKey(userId: string, channelId: string) {
+  return `feishu-table-group:${userId}:${channelId}`;
+}
+
+function normalizeStatusTableGroup(
+  group: RuntimeFeishuTableGroup,
+  index: number,
+): FeishuStatusTableGroup | null {
+  const tableId = String(group.feishu?.dramaStatusTableId || "").trim();
+  if (!tableId || group.enabled === false) {
+    return null;
+  }
+
+  return {
+    id: String(group.id || (index === 0 ? "default" : `group-${index + 1}`)).trim(),
+    name: String(group.name || (index === 0 ? "默认表格" : `表格组 ${index + 1}`)).trim(),
+    tableId,
+    accountTableId: String(group.feishu?.accountTableId || "").trim(),
+  };
+}
+
 export const useDarenStore = defineStore("daren", () => {
   const sessionStore = useSessionStore();
   const apiConfigStore = useApiConfigStore();
@@ -168,6 +197,7 @@ export const useDarenStore = defineStore("daren", () => {
   const buildSettings = ref<UploadBuildSettings | null>(null);
   const darenList = ref<DarenInfo[]>([]);
   const selectedDarenId = ref<string | null>(null);
+  const selectedFeishuTableGroupId = ref("");
 
   const currentDaren = computed<DarenInfo | null>(() => {
     const runtimeUser = currentRuntimeUser.value;
@@ -179,6 +209,7 @@ export const useDarenStore = defineStore("daren", () => {
       id: runtimeUser.id,
       label: runtimeUser.nickname || runtimeUser.account || runtimeUser.id,
       feishuDramaStatusTableId: apiConfigStore.config.dramaStatusTableId,
+      feishuTableGroups: apiConfigStore.config.feishuTableGroups,
       enableUpload: desktopMenus.value.upload,
       enableDownload: desktopMenus.value.download,
       enableJuliang: desktopMenus.value.juliangUpload,
@@ -195,6 +226,42 @@ export const useDarenStore = defineStore("daren", () => {
   const canUploadBuild = computed(() => desktopMenus.value.uploadBuild);
   const canJuliangBuild = computed(() => desktopMenus.value.juliangBuild);
   const canMaterialClip = computed(() => desktopMenus.value.materialClip);
+  const currentFeishuStatusTableGroups = computed<FeishuStatusTableGroup[]>(() => {
+    const groups = Array.isArray(currentDaren.value?.feishuTableGroups)
+      ? currentDaren.value.feishuTableGroups
+          .map(normalizeStatusTableGroup)
+          .filter((group): group is FeishuStatusTableGroup => Boolean(group))
+      : [];
+
+    if (groups.length > 0) {
+      return groups;
+    }
+
+    const tableId = currentDaren.value?.feishuDramaStatusTableId?.trim() || "";
+    return tableId
+      ? [
+          {
+            id: "default",
+            name: "默认表格",
+            tableId,
+            accountTableId: apiConfigStore.config.accountTableId,
+          },
+        ]
+      : [];
+  });
+  const currentPrimaryFeishuTableGroup = computed(() => {
+    const groups = currentFeishuStatusTableGroups.value;
+    return (
+      groups.find((group) => group.id === selectedFeishuTableGroupId.value) ||
+      groups[0] ||
+      null
+    );
+  });
+  const currentFeishuAccountTableId = computed(
+    () =>
+      currentPrimaryFeishuTableGroup.value?.accountTableId ||
+      apiConfigStore.config.accountTableId,
+  );
 
   function loadBuildSettingsFromStorage() {
     const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";
@@ -224,6 +291,38 @@ export const useDarenStore = defineStore("daren", () => {
     } catch (error) {
       console.warn("加载上传搭建本地配置失败:", error);
       buildSettings.value = normalizeBuildSettings(undefined, nickname);
+    }
+  }
+
+  function syncSelectedFeishuTableGroupFromStorage() {
+    const groups = currentFeishuStatusTableGroups.value;
+    if (!groups.length) {
+      selectedFeishuTableGroupId.value = "";
+      return;
+    }
+
+    const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";
+    const channelId = currentChannel.value?.id || "";
+    const savedId =
+      userId && channelId
+        ? localStorage.getItem(tableGroupSelectionStorageKey(userId, channelId)) || ""
+        : "";
+    const nextId = groups.some((group) => group.id === savedId) ? savedId : groups[0].id;
+    selectedFeishuTableGroupId.value = nextId;
+  }
+
+  function setSelectedFeishuTableGroup(id: string) {
+    const groups = currentFeishuStatusTableGroups.value;
+    const nextGroup = groups.find((group) => group.id === id) || groups[0] || null;
+    selectedFeishuTableGroupId.value = nextGroup?.id || "";
+
+    const userId = currentRuntimeUser.value?.id || currentUser.value?.id || "";
+    const channelId = currentChannel.value?.id || "";
+    if (userId && channelId && selectedFeishuTableGroupId.value) {
+      localStorage.setItem(
+        tableGroupSelectionStorageKey(userId, channelId),
+        selectedFeishuTableGroupId.value,
+      );
     }
   }
 
@@ -263,6 +362,7 @@ export const useDarenStore = defineStore("daren", () => {
       loadBuildSettingsFromStorage();
       darenList.value = currentDaren.value ? [currentDaren.value] : [];
       selectedDarenId.value = currentDaren.value?.id || null;
+      syncSelectedFeishuTableGroupFromStorage();
     } finally {
       loading.value = false;
     }
@@ -304,6 +404,11 @@ export const useDarenStore = defineStore("daren", () => {
     canJuliangBuild,
     canUploadBuild,
     canMaterialClip,
+    currentFeishuStatusTableGroups,
+    currentPrimaryFeishuTableGroup,
+    currentFeishuAccountTableId,
+    selectedFeishuTableGroupId,
+    setSelectedFeishuTableGroup,
     loadFromServer,
     updateDaren,
     setSelectedDaren,

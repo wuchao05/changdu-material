@@ -66,6 +66,9 @@ const currentSchedulerDarenId = computed(() => {
   }
   return darenStore.currentDaren?.id || authStore.currentUser?.id;
 });
+const currentSchedulerTableId = computed(
+  () => darenStore.currentPrimaryFeishuTableGroup?.tableId || "",
+);
 
 // 配置
 const config = ref({
@@ -293,6 +296,7 @@ async function startScheduler() {
 
     const result = await window.api.juliangSchedulerStart(
       currentSchedulerDarenId.value,
+      currentSchedulerTableId.value,
     );
     if (result.success) {
       schedulerStatus.value = "running";
@@ -321,6 +325,7 @@ async function fetchNow() {
   try {
     const result = await window.api.juliangSchedulerFetchNow(
       currentSchedulerDarenId.value,
+      currentSchedulerTableId.value,
     );
     if (result.success) {
       message.success(`查询完成，发现 ${result.count} 个任务`);

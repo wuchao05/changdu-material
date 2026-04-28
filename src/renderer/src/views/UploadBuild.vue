@@ -305,6 +305,9 @@ const activeBuildRow = computed(
   () => rows.value.find((row) => row.buildStatus === "building") || null,
 );
 const currentDaren = computed<DarenInfo | null>(() => darenStore.currentDaren);
+const currentFeishuAccountTableId = computed(
+  () => darenStore.currentFeishuAccountTableId,
+);
 const currentRemoteDarenName = computed(
   () =>
     String(
@@ -1005,7 +1008,7 @@ function getExecutionRowsValidationError(): string {
 
 async function queryChannelFeishuAccounts(): Promise<FeishuAccountRecord[]> {
   const appToken = apiConfigStore.config.feishuAppToken.trim();
-  const tableId = apiConfigStore.config.accountTableId.trim();
+  const tableId = currentFeishuAccountTableId.value.trim();
   if (!appToken || !tableId) {
     throw new Error("当前渠道未配置飞书账户表");
   }
@@ -1034,7 +1037,7 @@ async function queryChannelFeishuAccounts(): Promise<FeishuAccountRecord[]> {
 
 async function updateFeishuAccountUsedStatus(recordId: string, used: boolean) {
   const appToken = apiConfigStore.config.feishuAppToken.trim();
-  const tableId = apiConfigStore.config.accountTableId.trim();
+  const tableId = currentFeishuAccountTableId.value.trim();
   if (!appToken || !tableId) {
     throw new Error("当前渠道未配置飞书账户表");
   }
@@ -1058,7 +1061,7 @@ async function resetAllChannelFeishuAccountsUnused(
   records: FeishuAccountRecord[],
 ) {
   const appToken = apiConfigStore.config.feishuAppToken.trim();
-  const tableId = apiConfigStore.config.accountTableId.trim();
+  const tableId = currentFeishuAccountTableId.value.trim();
   if (!appToken || !tableId) {
     throw new Error("当前渠道未配置飞书账户表");
   }
@@ -2179,7 +2182,7 @@ async function handlePullAccountsFromFeishu() {
     return;
   }
 
-  const accountTableId = apiConfigStore.config.accountTableId.trim();
+  const accountTableId = currentFeishuAccountTableId.value.trim();
   if (!accountTableId) {
     message.warning("当前渠道未配置飞书账户表 table_id");
     return;
@@ -2281,7 +2284,7 @@ async function handleSaveUploadList() {
     return;
   }
 
-  const accountTableId = apiConfigStore.config.accountTableId.trim();
+  const accountTableId = currentFeishuAccountTableId.value.trim();
   if (!accountTableId) {
     message.warning("当前渠道未配置飞书账户表 table_id");
     return;
