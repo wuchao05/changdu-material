@@ -4,7 +4,7 @@
  */
 
 import { app, BrowserWindow } from "electron";
-import { join } from "path";
+import { extname, join } from "path";
 import * as fs from "fs";
 import { juliangService, JuliangTask } from "./juliang.service";
 import { ApiService } from "./api.service";
@@ -191,6 +191,7 @@ export class JuliangSchedulerService {
    * 更新配置
    */
   updateConfig(config: Partial<SchedulerConfig>) {
+    const shouldRestartFetchTimer = this.fetchTimer !== null;
     const nextConfig: SchedulerConfig = {
       fetchIntervalMinutes:
         typeof config.fetchIntervalMinutes === "number"
@@ -210,6 +211,11 @@ export class JuliangSchedulerService {
     }
     this.config = nextConfig;
     this.saveConfig();
+
+    if (shouldRestartFetchTimer && this.status === "running") {
+      this.stopScheduledFetching();
+      this.startScheduledFetching();
+    }
   }
 
   /**
@@ -833,24 +839,29 @@ export class JuliangSchedulerService {
       const accountId = this.parseFieldValue(fields["账户"]);
 
       const account = daren.id; // 使用达人 ID 作为账户标识
+      const normalizedDrama = drama ? String(drama).trim() : "";
+      const normalizedDate = date ? String(date).trim() : "";
+      const normalizedAccountId = accountId ? String(accountId).trim() : "";
 
-      if (!drama || !date) {
+      if (!normalizedDrama || !normalizedDate) {
         this.log(`记录 ${record.record_id} 缺少剧名或日期，跳过`);
         return null;
       }
 
-      if (!accountId) {
-        this.log(`记录 ${record.record_id} (${drama}) 缺少账户字段，跳过`);
+      if (!normalizedAccountId) {
+        this.log(
+          `记录 ${record.record_id} (${normalizedDrama}) 缺少账户字段，跳过`,
+        );
         return null;
       }
 
       return {
         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         recordId: record.record_id,
-        drama: String(drama),
-        date: String(date),
+        drama: normalizedDrama,
+        date: normalizedDate,
         account,
-        accountId: String(accountId), // 使用飞书表格中的账户字段
+        accountId: normalizedAccountId, // 使用飞书表格中的账户字段
         tableId,
         status: "pending",
         createdAt: new Date(),
@@ -1115,6 +1126,80 @@ export class JuliangSchedulerService {
     return Number.isNaN(parsed) ? null : parsed;
   }
 
+  private async findDramaVideoFiles(dramaPath: string): Promise<string[]> {
+    const maxAttempts = 3;
+    let lastError: string | null = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const { files, error } = this.collectDramaVideoFiles(dramaPath);
+      if (files.length > 0) {
+        return files;
+      }
+      lastError = error || null;
+
+      if (attempt < maxAttempts) {
+        const reason = error ? `扫描失败: ${error}` : "未找到视频文件";
+        this.log(
+          `${reason}，第${attempt}/${maxAttempts}次检查，1秒后重试: ${dramaPath}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+
+    if (lastError) {
+      throw new Error(`扫描剧集目录失败: ${lastError}`);
+    }
+
+    return [];
+  }
+
+  private collectDramaVideoFiles(dramaPath: string): {
+    files: string[];
+    error?: string;
+  } {
+    try {
+      if (!fs.existsSync(dramaPath)) {
+        return { files: [] };
+      }
+
+      const stats = fs.statSync(dramaPath);
+      if (!stats.isDirectory()) {
+        return { files: [] };
+      }
+
+      const files = fs
+        .readdirSync(dramaPath, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && this.isVideoFile(entry.name))
+        .map((entry) => join(dramaPath, entry.name))
+        .sort((left, right) =>
+          left.localeCompare(right, "zh-Hans-CN", {
+            numeric: true,
+            sensitivity: "base",
+          }),
+        );
+
+      return { files };
+    } catch (error) {
+      return {
+        files: [],
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private isVideoFile(fileName: string): boolean {
+    return [
+      ".mp4",
+      ".avi",
+      ".mov",
+      ".mkv",
+      ".wmv",
+      ".flv",
+      ".webm",
+      ".m4v",
+    ].includes(extname(fileName).toLowerCase());
+  }
+
   /**
    * 处理单个任务
    * @returns 是否被跳过（true = 跳过，false = 正常完成或失败）
@@ -1158,15 +1243,12 @@ export class JuliangSchedulerService {
 
       // 2. 扫描本地目录
       const dateDir = this.formatDateDir(task.date);
-      const basePath = `${this.config.localRootDir}/${dateDir}`;
-      const dramaPath = `${basePath}/${task.drama}`;
+      const basePath = join(this.config.localRootDir, dateDir);
+      const dramaPath = join(basePath, task.drama);
 
       this.log(`扫描本地目录: ${dramaPath}`);
 
-      const materials = await this.fileService.scanVideos(basePath);
-      const dramaFiles = materials
-        .filter((m) => m.dramaName === task.drama)
-        .map((m) => m.filePath);
+      const dramaFiles = await this.findDramaVideoFiles(dramaPath);
 
       if (dramaFiles.length === 0) {
         task.status = "skipped";

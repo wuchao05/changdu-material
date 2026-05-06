@@ -266,6 +266,10 @@ function registerIpcHandlers(): void {
     return await materialClipService.getConfig(config);
   });
 
+  ipcMain.handle("clip:saveConfig", async (_event, config) => {
+    return await materialClipService.saveConfig(config);
+  });
+
   ipcMain.handle("clip:getEnvironmentStatus", async () => {
     if (mainWindow) {
       materialClipService.setMainWindow(mainWindow);

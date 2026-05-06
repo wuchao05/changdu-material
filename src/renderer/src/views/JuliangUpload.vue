@@ -584,6 +584,26 @@ function getCompletedTaskReason(task: {
   return task.error;
 }
 
+function getCompletedTaskTooltip(task: {
+  fileCount: number;
+  status: "completed" | "failed" | "skipped";
+  error?: string;
+}) {
+  if (task.status === "completed" && task.error) {
+    const match = task.error.match(/成功\s*(\d+)\s*\/\s*(\d+)/);
+    const successCount = match ? Number(match[1]) : 0;
+    const totalFiles = match ? Number(match[2]) : task.fileCount;
+    const failedCount = Math.max(0, totalFiles - successCount);
+    return `上传结果：${successCount}个成功，${failedCount}个失败`;
+  }
+
+  if (task.status === "failed") {
+    return getCompletedTaskReason(task);
+  }
+
+  return "";
+}
+
 const hasActiveUploadTask = computed(() => {
   if (!currentTask.value) {
     return false;
@@ -986,7 +1006,10 @@ onUnmounted(() => {
                   <td>{{ task.date }}</td>
                   <td>{{ task.fileCount }}</td>
                   <td class="completed-result-cell">
-                    <NTooltip v-if="task.remark" trigger="hover">
+                    <NTooltip
+                      v-if="getCompletedTaskTooltip(task)"
+                      trigger="hover"
+                    >
                       <template #trigger>
                         <NTag
                           :type="getCompletedTaskResultType(task)"
@@ -995,7 +1018,7 @@ onUnmounted(() => {
                           {{ getCompletedTaskResultText(task) }}
                         </NTag>
                       </template>
-                      {{ task.remark }}
+                      {{ getCompletedTaskTooltip(task) }}
                     </NTooltip>
                     <NTag
                       v-else
@@ -1018,14 +1041,29 @@ onUnmounted(() => {
     <NCard class="quick-card" title="快捷配置">
       <div class="config-groups">
         <div class="config-group-row">
-          <div class="config-group half">
-            <div class="group-header">
-              <div class="group-title">素材目录</div>
-              <div class="group-desc">设置本地素材导出的根目录</div>
-            </div>
-            <div class="compact-grid">
-              <div class="compact-field compact-field-wide">
-                <div class="compact-label">素材根目录</div>
+            <div class="config-group half">
+              <div class="group-header">
+                <div class="group-title">素材目录</div>
+                <div class="group-desc">设置本地素材导出的根目录与轮询间隔</div>
+              </div>
+              <div class="compact-grid">
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">轮询间隔(分钟)</div>
+                  <div class="compact-control">
+                    <NInputNumber
+                      v-model:value="schedulerConfig.fetchIntervalMinutes"
+                      :min="1"
+                      :step="1"
+                      style="width: 160px"
+                      @update:value="saveSchedulerConfig"
+                    />
+                  </div>
+                  <div class="config-hint">
+                    没有待上传任务时，按该间隔重新查询飞书
+                  </div>
+                </div>
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">素材根目录</div>
                 <div class="compact-control compact-control-inline">
                   <NInput
                     v-model:value="schedulerConfig.localRootDir"

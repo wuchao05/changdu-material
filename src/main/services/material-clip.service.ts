@@ -355,6 +355,7 @@ function deepMerge<T>(base: T, override: unknown): T {
 
 export class MaterialClipService {
   private runtimeRunConfigPath: string;
+  private persistentConfigPath: string;
   private runtimeStatePath: string;
   private managedRuntimeRootDir: string;
   private logs: MaterialClipLogEntry[] = [];
@@ -386,6 +387,10 @@ export class MaterialClipService {
     this.runtimeRunConfigPath = path.join(
       userDataPath,
       "material-clip-run-config.json",
+    );
+    this.persistentConfigPath = path.join(
+      userDataPath,
+      "material-clip-config.json",
     );
     this.runtimeStatePath = path.join(
       userDataPath,
@@ -641,6 +646,28 @@ export class MaterialClipService {
         ? await this.createDefaultConfig()
         : await this.prepareConfigInput(configOverride);
     return this.applyApiConfig(config);
+  }
+
+  async saveConfig(
+    configOverride?: unknown,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const config =
+        configOverride === undefined
+          ? await this.createDefaultConfig()
+          : await this.prepareConfigInput(configOverride);
+      await fsp.writeFile(
+        this.persistentConfigPath,
+        JSON.stringify(config, null, 2),
+        "utf-8",
+      );
+      this.log(`素材剪辑配置已保存：${this.persistentConfigPath}`);
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log(`素材剪辑配置保存失败：${message}`);
+      return { success: false, error: message };
+    }
   }
 
   getLogs(): MaterialClipLogEntry[] {
@@ -1154,11 +1181,12 @@ export class MaterialClipService {
       await this.resolveDefaultMaterialCode(),
     );
     const yamlConfig = await this.loadDefaultConfigFromYaml();
-    if (!yamlConfig) {
-      return fallbackConfig;
-    }
+    const localConfig = await this.loadPersistentConfig();
+    const baseConfig = yamlConfig
+      ? deepMerge(fallbackConfig, yamlConfig)
+      : fallbackConfig;
+    const mergedConfig = localConfig ? deepMerge(baseConfig, localConfig) : baseConfig;
 
-    const mergedConfig = deepMerge(fallbackConfig, yamlConfig);
     mergedConfig.material_code =
       typeof mergedConfig.material_code === "string" &&
       mergedConfig.material_code.trim()
@@ -1166,6 +1194,21 @@ export class MaterialClipService {
         : fallbackConfig.material_code;
     mergedConfig.enable_feishu_features = true;
     return this.normalizeMaterialClipConfig(mergedConfig);
+  }
+
+  private async loadPersistentConfig(): Promise<unknown | null> {
+    if (!fs.existsSync(this.persistentConfigPath)) {
+      return null;
+    }
+
+    try {
+      const content = await fsp.readFile(this.persistentConfigPath, "utf-8");
+      const parsed = JSON.parse(content) as unknown;
+      return isPlainObject(parsed) ? parsed : null;
+    } catch (error) {
+      console.error("[MaterialClip] 读取本地配置失败:", error);
+      return null;
+    }
   }
 
   private async resolveDefaultMaterialCode(): Promise<string> {

@@ -13,6 +13,7 @@ import {
   NGrid,
   NGridItem,
   NInput,
+  NInputNumber,
   NSelect,
   NSpace,
   NSwitch,
@@ -728,6 +729,10 @@ const prettyConfig = computed(() => configEditorText.value.trim());
 const currentClipTableId = computed(
   () => darenStore.currentPrimaryFeishuTableGroup?.tableId || "",
 );
+const clipPollIntervalMinutes = computed(() => {
+  const seconds = config.value?.feishu_watcher.poll_interval || 1200;
+  return Math.max(1, Math.round(seconds / 60));
+});
 
 function applyClipFixedFields(draft: MaterialClipConfig): MaterialClipConfig {
   const next = JSON.parse(JSON.stringify(draft)) as MaterialClipConfig;
@@ -840,6 +845,33 @@ function updateAudioBitrate(value: string) {
   updateConfig((draft) => {
     draft.audio.bitrate = formatBitrateValue(value);
   });
+}
+
+async function saveMaterialClipConfig(showSuccess = false) {
+  if (!config.value) {
+    return;
+  }
+
+  const configToSave = applyClipFixedFields(
+    JSON.parse(JSON.stringify(config.value)) as MaterialClipConfig,
+  );
+  const result = await window.api.saveClipConfig(configToSave);
+  if (!result.success) {
+    message.error(result.error || "保存素材剪辑配置失败");
+    return;
+  }
+
+  if (showSuccess) {
+    message.success("素材剪辑配置已保存");
+  }
+}
+
+async function updateClipPollIntervalMinutes(value: number | null) {
+  const minutes = Math.max(1, Math.floor(Number(value || 1)));
+  updateConfig((draft) => {
+    draft.feishu_watcher.poll_interval = minutes * 60;
+  });
+  await saveMaterialClipConfig();
 }
 
 async function loadConfig() {
@@ -1646,8 +1678,20 @@ onUnmounted(() => {
                       placeholder="选择本地源视频目录"
                     />
                     <NButton @click="selectDirectory('default_source_dir')"
-                      >选择</NButton
+                    >选择</NButton
                     >
+                  </div>
+                </div>
+                <div class="compact-field compact-field-wide">
+                  <div class="compact-label">轮询间隔(分钟)</div>
+                  <div class="compact-control">
+                    <NInputNumber
+                      :value="clipPollIntervalMinutes"
+                      :min="1"
+                      :step="1"
+                      style="width: 160px"
+                      @update:value="updateClipPollIntervalMinutes"
+                    />
                   </div>
                 </div>
                 <div class="compact-field compact-field-wide">

@@ -628,6 +628,9 @@ interface Api {
   }>;
   pushRemoteConfig: () => Promise<{ success: boolean; error?: string }>;
   getClipConfig: (config?: unknown) => Promise<MaterialClipConfig>;
+  saveClipConfig: (
+    config: unknown,
+  ) => Promise<{ success: boolean; error?: string }>;
   getClipEnvironmentStatus: () => Promise<MaterialClipEnvironmentStatus>;
   installClipEnvironment: () => Promise<MaterialClipInstallResult>;
   importClipRuntime: () => Promise<MaterialClipRuntimeImportResult>;

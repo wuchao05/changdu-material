@@ -181,6 +181,8 @@ const api = {
 
   getClipConfig: (config?: unknown) =>
     ipcRenderer.invoke("clip:getConfig", config),
+  saveClipConfig: (config: unknown) =>
+    ipcRenderer.invoke("clip:saveConfig", config),
   getClipEnvironmentStatus: (): Promise<MaterialClipEnvironmentStatus> =>
     ipcRenderer.invoke("clip:getEnvironmentStatus"),
   installClipEnvironment: (): Promise<MaterialClipInstallResult> =>

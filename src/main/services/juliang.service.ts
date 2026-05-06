@@ -175,6 +175,7 @@ export class JuliangService {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private config: JuliangConfig = DEFAULT_CONFIG;
+  private configLoaded = false;
   private isInitialized = false;
   private mainWindow: BrowserWindow | null = null;
   private progressCallback: ((progress: JuliangUploadProgress) => void) | null =
@@ -244,6 +245,115 @@ export class JuliangService {
    */
   private getUserDataDir(): string {
     return join(app.getPath("userData"), "juliang-browser-data");
+  }
+
+  private getConfigFilePath(): string {
+    return join(app.getPath("userData"), "juliang-config.json");
+  }
+
+  private ensureConfigLoaded(): void {
+    if (this.configLoaded) {
+      return;
+    }
+
+    this.loadConfig();
+    this.configLoaded = true;
+  }
+
+  private loadConfig(): void {
+    try {
+      const configFilePath = this.getConfigFilePath();
+      if (!fs.existsSync(configFilePath)) {
+        return;
+      }
+
+      const data = fs.readFileSync(configFilePath, "utf-8");
+      const savedConfig = JSON.parse(data) as Partial<JuliangConfig>;
+      this.config = this.normalizeConfig(savedConfig);
+      console.log(`[Juliang] 已加载配置: ${configFilePath}`);
+    } catch (error) {
+      console.error("[Juliang] 加载配置失败:", error);
+    }
+  }
+
+  private saveConfig(): void {
+    try {
+      const configFilePath = this.getConfigFilePath();
+      fs.writeFileSync(
+        configFilePath,
+        JSON.stringify(this.config, null, 2),
+        "utf-8",
+      );
+      console.log(`[Juliang] 配置已保存: ${configFilePath}`);
+    } catch (error) {
+      console.error("[Juliang] 保存配置失败:", error);
+    }
+  }
+
+  private normalizeConfig(config: Partial<JuliangConfig>): JuliangConfig {
+    const nextConfig: JuliangConfig = {
+      ...this.config,
+      ...config,
+      selectors: {
+        ...DEFAULT_CONFIG.selectors,
+        ...this.config.selectors,
+        ...(config.selectors || {}),
+      },
+    };
+
+    if (typeof nextConfig.batchSize === "number") {
+      nextConfig.batchSize = Math.max(1, Math.floor(nextConfig.batchSize));
+    }
+    if (typeof nextConfig.batchUploadTimeoutMinutes === "number") {
+      nextConfig.batchUploadTimeoutMinutes = Math.max(
+        1,
+        Math.floor(nextConfig.batchUploadTimeoutMinutes),
+      );
+    }
+    if (typeof nextConfig.maxBatchRetries === "number") {
+      nextConfig.maxBatchRetries = Math.max(
+        0,
+        Math.min(10, Math.floor(nextConfig.maxBatchRetries)),
+      );
+    }
+    if (typeof nextConfig.timeoutPartialRetryRounds === "number") {
+      nextConfig.timeoutPartialRetryRounds = Math.max(
+        0,
+        Math.min(10, Math.floor(nextConfig.timeoutPartialRetryRounds)),
+      );
+    }
+    if (typeof nextConfig.batchDelayMin === "number") {
+      nextConfig.batchDelayMin = Math.max(
+        0,
+        Math.floor(nextConfig.batchDelayMin),
+      );
+    }
+    if (typeof nextConfig.batchDelayMax === "number") {
+      nextConfig.batchDelayMax = Math.max(
+        0,
+        Math.floor(nextConfig.batchDelayMax),
+      );
+    }
+    if (nextConfig.batchDelayMax < nextConfig.batchDelayMin) {
+      nextConfig.batchDelayMax = nextConfig.batchDelayMin;
+    }
+    if (typeof nextConfig.slowMo === "number") {
+      nextConfig.slowMo = Math.max(0, Math.floor(nextConfig.slowMo));
+    }
+    if (typeof nextConfig.allowedMissingCount === "number") {
+      nextConfig.allowedMissingCount = Math.max(
+        0,
+        Math.floor(nextConfig.allowedMissingCount),
+      );
+    }
+    if (typeof nextConfig.abandonedRetryTimeoutMinutes === "number") {
+      nextConfig.abandonedRetryTimeoutMinutes = Math.max(
+        1,
+        Math.min(30, Math.floor(nextConfig.abandonedRetryTimeoutMinutes)),
+      );
+    }
+
+    return nextConfig;
   }
 
   /**
@@ -405,65 +515,16 @@ export class JuliangService {
    * 更新配置
    */
   updateConfig(config: Partial<JuliangConfig>) {
-    const nextConfig = { ...this.config, ...config };
-    if (typeof nextConfig.batchSize === "number") {
-      nextConfig.batchSize = Math.max(1, Math.floor(nextConfig.batchSize));
-    }
-    if (typeof nextConfig.batchUploadTimeoutMinutes === "number") {
-      nextConfig.batchUploadTimeoutMinutes = Math.max(
-        1,
-        Math.floor(nextConfig.batchUploadTimeoutMinutes),
-      );
-    }
-    if (typeof nextConfig.maxBatchRetries === "number") {
-      nextConfig.maxBatchRetries = Math.max(
-        0,
-        Math.min(10, Math.floor(nextConfig.maxBatchRetries)),
-      );
-    }
-    if (typeof nextConfig.timeoutPartialRetryRounds === "number") {
-      nextConfig.timeoutPartialRetryRounds = Math.max(
-        0,
-        Math.min(10, Math.floor(nextConfig.timeoutPartialRetryRounds)),
-      );
-    }
-    if (typeof nextConfig.batchDelayMin === "number") {
-      nextConfig.batchDelayMin = Math.max(
-        0,
-        Math.floor(nextConfig.batchDelayMin),
-      );
-    }
-    if (typeof nextConfig.batchDelayMax === "number") {
-      nextConfig.batchDelayMax = Math.max(
-        0,
-        Math.floor(nextConfig.batchDelayMax),
-      );
-    }
-    if (nextConfig.batchDelayMax < nextConfig.batchDelayMin) {
-      nextConfig.batchDelayMax = nextConfig.batchDelayMin;
-    }
-    if (typeof nextConfig.slowMo === "number") {
-      nextConfig.slowMo = Math.max(0, Math.floor(nextConfig.slowMo));
-    }
-    if (typeof nextConfig.allowedMissingCount === "number") {
-      nextConfig.allowedMissingCount = Math.max(
-        0,
-        Math.floor(nextConfig.allowedMissingCount),
-      );
-    }
-    if (typeof nextConfig.abandonedRetryTimeoutMinutes === "number") {
-      nextConfig.abandonedRetryTimeoutMinutes = Math.max(
-        1,
-        Math.min(30, Math.floor(nextConfig.abandonedRetryTimeoutMinutes)),
-      );
-    }
-    this.config = nextConfig;
+    this.ensureConfigLoaded();
+    this.config = this.normalizeConfig(config);
+    this.saveConfig();
   }
 
   /**
    * 获取当前配置
    */
   getConfig(): JuliangConfig {
+    this.ensureConfigLoaded();
     return { ...this.config };
   }
 
@@ -472,6 +533,8 @@ export class JuliangService {
    */
   async initialize(): Promise<{ success: boolean; error?: string }> {
     try {
+      this.ensureConfigLoaded();
+
       // 重置取消标志
       this.isCancelled = false;
 
@@ -950,6 +1013,8 @@ export class JuliangService {
   async navigateToUploadPage(
     accountId: string,
   ): Promise<{ success: boolean; error?: string }> {
+    this.ensureConfigLoaded();
+
     if (!this.page || this.page.isClosed()) {
       return { success: false, error: "浏览器页面已关闭" };
     }
@@ -1948,6 +2013,8 @@ export class JuliangService {
    * 执行上传任务
    */
   async uploadTask(task: JuliangTask): Promise<JuliangUploadResult> {
+    this.ensureConfigLoaded();
+
     if (!this.page || this.page.isClosed()) {
       return {
         success: false,
