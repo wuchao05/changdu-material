@@ -81,6 +81,7 @@ const savePath = ref(localStorage.getItem("download-save-path") || "");
 const concurrentDownloads = ref(3);
 // 自动下载轮询间隔（分钟）
 const autoDownloadIntervalMinutes = ref(30);
+const MIN_SOURCE_MP4_COUNT = 20;
 // 帮助弹窗
 const showHelpModal = ref(false);
 
@@ -440,7 +441,6 @@ async function processDownloadedArchive(
   task: DownloadTask,
   zipPath: string,
   taskStartTime: number,
-  verifyMp4Count = false,
 ) {
   task.progress = 100;
   task.status = "extract_pending";
@@ -501,16 +501,16 @@ async function processDownloadedArchive(
       return;
     }
 
-    if (verifyMp4Count) {
-      const mp4Count = await window.api.countMp4Files(dramaFolderPath);
-      console.log(
-        `[Download] ${task.dramaName} 解压后发现 ${mp4Count} 个 mp4 文件`,
-      );
+    const mp4Count = await window.api.countMp4Files(dramaFolderPath);
+    console.log(
+      `[Download] ${task.dramaName} 解压后发现 ${mp4Count} 个 mp4 文件`,
+    );
 
-      if (mp4Count < 40) {
-        await markArchiveForRetry(`视频文件不完整（${mp4Count}/40）`);
-        return;
-      }
+    if (mp4Count < MIN_SOURCE_MP4_COUNT) {
+      await markArchiveForRetry(
+        `视频文件不完整（${mp4Count}/${MIN_SOURCE_MP4_COUNT}）`,
+      );
+      return;
     }
 
     console.log(`[Download] ✓ 解压成功: ${extractResult.extractedPath}`);
@@ -649,7 +649,6 @@ async function downloadSingleTask(
         task,
         fullPath,
         taskStartTime,
-        true,
       );
       if (onArchiveReady) {
         onArchiveReady(archivePromise);
