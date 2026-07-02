@@ -37,12 +37,12 @@ function printUsage() {
 
 export 选项:
   --browser <name>          要读取的浏览器，默认 chrome
-  --user-data-dir <path>    浏览器用户数据目录；不传时使用系统默认目录
+  --user-data-dir <path>    脚本专用浏览器数据目录；默认 ~/.changdu-material/juliang-login-browser/<browser>
   --profile <name>          浏览器配置目录名，默认 Default，例如 "Profile 1"
   --out <path>              输出文件路径，默认 ./juliang-login-state-时间戳.json
   --timeout <ms>            等待登录完成的超时时间，默认 ${DEFAULT_TIMEOUT_MS}
   --launch-timeout <ms>     等待浏览器启动完成的超时时间，默认 ${DEFAULT_LAUNCH_TIMEOUT_MS}
-  --direct                  直接使用原浏览器数据目录启动；默认会复制到临时目录后读取
+  --direct                  直接使用系统浏览器数据目录启动；通常不建议使用
   --executable-path <path>  自定义浏览器可执行文件路径
 
 open 选项:
@@ -169,96 +169,26 @@ function getDefaultOutputPath() {
   return path.resolve(`juliang-login-state-${timestamp}.json`);
 }
 
-function copyIfExists(sourcePath, targetPath, label) {
-  if (!fs.existsSync(sourcePath)) {
-    return;
-  }
-
-  console.log(`复制 ${label}: ${sourcePath}`);
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.cpSync(sourcePath, targetPath, {
-    recursive: true,
-    force: true,
-    errorOnExist: false,
-  });
-}
-
-function copyMatchingDirectories(sourceDir, targetDir, matcher, label) {
-  if (!fs.existsSync(sourceDir)) {
-    return;
-  }
-
-  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !matcher(entry.name)) {
-      continue;
+function prepareExportUserDataDir(browser, profile, options) {
+  if (options.direct) {
+    const sourceUserDataDir = resolvePath(options['user-data-dir'] || getDefaultSourceUserDataDir(browser));
+    const sourceProfileDir = path.join(sourceUserDataDir, profile);
+    if (!fs.existsSync(sourceProfileDir)) {
+      throw new Error(`浏览器配置目录不存在: ${sourceProfileDir}`);
     }
 
-    copyIfExists(path.join(sourceDir, entry.name), path.join(targetDir, entry.name), label);
-  }
-}
-
-function copyMinimalProfileData(sourceUserDataDir, targetUserDataDir, profile) {
-  const sourceProfileDir = path.join(sourceUserDataDir, profile);
-  const targetProfileDir = path.join(targetUserDataDir, profile);
-  const profileFiles = [
-    'Cookies',
-    'Cookies-journal',
-    'Network Persistent State',
-    'Preferences',
-    'Secure Preferences',
-    'TransportSecurity',
-  ];
-  const profileDirs = [
-    'Local Storage',
-    'Session Storage',
-    'Storage',
-    'WebStorage',
-  ];
-
-  copyIfExists(path.join(sourceUserDataDir, 'Local State'), path.join(targetUserDataDir, 'Local State'), 'Local State');
-
-  fs.mkdirSync(targetProfileDir, { recursive: true });
-  for (const fileName of profileFiles) {
-    copyIfExists(path.join(sourceProfileDir, fileName), path.join(targetProfileDir, fileName), fileName);
-  }
-
-  for (const dirName of profileDirs) {
-    copyIfExists(path.join(sourceProfileDir, dirName), path.join(targetProfileDir, dirName), dirName);
-  }
-
-  copyMatchingDirectories(
-    path.join(sourceProfileDir, 'IndexedDB'),
-    path.join(targetProfileDir, 'IndexedDB'),
-    (name) => {
-      const normalizedName = name.toLowerCase();
-      return normalizedName.includes('oceanengine.com') || normalizedName.includes('bytedance.com');
-    },
-    '巨量 IndexedDB',
-  );
-}
-
-function prepareExportUserDataDir(sourceUserDataDir, profile, options) {
-  if (options.direct) {
     return {
       launchUserDataDir: sourceUserDataDir,
       cleanup: () => {},
     };
   }
 
-  const sourceProfileDir = path.join(sourceUserDataDir, profile);
-  if (!fs.existsSync(sourceProfileDir)) {
-    throw new Error(`浏览器配置目录不存在: ${sourceProfileDir}`);
-  }
-
-  const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'changdu-juliang-login-state-'));
-  copyMinimalProfileData(sourceUserDataDir, tempUserDataDir, profile);
+  const userDataDir = resolvePath(options['user-data-dir'] || getDefaultTargetUserDataDir(browser));
+  fs.mkdirSync(userDataDir, { recursive: true });
 
   return {
-    launchUserDataDir: tempUserDataDir,
-    cleanup: () => {
-      fs.rmSync(tempUserDataDir, { recursive: true, force: true });
-    },
+    launchUserDataDir: userDataDir,
+    cleanup: () => {},
   };
 }
 
@@ -486,22 +416,17 @@ async function exportLoginState(options) {
   const browser = normalizeBrowser(options.browser);
   const profile = String(options.profile || 'Default');
   const timeoutMs = Number(options.timeout || DEFAULT_TIMEOUT_MS);
-  const sourceUserDataDir = resolvePath(options['user-data-dir'] || getDefaultSourceUserDataDir(browser));
   const outputPath = resolvePath(options.out || getDefaultOutputPath());
 
-  if (!fs.existsSync(sourceUserDataDir)) {
-    throw new Error(`浏览器用户数据目录不存在: ${sourceUserDataDir}`);
-  }
-
   console.log(`浏览器: ${browser}`);
-  console.log(`源用户数据目录: ${sourceUserDataDir}`);
   console.log(`配置目录: ${profile}`);
-  const preparedUserDataDir = prepareExportUserDataDir(sourceUserDataDir, profile, options);
+  const preparedUserDataDir = prepareExportUserDataDir(browser, profile, options);
   if (options.direct) {
-    console.log('读取模式: 直接读取原浏览器数据目录');
+    console.log(`读取模式: 直接读取系统浏览器数据目录 ${preparedUserDataDir.launchUserDataDir}`);
     console.log('提示: 如果浏览器提示配置目录被占用，请先完全退出该浏览器后重试。');
   } else {
-    console.log(`读取模式: 使用临时配置副本 ${preparedUserDataDir.launchUserDataDir}`);
+    console.log(`读取模式: 使用脚本专用浏览器目录 ${preparedUserDataDir.launchUserDataDir}`);
+    console.log('提示: 该目录会保留登录态，下次运行会继续复用。');
   }
   console.log('正在启动浏览器...');
 
