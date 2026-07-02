@@ -9,11 +9,9 @@
  */
 
 const fs = require('fs');
-const http = require('http');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
-const { spawn } = require('child_process');
 const { chromium } = require('playwright');
 
 const JULIANG_HOME_URL = 'https://ad.oceanengine.com/';
@@ -35,7 +33,6 @@ function printUsage() {
 
 用法:
   pnpm juliang:login-state export --browser <chrome|edge|chromium> [选项]
-  pnpm juliang:login-state export-cdp --browser <chrome|edge|chromium> [选项]
   pnpm juliang:login-state open --state <登录态文件> --browser <chrome|edge|chromium> [选项]
 
 export 选项:
@@ -48,17 +45,6 @@ export 选项:
   --direct                  直接使用原浏览器数据目录启动；默认会复制到临时目录后读取
   --executable-path <path>  自定义浏览器可执行文件路径
 
-export-cdp 选项:
-  --browser <name>          要读取的浏览器，默认 chrome
-  --user-data-dir <path>    浏览器用户数据目录；不传时使用系统默认目录
-  --profile <name>          浏览器配置目录名，默认 Default，例如 "Profile 1"
-  --out <path>              输出文件路径，默认 ./juliang-login-state-时间戳.json
-  --timeout <ms>            等待登录完成的超时时间，默认 ${DEFAULT_TIMEOUT_MS}
-  --debug-port <port>       Chrome 远程调试端口，默认自动选择
-  --endpoint <url>          连接已启动的 Chrome 调试地址，例如 http://127.0.0.1:9222
-  --keep-open               导出后保持 Chrome 打开
-  --executable-path <path>  自定义浏览器可执行文件路径
-
 open 选项:
   --state <path>            登录态文件路径
   --browser <name>          要打开的浏览器，默认 chrome
@@ -69,7 +55,7 @@ open 选项:
   --executable-path <path>  自定义浏览器可执行文件路径
 
 示例:
-  pnpm juliang:login-state export-cdp --browser chrome --profile Default --out ./juliang-login-state.json
+  pnpm juliang:login-state export --browser chrome --profile Default --out ./juliang-login-state.json
   pnpm juliang:login-state open --browser edge --state ./juliang-login-state.json
 `);
 }
@@ -181,53 +167,6 @@ function getDefaultTargetUserDataDir(browser) {
 function getDefaultOutputPath() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.resolve(`juliang-login-state-${timestamp}.json`);
-}
-
-function getDefaultExecutablePath(browser) {
-  if (process.platform === 'darwin') {
-    if (browser === 'chrome') {
-      return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-    }
-    if (browser === 'edge') {
-      return '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge';
-    }
-    return '/Applications/Chromium.app/Contents/MacOS/Chromium';
-  }
-
-  if (process.platform === 'win32') {
-    const candidates = [];
-    const programFiles = process.env.PROGRAMFILES;
-    const programFilesX86 = process.env['PROGRAMFILES(X86)'];
-    const localAppData = process.env.LOCALAPPDATA;
-
-    if (browser === 'chrome') {
-      if (programFiles) {
-        candidates.push(path.join(programFiles, 'Google', 'Chrome', 'Application', 'chrome.exe'));
-      }
-      if (programFilesX86) {
-        candidates.push(path.join(programFilesX86, 'Google', 'Chrome', 'Application', 'chrome.exe'));
-      }
-      if (localAppData) {
-        candidates.push(path.join(localAppData, 'Google', 'Chrome', 'Application', 'chrome.exe'));
-      }
-    }
-
-    if (browser === 'edge') {
-      if (programFiles) {
-        candidates.push(path.join(programFiles, 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
-      }
-      if (programFilesX86) {
-        candidates.push(path.join(programFilesX86, 'Microsoft', 'Edge', 'Application', 'msedge.exe'));
-      }
-    }
-
-    const found = candidates.find((candidate) => fs.existsSync(candidate));
-    if (found) {
-      return found;
-    }
-  }
-
-  return null;
 }
 
 function copyIfExists(sourcePath, targetPath, label) {
@@ -342,99 +281,6 @@ function getLaunchOptions(browser, options) {
   }
 
   return launchOptions;
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-function getJson(url) {
-  return new Promise((resolve, reject) => {
-    const request = http.get(url, (response) => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk) => {
-        body += chunk;
-      });
-      response.on('end', () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-
-    request.setTimeout(2000, () => {
-      request.destroy(new Error(`请求超时: ${url}`));
-    });
-    request.on('error', reject);
-  });
-}
-
-async function waitForCdpEndpoint(endpoint, timeoutMs) {
-  const startedAt = Date.now();
-
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      await getJson(`${endpoint}/json/version`);
-      return;
-    } catch {
-      await sleep(500);
-    }
-  }
-
-  throw new Error(`等待 Chrome 调试端口超时: ${endpoint}`);
-}
-
-function getRandomDebugPort() {
-  return 30000 + Math.floor(Math.random() * 20000);
-}
-
-function startBrowserForCdp(browser, sourceUserDataDir, profile, options) {
-  const executablePath = options['executable-path']
-    ? resolvePath(options['executable-path'])
-    : getDefaultExecutablePath(browser);
-  if (!executablePath || !fs.existsSync(executablePath)) {
-    throw new Error('未找到浏览器可执行文件，请用 --executable-path 指定');
-  }
-
-  const debugPort = Number(options['debug-port'] || getRandomDebugPort());
-  const endpoint = `http://127.0.0.1:${debugPort}`;
-  const args = [
-    `--remote-debugging-port=${debugPort}`,
-    `--user-data-dir=${sourceUserDataDir}`,
-    `--profile-directory=${profile}`,
-    '--no-first-run',
-    JULIANG_HOME_URL,
-  ];
-
-  console.log(`正在启动真实浏览器: ${executablePath}`);
-  console.log(`调试地址: ${endpoint}`);
-  console.log('提示: 如果一直无法连接调试端口，请先完全退出该浏览器后重试。');
-
-  const child = spawn(executablePath, args, {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();
-
-  return {
-    endpoint,
-    close: () => {
-      if (options['keep-open']) {
-        return;
-      }
-
-      try {
-        process.kill(child.pid);
-      } catch {
-        // 浏览器可能已经被用户关闭，忽略清理错误。
-      }
-    },
-  };
 }
 
 function isJuliangLoginUrl(url) {
@@ -646,50 +492,6 @@ async function exportLoginState(options) {
   }
 }
 
-async function exportLoginStateViaCdp(options) {
-  const browserName = normalizeBrowser(options.browser);
-  const profile = String(options.profile || 'Default');
-  const timeoutMs = Number(options.timeout || DEFAULT_TIMEOUT_MS);
-  const launchTimeoutMs = Number(options['launch-timeout'] || DEFAULT_LAUNCH_TIMEOUT_MS);
-  const sourceUserDataDir = resolvePath(options['user-data-dir'] || getDefaultSourceUserDataDir(browserName));
-  const outputPath = resolvePath(options.out || getDefaultOutputPath());
-
-  if (!fs.existsSync(sourceUserDataDir)) {
-    throw new Error(`浏览器用户数据目录不存在: ${sourceUserDataDir}`);
-  }
-
-  console.log(`浏览器: ${browserName}`);
-  console.log(`源用户数据目录: ${sourceUserDataDir}`);
-  console.log(`配置目录: ${profile}`);
-  console.log('读取模式: 连接真实 Chrome 调试端口');
-
-  const launched = options.endpoint
-    ? {
-        endpoint: String(options.endpoint),
-        close: () => {},
-      }
-    : startBrowserForCdp(browserName, sourceUserDataDir, profile, options);
-
-  let browser = null;
-
-  try {
-    await waitForCdpEndpoint(launched.endpoint, launchTimeoutMs);
-    console.log('已连接调试端口，正在读取当前浏览器上下文...');
-    browser = await chromium.connectOverCDP(launched.endpoint);
-    const context = browser.contexts()[0];
-    if (!context) {
-      throw new Error('未读取到浏览器上下文');
-    }
-
-    await exportStorageStateFromContext(context, outputPath, timeoutMs);
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-    launched.close();
-  }
-}
-
 async function openWithLoginState(options) {
   if (!options.state) {
     throw new Error('缺少 --state <登录态文件>');
@@ -748,11 +550,6 @@ async function main() {
 
   if (command === 'export') {
     await exportLoginState(options);
-    return;
-  }
-
-  if (command === 'export-cdp') {
-    await exportLoginStateViaCdp(options);
     return;
   }
 
