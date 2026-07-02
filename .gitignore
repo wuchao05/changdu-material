@@ -28,6 +28,7 @@ Thumbs.db
 
 # User data
 userData/
+juliang-login-state-*.json
 
 # Lock files (keep only pnpm)
 package-lock.json
