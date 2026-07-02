@@ -18,7 +18,7 @@ const JULIANG_HOME_URL = 'https://ad.oceanengine.com/';
 const LOGIN_STATE_TYPE = 'juliang-login-state';
 const DEFAULT_TIMEOUT_MS = 180000;
 const DEFAULT_LAUNCH_TIMEOUT_MS = 30000;
-const LOGIN_CHECK_INTERVAL_MS = 2000;
+const LOGIN_CHECK_INTERVAL_MS = 10000;
 
 const SUPPORTED_BROWSERS = new Set(['chrome', 'edge', 'chromium']);
 const BROWSER_CHANNELS = {
