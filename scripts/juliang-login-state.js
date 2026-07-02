@@ -299,6 +299,18 @@ function isJuliangLoginUrl(url) {
   }
 }
 
+function isJuliangLoggedInUrl(url) {
+  if (!url) {
+    return false;
+  }
+
+  try {
+    return new URL(url).hostname.toLowerCase() === 'business.oceanengine.com';
+  } catch {
+    return false;
+  }
+}
+
 function getStorageState(payload) {
   if (!payload || typeof payload !== 'object') {
     throw new Error('登录态文件格式无效');
@@ -409,7 +421,10 @@ async function waitForLogin(context, page, timeoutMs) {
   while (Date.now() - startedAt < timeoutMs) {
     const currentUrl = page.url();
     const storageState = getStorageState(await context.storageState({ indexedDB: true }));
-    if (!isJuliangLoginUrl(currentUrl) && hasJuliangStorageStateContent(storageState)) {
+    if (
+      isJuliangLoggedInUrl(currentUrl) ||
+      (!isJuliangLoginUrl(currentUrl) && hasJuliangStorageStateContent(storageState))
+    ) {
       return true;
     }
 
@@ -439,7 +454,10 @@ async function exportStorageStateFromContext(context, outputPath, timeoutMs) {
 
   const initialStorageState = getStorageState(await context.storageState({ indexedDB: true }));
 
-  if (isJuliangLoginUrl(page.url()) || !hasJuliangStorageStateContent(initialStorageState)) {
+  if (
+    !isJuliangLoggedInUrl(page.url()) &&
+    (isJuliangLoginUrl(page.url()) || !hasJuliangStorageStateContent(initialStorageState))
+  ) {
     console.log('当前未检测到巨量登录态，请在打开的浏览器窗口完成登录。');
     const loggedIn = await waitForLogin(context, page, timeoutMs);
     if (!loggedIn) {
