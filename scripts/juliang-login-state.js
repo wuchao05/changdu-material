@@ -284,8 +284,19 @@ function getLaunchOptions(browser, options) {
 }
 
 function isJuliangLoginUrl(url) {
-  const normalized = String(url || '').toLowerCase();
-  return !normalized || normalized.includes('login') || normalized.includes('sso');
+  if (!url) {
+    return true;
+  }
+
+  try {
+    const parsedUrl = new URL(url);
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const pathname = parsedUrl.pathname.toLowerCase();
+    return pathname.includes('login') || hostname.includes('sso');
+  } catch {
+    const normalized = String(url).toLowerCase();
+    return normalized.includes('/login') || normalized.includes('://sso');
+  }
 }
 
 function getStorageState(payload) {
