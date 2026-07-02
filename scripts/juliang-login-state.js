@@ -17,6 +17,8 @@ const { chromium } = require('playwright');
 const JULIANG_HOME_URL = 'https://ad.oceanengine.com/';
 const LOGIN_STATE_TYPE = 'juliang-login-state';
 const DEFAULT_TIMEOUT_MS = 180000;
+const DEFAULT_LAUNCH_TIMEOUT_MS = 30000;
+const LOGIN_CHECK_INTERVAL_MS = 2000;
 
 const SUPPORTED_BROWSERS = new Set(['chrome', 'edge', 'chromium']);
 const BROWSER_CHANNELS = {
@@ -39,6 +41,7 @@ export 选项:
   --profile <name>          浏览器配置目录名，默认 Default，例如 "Profile 1"
   --out <path>              输出文件路径，默认 ./juliang-login-state-时间戳.json
   --timeout <ms>            等待登录完成的超时时间，默认 ${DEFAULT_TIMEOUT_MS}
+  --launch-timeout <ms>     等待浏览器启动完成的超时时间，默认 ${DEFAULT_LAUNCH_TIMEOUT_MS}
   --executable-path <path>  自定义浏览器可执行文件路径
 
 open 选项:
@@ -47,6 +50,7 @@ open 选项:
   --user-data-dir <path>    用于写入登录态的独立浏览器数据目录；默认 ~/.changdu-material/juliang-login-browser/<browser>
   --profile <name>          浏览器配置目录名，默认 Default
   --timeout <ms>            打开并检查登录态的超时时间，默认 ${DEFAULT_TIMEOUT_MS}
+  --launch-timeout <ms>     等待浏览器启动完成的超时时间，默认 ${DEFAULT_LAUNCH_TIMEOUT_MS}
   --executable-path <path>  自定义浏览器可执行文件路径
 
 示例:
@@ -165,8 +169,10 @@ function getDefaultOutputPath() {
 }
 
 function getLaunchOptions(browser, options) {
+  const launchTimeoutMs = Number(options['launch-timeout'] || DEFAULT_LAUNCH_TIMEOUT_MS);
   const launchOptions = {
     headless: false,
+    timeout: launchTimeoutMs,
     viewport: null,
     args: [
       '--start-maximized',
@@ -243,6 +249,23 @@ function hasStorageStateContent(storageState) {
   return hasCookies || hasLocalStorage;
 }
 
+function hasJuliangStorageStateContent(storageState) {
+  const hasJuliangCookies = storageState.cookies.some((cookie) => {
+    const domain = String(cookie.domain || '').toLowerCase();
+    return domain.includes('oceanengine.com') || domain.includes('bytedance.com');
+  });
+  const hasJuliangLocalStorage = storageState.origins.some((origin) => {
+    const originUrl = String(origin.origin || '').toLowerCase();
+    return (
+      originUrl.includes('oceanengine.com') &&
+      Array.isArray(origin.localStorage) &&
+      origin.localStorage.length > 0
+    );
+  });
+
+  return hasJuliangCookies || hasJuliangLocalStorage;
+}
+
 function readLoginState(filePath) {
   const resolvedPath = resolvePath(filePath);
   if (!fs.existsSync(resolvedPath)) {
@@ -275,16 +298,21 @@ function waitForEnter(message) {
   });
 }
 
-async function waitForLogin(page, timeoutMs) {
+async function waitForLogin(context, page, timeoutMs) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
     const currentUrl = page.url();
-    if (!isJuliangLoginUrl(currentUrl)) {
+    const storageState = getStorageState(await context.storageState({ indexedDB: true }));
+    if (!isJuliangLoginUrl(currentUrl) && hasJuliangStorageStateContent(storageState)) {
       return true;
     }
 
-    await page.waitForTimeout(2000);
+    const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+    console.log(
+      `等待登录完成... 已等待 ${elapsedSeconds}s，当前 URL: ${currentUrl || 'about:blank'}`,
+    );
+    await page.waitForTimeout(LOGIN_CHECK_INTERVAL_MS);
   }
 
   return false;
@@ -311,6 +339,7 @@ async function exportLoginState(options) {
   console.log(`用户数据目录: ${userDataDir}`);
   console.log(`配置目录: ${options.profile || 'Default'}`);
   console.log('提示: 如果浏览器提示配置目录被占用，请先完全退出该浏览器后重试。');
+  console.log('正在启动浏览器...');
 
   const context = await chromium.launchPersistentContext(
     userDataDir,
@@ -318,18 +347,23 @@ async function exportLoginState(options) {
   );
 
   try {
+    console.log('浏览器已启动，正在打开巨量后台...');
     const page = await getOrCreatePage(context);
     await page.goto(JULIANG_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
+    console.log(`当前页面 URL: ${page.url()}`);
 
-    if (isJuliangLoginUrl(page.url())) {
+    const initialStorageState = getStorageState(await context.storageState({ indexedDB: true }));
+
+    if (isJuliangLoginUrl(page.url()) || !hasJuliangStorageStateContent(initialStorageState)) {
       console.log('当前未检测到巨量登录态，请在打开的浏览器窗口完成登录。');
-      const loggedIn = await waitForLogin(page, timeoutMs);
+      const loggedIn = await waitForLogin(context, page, timeoutMs);
       if (!loggedIn) {
         throw new Error('等待登录超时，未导出登录态');
       }
     }
 
+    console.log('已检测到巨量登录态，正在导出...');
     const storageState = await context.storageState({ indexedDB: true });
     const normalizedState = getStorageState(storageState);
     if (!hasStorageStateContent(normalizedState)) {
@@ -368,6 +402,7 @@ async function openWithLoginState(options) {
   console.log(`浏览器: ${browser}`);
   console.log(`登录态文件: ${resolvePath(options.state)}`);
   console.log(`独立用户数据目录: ${userDataDir}`);
+  console.log('正在启动浏览器...');
 
   const context = await chromium.launchPersistentContext(
     userDataDir,
@@ -375,14 +410,17 @@ async function openWithLoginState(options) {
   );
 
   try {
+    console.log('浏览器已启动，正在注入登录态...');
     const page = await getOrCreatePage(context);
     await applyStorageState(context, page, storageState);
+    console.log('登录态已注入，正在打开巨量后台...');
     await page.goto(JULIANG_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
+    console.log(`当前页面 URL: ${page.url()}`);
 
     if (isJuliangLoginUrl(page.url())) {
       console.log('登录态可能已失效或被平台风控拦截，页面仍停留在登录流程。');
-      await waitForLogin(page, timeoutMs);
+      await waitForLogin(context, page, timeoutMs);
     } else {
       console.log('已使用登录态打开巨量后台。');
     }
