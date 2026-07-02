@@ -42,6 +42,7 @@ export 选项:
   --out <path>              输出文件路径，默认 ./juliang-login-state-时间戳.json
   --timeout <ms>            等待登录完成的超时时间，默认 ${DEFAULT_TIMEOUT_MS}
   --launch-timeout <ms>     等待浏览器启动完成的超时时间，默认 ${DEFAULT_LAUNCH_TIMEOUT_MS}
+  --direct                  直接使用原浏览器数据目录启动；默认会复制到临时目录后读取
   --executable-path <path>  自定义浏览器可执行文件路径
 
 open 选项:
@@ -166,6 +167,72 @@ function getDefaultTargetUserDataDir(browser) {
 function getDefaultOutputPath() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return path.resolve(`juliang-login-state-${timestamp}.json`);
+}
+
+function shouldSkipProfileCopyPath(sourcePath, sourceUserDataDir) {
+  const relativePath = path.relative(sourceUserDataDir, sourcePath);
+  const parts = relativePath.split(path.sep).filter(Boolean);
+  const basename = path.basename(sourcePath);
+  const skippedNames = new Set([
+    'BrowserMetrics',
+    'Cache',
+    'Code Cache',
+    'Crashpad',
+    'DawnCache',
+    'GPUCache',
+    'GraphiteDawnCache',
+    'GrShaderCache',
+    'RunningChromeVersion',
+    'ShaderCache',
+    'SingletonCookie',
+    'SingletonLock',
+    'SingletonSocket',
+  ]);
+
+  if (skippedNames.has(basename)) {
+    return true;
+  }
+
+  return parts.some((part) => skippedNames.has(part));
+}
+
+function copyIfExists(sourcePath, targetPath) {
+  if (!fs.existsSync(sourcePath)) {
+    return;
+  }
+
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.cpSync(sourcePath, targetPath, {
+    recursive: true,
+    force: true,
+    errorOnExist: false,
+    filter: (currentSourcePath) => !shouldSkipProfileCopyPath(currentSourcePath, sourcePath),
+  });
+}
+
+function prepareExportUserDataDir(sourceUserDataDir, profile, options) {
+  if (options.direct) {
+    return {
+      launchUserDataDir: sourceUserDataDir,
+      cleanup: () => {},
+    };
+  }
+
+  const sourceProfileDir = path.join(sourceUserDataDir, profile);
+  if (!fs.existsSync(sourceProfileDir)) {
+    throw new Error(`浏览器配置目录不存在: ${sourceProfileDir}`);
+  }
+
+  const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'changdu-juliang-login-state-'));
+  copyIfExists(path.join(sourceUserDataDir, 'Local State'), path.join(tempUserDataDir, 'Local State'));
+  copyIfExists(sourceProfileDir, path.join(tempUserDataDir, profile));
+
+  return {
+    launchUserDataDir: tempUserDataDir,
+    cleanup: () => {
+      fs.rmSync(tempUserDataDir, { recursive: true, force: true });
+    },
+  };
 }
 
 function getLaunchOptions(browser, options) {
@@ -327,26 +394,34 @@ async function getOrCreatePage(context) {
 
 async function exportLoginState(options) {
   const browser = normalizeBrowser(options.browser);
+  const profile = String(options.profile || 'Default');
   const timeoutMs = Number(options.timeout || DEFAULT_TIMEOUT_MS);
-  const userDataDir = resolvePath(options['user-data-dir'] || getDefaultSourceUserDataDir(browser));
+  const sourceUserDataDir = resolvePath(options['user-data-dir'] || getDefaultSourceUserDataDir(browser));
   const outputPath = resolvePath(options.out || getDefaultOutputPath());
 
-  if (!fs.existsSync(userDataDir)) {
-    throw new Error(`浏览器用户数据目录不存在: ${userDataDir}`);
+  if (!fs.existsSync(sourceUserDataDir)) {
+    throw new Error(`浏览器用户数据目录不存在: ${sourceUserDataDir}`);
   }
 
   console.log(`浏览器: ${browser}`);
-  console.log(`用户数据目录: ${userDataDir}`);
-  console.log(`配置目录: ${options.profile || 'Default'}`);
-  console.log('提示: 如果浏览器提示配置目录被占用，请先完全退出该浏览器后重试。');
+  console.log(`源用户数据目录: ${sourceUserDataDir}`);
+  console.log(`配置目录: ${profile}`);
+  const preparedUserDataDir = prepareExportUserDataDir(sourceUserDataDir, profile, options);
+  if (options.direct) {
+    console.log('读取模式: 直接读取原浏览器数据目录');
+    console.log('提示: 如果浏览器提示配置目录被占用，请先完全退出该浏览器后重试。');
+  } else {
+    console.log(`读取模式: 使用临时配置副本 ${preparedUserDataDir.launchUserDataDir}`);
+  }
   console.log('正在启动浏览器...');
 
-  const context = await chromium.launchPersistentContext(
-    userDataDir,
-    getLaunchOptions(browser, options),
-  );
+  let context = null;
 
   try {
+    context = await chromium.launchPersistentContext(
+      preparedUserDataDir.launchUserDataDir,
+      getLaunchOptions(browser, options),
+    );
     console.log('浏览器已启动，正在打开巨量后台...');
     const page = await getOrCreatePage(context);
     await page.goto(JULIANG_HOME_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -379,7 +454,10 @@ async function exportLoginState(options) {
 
     console.log(`登录态已导出: ${outputPath}`);
   } finally {
-    await context.close();
+    if (context) {
+      await context.close();
+    }
+    preparedUserDataDir.cleanup();
   }
 }
 
