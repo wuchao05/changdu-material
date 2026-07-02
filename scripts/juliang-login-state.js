@@ -169,45 +169,73 @@ function getDefaultOutputPath() {
   return path.resolve(`juliang-login-state-${timestamp}.json`);
 }
 
-function shouldSkipProfileCopyPath(sourcePath, sourceUserDataDir) {
-  const relativePath = path.relative(sourceUserDataDir, sourcePath);
-  const parts = relativePath.split(path.sep).filter(Boolean);
-  const basename = path.basename(sourcePath);
-  const skippedNames = new Set([
-    'BrowserMetrics',
-    'Cache',
-    'Code Cache',
-    'Crashpad',
-    'DawnCache',
-    'GPUCache',
-    'GraphiteDawnCache',
-    'GrShaderCache',
-    'RunningChromeVersion',
-    'ShaderCache',
-    'SingletonCookie',
-    'SingletonLock',
-    'SingletonSocket',
-  ]);
-
-  if (skippedNames.has(basename)) {
-    return true;
-  }
-
-  return parts.some((part) => skippedNames.has(part));
-}
-
-function copyIfExists(sourcePath, targetPath) {
+function copyIfExists(sourcePath, targetPath, label) {
   if (!fs.existsSync(sourcePath)) {
     return;
   }
 
+  console.log(`复制 ${label}: ${sourcePath}`);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.cpSync(sourcePath, targetPath, {
     recursive: true,
     force: true,
     errorOnExist: false,
-    filter: (currentSourcePath) => !shouldSkipProfileCopyPath(currentSourcePath, sourcePath),
   });
+}
+
+function copyMatchingDirectories(sourceDir, targetDir, matcher, label) {
+  if (!fs.existsSync(sourceDir)) {
+    return;
+  }
+
+  const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !matcher(entry.name)) {
+      continue;
+    }
+
+    copyIfExists(path.join(sourceDir, entry.name), path.join(targetDir, entry.name), label);
+  }
+}
+
+function copyMinimalProfileData(sourceUserDataDir, targetUserDataDir, profile) {
+  const sourceProfileDir = path.join(sourceUserDataDir, profile);
+  const targetProfileDir = path.join(targetUserDataDir, profile);
+  const profileFiles = [
+    'Cookies',
+    'Cookies-journal',
+    'Network Persistent State',
+    'Preferences',
+    'Secure Preferences',
+    'TransportSecurity',
+  ];
+  const profileDirs = [
+    'Local Storage',
+    'Session Storage',
+    'Storage',
+    'WebStorage',
+  ];
+
+  copyIfExists(path.join(sourceUserDataDir, 'Local State'), path.join(targetUserDataDir, 'Local State'), 'Local State');
+
+  fs.mkdirSync(targetProfileDir, { recursive: true });
+  for (const fileName of profileFiles) {
+    copyIfExists(path.join(sourceProfileDir, fileName), path.join(targetProfileDir, fileName), fileName);
+  }
+
+  for (const dirName of profileDirs) {
+    copyIfExists(path.join(sourceProfileDir, dirName), path.join(targetProfileDir, dirName), dirName);
+  }
+
+  copyMatchingDirectories(
+    path.join(sourceProfileDir, 'IndexedDB'),
+    path.join(targetProfileDir, 'IndexedDB'),
+    (name) => {
+      const normalizedName = name.toLowerCase();
+      return normalizedName.includes('oceanengine.com') || normalizedName.includes('bytedance.com');
+    },
+    '巨量 IndexedDB',
+  );
 }
 
 function prepareExportUserDataDir(sourceUserDataDir, profile, options) {
@@ -224,8 +252,7 @@ function prepareExportUserDataDir(sourceUserDataDir, profile, options) {
   }
 
   const tempUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'changdu-juliang-login-state-'));
-  copyIfExists(path.join(sourceUserDataDir, 'Local State'), path.join(tempUserDataDir, 'Local State'));
-  copyIfExists(sourceProfileDir, path.join(tempUserDataDir, profile));
+  copyMinimalProfileData(sourceUserDataDir, tempUserDataDir, profile);
 
   return {
     launchUserDataDir: tempUserDataDir,
