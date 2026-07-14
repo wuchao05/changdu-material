@@ -2029,36 +2029,6 @@ export class MaterialClipService {
         return bPriority - aPriority;
       }
 
-      if (aPriority === 1 && bPriority === 1) {
-        if (
-          a.uploadTime !== null &&
-          b.uploadTime !== null &&
-          a.uploadTime !== b.uploadTime
-        ) {
-          return b.uploadTime - a.uploadTime;
-        }
-        if (a.uploadTime !== null && b.uploadTime === null) {
-          return -1;
-        }
-        if (a.uploadTime === null && b.uploadTime !== null) {
-          return 1;
-        }
-
-        const aDate = this.parsePendingDramaDateToTimestamp(a);
-        const bDate = this.parsePendingDramaDateToTimestamp(b);
-        if (aDate !== null && bDate !== null && aDate !== bDate) {
-          return aDate - bDate;
-        }
-        if (aDate !== null && bDate === null) {
-          return -1;
-        }
-        if (aDate === null && bDate !== null) {
-          return 1;
-        }
-
-        return a.dramaName.localeCompare(b.dramaName, "zh-Hans-CN");
-      }
-
       const aDate = this.parsePendingDramaDateToTimestamp(a);
       const bDate = this.parsePendingDramaDateToTimestamp(b);
       if (aDate !== null && bDate !== null && aDate !== bDate) {
@@ -2068,6 +2038,20 @@ export class MaterialClipService {
         return -1;
       }
       if (aDate === null && bDate !== null) {
+        return 1;
+      }
+
+      if (
+        a.uploadTime !== null &&
+        b.uploadTime !== null &&
+        a.uploadTime !== b.uploadTime
+      ) {
+        return a.uploadTime - b.uploadTime;
+      }
+      if (a.uploadTime !== null && b.uploadTime === null) {
+        return -1;
+      }
+      if (a.uploadTime === null && b.uploadTime !== null) {
         return 1;
       }
 
@@ -2081,20 +2065,6 @@ export class MaterialClipService {
       );
       if (aSecondaryPriority !== bSecondaryPriority) {
         return aSecondaryPriority - bSecondaryPriority;
-      }
-
-      if (
-        a.uploadTime !== null &&
-        b.uploadTime !== null &&
-        a.uploadTime !== b.uploadTime
-      ) {
-        return b.uploadTime - a.uploadTime;
-      }
-      if (a.uploadTime !== null && b.uploadTime === null) {
-        return -1;
-      }
-      if (a.uploadTime === null && b.uploadTime !== null) {
-        return 1;
       }
 
       return a.dramaName.localeCompare(b.dramaName, "zh-Hans-CN");

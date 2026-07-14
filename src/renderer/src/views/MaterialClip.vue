@@ -506,19 +506,19 @@ const clipRuleItems = computed(() => [
   },
   {
     index: 2,
-    title: "多个优先评级时，先看上架时间",
-    desc: "如果优先评级的剧不止一部，就先剪上架时间更晚的；如果上架时间一样，再按飞书日期从早到晚排。",
+    title: "同类评级先看日期",
+    desc: "优先评级和非优先评级各自按飞书日期从早到晚排，日期更早的会更先处理。",
   },
   {
     index: 3,
-    title: "优先评级剪完后，再看非优先评级",
-    desc: "非优先评级的剧会先按飞书日期从早到晚排，日期更早的会更先处理。",
+    title: "同一天先剪更早上架的剧",
+    desc: "如果飞书日期一样，就按上架时间从早到晚排，例如 1 点上架的剧会排在 2 点上架的剧前面。",
   },
   {
     index: 4,
-    title: "同一天先绿标，再黄标",
+    title: "上架时间相同再看评级",
     parts: [
-      { text: "如果飞书日期一样，就先看评级：" },
+      { text: "非优先评级的剧如果日期和上架时间都相同，则 " },
       { text: "绿标", tone: "green" },
       { text: " 会排在 " },
       { text: "黄标", tone: "yellow" },
@@ -527,8 +527,8 @@ const clipRuleItems = computed(() => [
   },
   {
     index: 5,
-    title: "同评级再看上架时间和剧名",
-    desc: "同一天、同评级时，先剪上架时间更晚的；如果上架时间也一样，再按剧名字典序排序。",
+    title: "最后按剧名排序",
+    desc: "前面的条件都相同时，按剧名字典序排序。",
   },
 ]);
 
@@ -1545,7 +1545,7 @@ onUnmounted(() => {
                   <span>待处理剧目 ({{ runState.pendingDramas.length }})</span>
                   <QueueRuleTooltip
                     title="待剪辑优先级规则"
-                    description="系统会按下面这 4 步逐层比较，前一条只要已经分出先后，就不会继续比较下一条。"
+                    description="系统会按下面这 5 步逐层比较，前一条只要已经分出先后，就不会继续比较下一条。"
                     :items="clipRuleItems"
                   />
                 </div>
