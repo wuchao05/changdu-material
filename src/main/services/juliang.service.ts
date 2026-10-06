@@ -1008,6 +1008,28 @@ export class JuliangService {
   }
 
   /**
+   * 等待上传页面的核心操作区域可用
+   */
+  private async waitForUploadPageReady(timeout = 60000): Promise<void> {
+    if (!this.page || this.page.isClosed()) {
+      throw new Error("浏览器页面已关闭");
+    }
+
+    const page = this.page;
+    try {
+      await page
+        .locator(this.config.selectors.uploadButton)
+        .first()
+        .waitFor({ state: "visible", timeout });
+    } catch (error) {
+      if (this.isJuliangLoginUrl(page.url())) {
+        throw new Error("巨量登录状态已失效，请重新登录");
+      }
+      throw error;
+    }
+  }
+
+  /**
    * 导航到上传页面
    */
   async navigateToUploadPage(
@@ -1023,10 +1045,14 @@ export class JuliangService {
       const url = this.config.baseUploadUrl.replace("{accountId}", accountId);
       this.log(`导航到上传页面: ${url}`);
 
-      await this.page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
+      await this.page.goto(url, {
+        waitUntil: "domcontentloaded",
+        timeout: 60000,
+      });
+      await this.waitForUploadPageReady();
       await this.randomDelay(1000, 2000);
 
-      this.log("页面加载完成");
+      this.log("上传页面已就绪");
       return { success: true };
     } catch (error) {
       const errorMessage =
@@ -1424,9 +1450,10 @@ export class JuliangService {
               // 批次重试：刷新页面，确保页面状态干净
               this.log("刷新页面以清理状态...");
               await this.page.reload({
-                waitUntil: "networkidle",
+                waitUntil: "domcontentloaded",
                 timeout: 60000,
               });
+              await this.waitForUploadPageReady();
               this.log("页面刷新完成，等待 5 秒后重试");
               await this.page.waitForTimeout(5000);
             } else if (partialRound > 0) {
