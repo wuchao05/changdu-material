@@ -419,7 +419,6 @@ async function getDownloadUrl(imagexUri: string): Promise<string> {
 
 // 检查已存在的 zip 文件是否完整
 async function checkExistingZip(
-  dramaFolderPath: string,
   zipPath: string,
 ): Promise<{ exists: boolean; valid: boolean }> {
   try {
@@ -638,7 +637,7 @@ async function downloadSingleTask(
     });
 
     // 检查是否已存在完整的 zip 文件
-    const existingZipCheck = await checkExistingZip(dramaFolderPath, fullPath);
+    const existingZipCheck = await checkExistingZip(fullPath);
     if (existingZipCheck.valid) {
       // zip 存在且完整，直接使用
       console.log(

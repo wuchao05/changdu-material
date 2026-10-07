@@ -28,10 +28,14 @@ import {
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 
-// 扩展 Electron App 类型以支持 isQuitting 属性
-declare module "electron" {
-  interface App {
-    isQuitting?: boolean;
+// 扩展 Electron App 类型以支持 isQuitting 属性（App 声明在全局 Electron 命名空间中）
+declare global {
+  // 第三方全局命名空间只能通过 namespace 合并扩展
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Electron {
+    interface App {
+      isQuitting?: boolean;
+    }
   }
 }
 
@@ -617,14 +621,11 @@ function registerIpcHandlers(): void {
             filePaths,
             configService,
             maxConcurrent,
-            (fileName, progress) => {
-              event.sender.send("tos:uploadProgress", {
-                fileName,
-                ...progress,
-              });
+            (_fileName, progress) => {
+              event.sender.send("tos:uploadProgress", progress);
             },
-            (fileName, result) => {
-              event.sender.send("tos:uploadComplete", { fileName, ...result });
+            (_fileName, result) => {
+              event.sender.send("tos:uploadComplete", result);
             },
           )
           .then(() => {
@@ -874,13 +875,6 @@ function registerIpcHandlers(): void {
   ipcMain.handle("app:showInFolder", async (_event, path) => {
     shell.showItemInFolder(path);
   });
-}
-
-// 扩展 app 类型
-declare module "electron" {
-  interface App {
-    isQuitting: boolean;
-  }
 }
 
 app.isQuitting = false;

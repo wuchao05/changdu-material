@@ -86,7 +86,7 @@ const config = ref({
 
 // 当前任务
 const currentTask = ref<{
-  id: string;
+  taskId: string;
   drama: string;
   status: string;
   currentBatch: number;

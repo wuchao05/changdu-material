@@ -771,7 +771,7 @@ export class ApiService {
 
   async uploadToTos(
     filePath: string,
-    options: {
+    _options: {
       bucket?: string;
       region?: string;
       folder?: string;
@@ -798,7 +798,7 @@ export class ApiService {
     const fileStream = fs.createReadStream(filePath);
     let uploadedBytes = 0;
 
-    fileStream.on("data", (chunk: Buffer) => {
+    fileStream.on("data", (chunk) => {
       uploadedBytes += chunk.length;
       if (onProgress) {
         onProgress({

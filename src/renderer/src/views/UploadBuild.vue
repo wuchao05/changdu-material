@@ -31,6 +31,7 @@ import {
   normalizeUnlockedAllocation,
   setAllocationPercent,
 } from "../../../shared/material-allocation";
+import type { MaterialAllocationItem } from "../../../shared/material-allocation";
 import {
   useDarenStore,
   type DarenInfo,
@@ -44,6 +45,8 @@ type UploadStatus = "pending" | "uploading" | "uploaded" | "failed";
 type BuildStatus = "idle" | "building" | "built" | "failed" | "cancelled";
 type RowEntryMode = "local" | "build-only";
 type BuildParamField = keyof UploadBuildSettings["buildParams"];
+// 经 normalizeRule 补齐分配字段后的规则
+type NormalizedDouyinMaterialRule = DouyinMaterialRule & MaterialAllocationItem;
 
 interface DramaUploadRow {
   id: string;
@@ -559,7 +562,9 @@ function createEffectiveBuildSettings(): UploadBuildSettings {
   return nextSettings;
 }
 
-function normalizeRule(rule?: Partial<DouyinMaterialRule>): DouyinMaterialRule {
+function normalizeRule(
+  rule?: Partial<DouyinMaterialRule>,
+): NormalizedDouyinMaterialRule {
   const now = new Date().toISOString();
   return {
     id: rule?.id || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -3379,9 +3384,10 @@ onUnmounted(() => {
             <label class="build-field">
               <span>出价</span>
               <NInput
-                v-model:value="buildSettings.buildParams.bid"
+                :value="String(buildSettings.buildParams.bid ?? '')"
                 :status="isBuildParamMissing('bid') ? 'error' : undefined"
                 placeholder="请输入出价，例如：5"
+                @update:value="(value) => (buildSettings.buildParams.bid = value)"
               />
             </label>
             <label class="build-field">

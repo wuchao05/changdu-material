@@ -19,6 +19,7 @@ import {
   useMessage,
 } from "naive-ui";
 import QueueRuleTooltip from "../components/QueueRuleTooltip.vue";
+import type { QueueRuleItem } from "../components/QueueRuleTooltip.vue";
 import { useAuthStore } from "../stores/auth";
 import { useDarenStore } from "../stores/daren";
 
@@ -489,7 +490,7 @@ const clipPriorityRatingLabel = computed(
   () => config.value?.feishu.priority_rating_value?.trim() || "红标",
 );
 
-const clipRuleItems = computed(() => [
+const clipRuleItems = computed<QueueRuleItem[]>(() => [
   {
     index: 1,
     title: "先剪优先评级的剧",
@@ -1303,7 +1304,7 @@ onUnmounted(() => {
             </div>
           </div>
           <NSpace>
-            <NButton @click="loadEnvironmentStatus">重新检测</NButton>
+            <NButton @click="loadEnvironmentStatus(true)">重新检测</NButton>
             <NButton
               :loading="importingRuntime"
               :disabled="installingEnvironment"
@@ -1384,7 +1385,7 @@ onUnmounted(() => {
             <NButton
               quaternary
               class="hero-action-btn"
-              @click="loadEnvironmentStatus"
+              @click="loadEnvironmentStatus(true)"
               >重新检测</NButton
             >
             <NButton

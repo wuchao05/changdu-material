@@ -149,7 +149,7 @@ function normalizeFeishuTableGroups(groups?: unknown): RuntimeFeishuTableGroup[]
   }
 
   return groups
-    .map((group, index) => {
+    .map((group, index): RuntimeFeishuTableGroup | null => {
       const source = group as Partial<RuntimeFeishuTableGroup> | null;
       if (!source || typeof source !== "object") {
         return null;

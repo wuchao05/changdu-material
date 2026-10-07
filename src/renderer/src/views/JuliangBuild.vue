@@ -5,6 +5,7 @@ import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue';
 import { NButton, NCard, NDataTable, NEmpty, NSelect, NSpace, NTag, useMessage } from 'naive-ui';
 import type { DataTableColumns } from 'naive-ui';
 import QueueRuleTooltip from '../components/QueueRuleTooltip.vue';
+import type { QueueRuleItem } from '../components/QueueRuleTooltip.vue';
 import { useDarenStore } from '../stores/daren';
 import { useApiConfigStore } from '../stores/apiConfig';
 
@@ -117,7 +118,7 @@ const advanceRuleDescription = computed(
     `${formatAdvanceRuleSegment('10点及之后：', advanceHoursAfterTen.value)}；${formatAdvanceRuleSegment('10点之前：', advanceHoursBeforeTen.value)}`,
 );
 
-const buildRuleItems = computed(() => [
+const buildRuleItems = computed<QueueRuleItem[]>(() => [
   {
     index: 1,
     title: '先过可搭建时间门槛',

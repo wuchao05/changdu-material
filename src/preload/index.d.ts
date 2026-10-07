@@ -1,4 +1,4 @@
-import { ElectronAPI } from "@electron-toolkit/preload";
+// 本文件是全局声明脚本（不能有顶层 import/export），其中的接口供渲染层直接作为全局类型使用
 
 interface DownloadProgress {
   dramaName: string;
@@ -695,6 +695,10 @@ interface Api {
     folderPath: string,
   ) => Promise<{ success: boolean; error?: string }>;
   selectFolder: () => Promise<string | null>;
+  countMp4Files: (dirPath: string) => Promise<number>;
+  checkZipFile: (
+    zipPath: string,
+  ) => Promise<{ exists: boolean; valid: boolean; size?: number }>;
   extractZip: (
     zipPath: string,
     targetDir?: string,
@@ -708,7 +712,7 @@ interface Api {
     url: string,
     savePath: string,
     dramaName: string,
-  ) => Promise<{ success: boolean; filePath: string }>;
+  ) => Promise<{ success: boolean; filePath: string; error?: string }>;
   cancelDownload: (dramaName: string) => Promise<void>;
   pauseDownload: (dramaName: string) => Promise<boolean>;
   resumeDownload: (
@@ -1036,9 +1040,7 @@ interface RenameVideosResult {
   error?: string;
 }
 
-declare global {
-  interface Window {
-    electron: ElectronAPI;
-    api: Api;
-  }
+interface Window {
+  electron: import("@electron-toolkit/preload").ElectronAPI;
+  api: Api;
 }

@@ -39,7 +39,8 @@
 
 - `pnpm lint`：运行 ESLint 10（flat config，见 `eslint.config.mjs`，不强制 Prettier 格式），并带 `--fix` 自动修复可修复问题。
 - `pnpm lint:check`：只检查不修改文件，适合 CI 或提交前检查。
-- `pnpm type-check`：运行 `vue-tsc --noEmit`。
+- `pnpm type-check`：分别用 `tsconfig.node.json`（主进程 / preload）和 `tsconfig.web.json`（渲染层）运行 `vue-tsc --noEmit`；根 `tsconfig.json` 只有 references，直接 `vue-tsc --noEmit` 不会检查任何文件。
+- `src/preload/index.d.ts` 是全局声明脚本，不要加顶层 `import` / `export`，否则其中接口不再是渲染层可用的全局类型。
 - 当前仓库没有独立的 `format` 脚本；不要在文档里假设存在 `pnpm format`。
 
 ### 构建与打包

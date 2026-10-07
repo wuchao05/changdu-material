@@ -19,7 +19,7 @@
     "build:linux": "pnpm build && electron-builder --linux",
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
-    "type-check": "vue-tsc --noEmit",
+    "type-check": "vue-tsc --noEmit -p tsconfig.node.json && vue-tsc --noEmit -p tsconfig.web.json",
     "test:allocation": "node scripts/test-material-allocation.mjs"
   },
   "dependencies": {

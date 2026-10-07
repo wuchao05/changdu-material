@@ -33,3 +33,6 @@ juliang-login-state-*.json
 # Lock files (keep only pnpm)
 package-lock.json
 yarn.lock
+
+# TypeScript 增量检查缓存
+*.tsbuildinfo

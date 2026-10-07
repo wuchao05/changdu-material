@@ -16,7 +16,7 @@ interface QueueRuleTextPart {
   tone?: QueueRuleTone;
 }
 
-interface QueueRuleItem {
+export interface QueueRuleItem {
   index: number | string;
   title: string;
   desc?: string;
