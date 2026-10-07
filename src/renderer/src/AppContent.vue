@@ -316,8 +316,8 @@ onMounted(async () => {
           v-if="authStore.isLoggedIn"
           quaternary
           size="small"
-          @click="handleHideToTray"
           title="后台运行（隐藏到系统托盘）"
+          @click="handleHideToTray"
         >
           <template #icon>
             <NIcon><EyeOffOutline /></NIcon>
@@ -329,8 +329,8 @@ onMounted(async () => {
           size="small"
           :loading="refreshing"
           :disabled="refreshing"
-          @click="handleRefresh"
           title="刷新页面和配置"
+          @click="handleRefresh"
         >
           <template #icon>
             <NIcon><RefreshOutline /></NIcon>

@@ -343,7 +343,7 @@ async function updateFeishuDramaStatus(
     }
 
     const appToken = apiConfigStore.config.feishuAppToken;
-    let mapping = feishuRecordMap.value[dramaName];
+    const mapping = feishuRecordMap.value[dramaName];
     const tableId = mapping?.tableId || darenStore.currentPrimaryFeishuTableGroup?.tableId;
     let recordId = mapping?.recordId;
 
@@ -1417,7 +1417,7 @@ onUnmounted(() => {
       style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px"
     >
       <h2 class="page-title" style="margin-bottom: 0">形天上传</h2>
-      <NButton text @click="showHelpModal = true" style="padding: 4px">
+      <NButton text style="padding: 4px" @click="showHelpModal = true">
         <template #icon>
           <NIcon size="20" color="#666">
             <HelpCircleOutline />
@@ -1644,9 +1644,9 @@ onUnmounted(() => {
                     <NCheckbox
                       :checked="isDramaSelected(group.dramaName)"
                       :indeterminate="isDramaIndeterminate(group.dramaName)"
+                      class="drama-checkbox"
                       @update:checked="toggleDramaSelection(group.dramaName)"
                       @click.stop
-                      class="drama-checkbox"
                     />
                     <div class="drama-info">
                       <div class="drama-title">{{ group.dramaName }}</div>
