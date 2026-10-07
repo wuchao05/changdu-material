@@ -5,9 +5,11 @@
   "main": "./out/main/index.js",
   "author": "GuaZai",
   "license": "MIT",
+  "packageManager": "pnpm@10.15.0",
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "electron-vite build",
+    "preinstall": "node scripts/check-package-manager.js",
     "postinstall": "electron-builder install-app-deps",
     "install:electron": "node scripts/install-electron.js",
     "juliang:login-state": "node scripts/juliang-login-state.js",

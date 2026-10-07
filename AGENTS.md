@@ -25,7 +25,7 @@
 - 包管理器使用 `pnpm`，锁文件以 `pnpm-lock.yaml` 为准。
 - README 写的是 Node >= 18，但当前依赖组合更适合 Node 20+；优先使用较新的 LTS。
 - `.npmrc` 启用了 `node-linker=hoisted` 与 Electron 镜像，不要随意改回默认 linker。
-- 初次安装用 `pnpm install`。
+- 初次安装用 `pnpm install`；`preinstall` 会拦截 npm / yarn 安装，`packageManager` 字段锁定了 pnpm 版本。
 - 如果 Electron 依赖损坏，可运行 `pnpm run install:electron` 重新补装。
 
 ## 常用命令
@@ -37,7 +37,7 @@
 
 ### 质量检查
 
-- `pnpm lint`：运行 ESLint，并带 `--fix` 自动修复可修复问题。
+- `pnpm lint`：运行 ESLint（配置见 `.eslintrc.cjs`，不强制 Prettier 格式），并带 `--fix` 自动修复可修复问题；存量的 `any` / 未使用变量等暂为 warn。
 - `pnpm type-check`：运行 `vue-tsc --noEmit`。
 - 当前仓库没有独立的 `format` 脚本；不要在文档里假设存在 `pnpm format`。
 
