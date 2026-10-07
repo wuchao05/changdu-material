@@ -1023,7 +1023,7 @@ export class JuliangService {
         .waitFor({ state: "visible", timeout });
     } catch (error) {
       if (this.isJuliangLoginUrl(page.url())) {
-        throw new Error("巨量登录状态已失效，请重新登录");
+        throw new Error("巨量登录状态已失效，请重新登录", { cause: error });
       }
       throw error;
     }
@@ -2055,7 +2055,7 @@ export class JuliangService {
 
     // 用于在 catch 中保存进度的变量
     let currentBatchIndex = 0;
-    let batches: string[][] = [];
+    const batches: string[][] = [];
     let totalBatches = 0;
     let totalSuccess = 0;
 
@@ -2082,7 +2082,6 @@ export class JuliangService {
 
       // 分批上传
       const batchSize = this.config.batchSize;
-      batches = [];
       for (let i = 0; i < task.files.length; i += batchSize) {
         batches.push(task.files.slice(i, i + batchSize));
       }

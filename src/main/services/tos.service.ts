@@ -303,7 +303,7 @@ export class TosService {
       // 创建取消令牌
       const cancelTokenSource = TOS.CancelToken.source();
       let currentAttemptValid = true; // 标记当前尝试是否有效（用于超时回调判断）
-      let timeoutId: NodeJS.Timeout | null = null;
+      let timeoutId: NodeJS.Timeout;
 
       try {
         this.uploadCancelTokens.set(fileName, {

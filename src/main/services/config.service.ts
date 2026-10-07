@@ -232,7 +232,7 @@ export class ConfigService {
     try {
       const data = await fs.readFile(this.darenConfigPath, "utf-8");
       return JSON.parse(data);
-    } catch (error) {
+    } catch {
       // 如果文件不存在，返回默认配置
       const defaultConfig: DarenConfig = { darenList: [] };
       await this.saveDarenConfig(defaultConfig);
@@ -489,7 +489,7 @@ export class ConfigService {
       const data = await fs.readFile(this.apiConfigPath, "utf-8");
       const parsed = JSON.parse(data) as Partial<ApiConfig>;
       return this.normalizeApiConfig(parsed);
-    } catch (error) {
+    } catch {
       // 如果文件不存在，返回默认配置
       const defaultConfig = this.createDefaultApiConfig();
       await this.saveApiConfig(defaultConfig);

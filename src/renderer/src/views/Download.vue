@@ -1368,7 +1368,7 @@ async function retryDownload(task: DownloadTask) {
       message.error(`${task.dramaName}: 获取下载链接失败`);
       return;
     }
-  } catch (error) {
+  } catch {
     task.status = "error";
     task.error = "获取下载链接失败";
     message.error(`${task.dramaName}: 获取下载链接失败`);

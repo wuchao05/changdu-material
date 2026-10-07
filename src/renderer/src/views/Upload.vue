@@ -925,7 +925,7 @@ async function runAutoUploadCycle(): Promise<boolean> {
       }> = [];
       try {
         materials = await window.api.scanVideos(scanPath);
-      } catch (scanError) {
+      } catch {
         console.log(`[AutoUpload] 目录 ${scanPath} 无法访问`);
         continue;
       }

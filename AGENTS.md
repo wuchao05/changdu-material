@@ -37,7 +37,8 @@
 
 ### 质量检查
 
-- `pnpm lint`：运行 ESLint（配置见 `.eslintrc.cjs`，不强制 Prettier 格式），并带 `--fix` 自动修复可修复问题；存量的 `any` / 未使用变量等暂为 warn。
+- `pnpm lint`：运行 ESLint 10（flat config，见 `eslint.config.mjs`，不强制 Prettier 格式），并带 `--fix` 自动修复可修复问题。
+- `pnpm lint:check`：只检查不修改文件，适合 CI 或提交前检查。
 - `pnpm type-check`：运行 `vue-tsc --noEmit`。
 - 当前仓库没有独立的 `format` 脚本；不要在文档里假设存在 `pnpm format`。
 

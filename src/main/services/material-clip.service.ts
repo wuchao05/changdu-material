@@ -3080,6 +3080,7 @@ export class MaterialClipService {
     } catch (error) {
       throw new Error(
         `读取 AI 高光结果失败：${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
       );
     }
 

@@ -49,7 +49,7 @@ async function findRuntimeRoot(
     return null;
   }
 
-  let entries: fs.Dirent[] = [];
+  let entries: fs.Dirent[];
   try {
     entries = await fsp.readdir(baseDir, { withFileTypes: true });
   } catch {

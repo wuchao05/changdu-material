@@ -900,7 +900,7 @@ export class FileService {
                     // 先尝试修改文件权限（Windows）
                     try {
                       await fs.promises.chmod(fullPath, 0o666);
-                    } catch (chmodError) {
+                    } catch {
                       // 权限修改失败不影响继续
                     }
                     await fs.promises.unlink(fullPath);
