@@ -8,6 +8,29 @@ interface DownloadProgress {
   speed?: number;
 }
 
+interface DownloadState {
+  dramaName: string;
+  url: string;
+  savePath: string;
+  downloadedBytes: number;
+  totalBytes: number;
+  paused: boolean;
+  chunks?: Array<{ start: number; end: number; downloaded: boolean }>;
+}
+
+interface SubmitMaterialItem {
+  name: string;
+  url: string;
+  type: number;
+  width: number;
+  height: number;
+  duration: number;
+  size: number;
+  contentName?: string;
+  editor?: string;
+  remark?: string;
+}
+
 interface ExtractQueueStatus {
   taskId?: string;
   dramaName?: string;
@@ -692,7 +715,7 @@ interface Api {
     dramaName: string,
   ) => Promise<{ success: boolean; filePath: string }>;
   isDownloadPaused: (dramaName: string) => Promise<boolean>;
-  getDownloadState: (dramaName: string) => Promise<any>;
+  getDownloadState: (dramaName: string) => Promise<DownloadState | undefined>;
   onDownloadProgress: (
     callback: (progress: DownloadProgress) => void,
   ) => () => void;
@@ -746,7 +769,7 @@ interface Api {
     filePath: string,
     options: unknown,
   ) => Promise<{ success: boolean; url: string }>;
-  submitMaterial: (materials: unknown) => Promise<unknown>;
+  submitMaterial: (materials: SubmitMaterialItem[]) => Promise<unknown>;
   pushDramaMaterials: (params: {
     dramaName: string;
     materialNames: string[];

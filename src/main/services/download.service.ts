@@ -170,7 +170,7 @@ export class DownloadService {
       return result;
     } catch (error) {
       console.log(`[DownloadService] downloadWithRetry 捕获到错误:`, error);
-      const errorCode = (error as any).code;
+      const errorCode = (error as NodeJS.ErrnoException).code;
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       console.log(
@@ -673,7 +673,7 @@ export class DownloadService {
 
       request.on("error", (err) => {
         console.error("[DownloadService] 请求错误:", err);
-        console.error("[DownloadService] 错误代码:", (err as any).code);
+        console.error("[DownloadService] 错误代码:", (err as NodeJS.ErrnoException).code);
         console.error("[DownloadService] 已下载字节数:", downloadedBytes);
 
         if (this.cancelledDownloads.has(dramaName)) {

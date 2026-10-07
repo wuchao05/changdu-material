@@ -375,7 +375,7 @@ export class ApiService {
 
     // 如果返回了数据，在前端按日期筛选
     if (response.data.data?.items) {
-      const filteredItems = response.data.data.items.filter((item: any) => {
+      const filteredItems = response.data.data.items.filter((item: { fields: Record<string, unknown> }) => {
         const itemDate = item.fields["日期"];
         if (!itemDate) return false;
 

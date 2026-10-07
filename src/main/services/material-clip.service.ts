@@ -298,10 +298,6 @@ export interface MaterialClipAiHighlightState {
   lastUpdatedAt: string | null;
 }
 
-interface MaterialClipFeishuRecordFieldValue {
-  text?: string;
-}
-
 interface MaterialClipFeishuRecord {
   record_id: string;
   fields: Record<string, unknown>;

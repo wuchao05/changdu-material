@@ -10,8 +10,6 @@ import {
   NCollapseItem,
   NForm,
   NFormItem,
-  NGrid,
-  NGridItem,
   NInput,
   NInputNumber,
   NSelect,

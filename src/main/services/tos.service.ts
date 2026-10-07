@@ -5,7 +5,7 @@ import crypto from "crypto";
 import type { ConfigService } from "./config.service";
 
 // 兼容不同的模块导出方式
-const TOS = (TosSDK as any).default || TosSDK;
+const TOS = (TosSDK as unknown as { default?: typeof TosSDK }).default || TosSDK;
 
 // 分片大小配置（字节）
 export const CHUNK_SIZE = {
@@ -97,7 +97,7 @@ export function getMd5FileName(originalName: string): string {
 }
 
 export class TosService {
-  private tosClient: TOS | null = null;
+  private tosClient: TosSDK | null = null;
   private credentialsExpireTime = 0;
   private uploadCancelTokens: Map<string, { cancel: () => void }> = new Map();
   private activeUploads: Map<string, boolean> = new Map();
@@ -180,7 +180,7 @@ export class TosService {
   async initTosClient(
     configService: ConfigService,
     force = false,
-  ): Promise<TOS> {
+  ): Promise<TosSDK> {
     // 检查是否需要刷新凭证
     if (this.tosClient && !force && Date.now() < this.credentialsExpireTime) {
       return this.tosClient;

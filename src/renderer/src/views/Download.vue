@@ -53,7 +53,23 @@ interface DownloadTask {
   error?: string;
   lastProgressUpdate?: number; // 最后一次进度更新的时间戳
   retryCount?: number; // 重试次数
-  stallCheckTimer?: any; // 停滞检测定时器
+  stallCheckTimer?: ReturnType<typeof setInterval> | null; // 停滞检测定时器
+}
+
+// 常读下载中心任务列表接口返回结构
+interface ChangduTaskListResult {
+  code?: number;
+  message?: string;
+  data?: Array<{
+    download_id: string;
+    task_name: string;
+    task_id: string;
+    task_status: number;
+    book_id: string;
+    book_name: string;
+    imagex_uri: string;
+  }>;
+  total?: number;
 }
 
 interface FeishuDownloadRecord {
@@ -224,7 +240,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
     const queryChangduTask = async (
       cleanDramaName: string,
       retryCount = 0,
-    ): Promise<any> => {
+    ): Promise<ChangduTaskListResult> => {
       const maxRetries = 3;
       const changduPayload = {
         page_index: 0,
@@ -244,20 +260,7 @@ async function fetchPendingDownloads(): Promise<boolean> {
           undefined,
           "sanrou", // 剧集下载统一使用散柔配置
           undefined,
-        )) as {
-          code?: number;
-          message?: string;
-          data?: Array<{
-            download_id: string;
-            task_name: string;
-            task_id: string;
-            task_status: number;
-            book_id: string;
-            book_name: string;
-            imagex_uri: string;
-          }>;
-          total?: number;
-        };
+        )) as ChangduTaskListResult;
 
         // 如果返回 14002（请求过快），进行重试
         if (changduResult.code === 14002 && retryCount < maxRetries) {

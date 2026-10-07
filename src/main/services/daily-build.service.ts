@@ -205,7 +205,7 @@ function buildChangduPostHeaders(
 
 function sanitizeDramaName(name: string): string {
   return name.replace(
-    /[，。：；！？、''""（）《》【】……—·\s,.:;!?()\[\]{}'"<>\/\\|~`@#$%^&*+=]/g,
+    /[，。：；！？、''""（）《》【】……—·\s,.:;!?()[\]{}'"<>/\\|~`@#$%^&*+=]/g,
     "",
   );
 }
@@ -550,6 +550,17 @@ function filterMaterialsByTemplate(
     .filter((material): material is GiantMaterial => Boolean(material));
 }
 
+// 巨量广告平台接口通用响应结构（code 为 0 或 200 表示成功，视接口而定）
+interface OceanApiResponse<T = unknown> {
+  code?: number;
+  msg?: string;
+  message?: string;
+  data?: T;
+}
+
+// 素材列表接口返回的原始视频，filename 可能缺失，需要用 video_name 兜底
+type RawGiantMaterial = Partial<GiantMaterial> & Pick<GiantMaterial, "video_id">;
+
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!text) {
@@ -879,7 +890,7 @@ export class DailyBuildService {
     accountId: string,
     cookieHeader: string,
     signal: AbortSignal,
-  ): Promise<any> {
+  ): Promise<OceanApiResponse<{ micro_app?: unknown }>> {
     const response = await fetch(
       `https://ad.oceanengine.com/event_manager/v2/api/assets/ad/list?aadvid=${accountId}`,
       {
@@ -897,7 +908,7 @@ export class DailyBuildService {
       },
     );
 
-    return parseJsonResponse<any>(response);
+    return parseJsonResponse<OceanApiResponse<{ micro_app?: unknown }>>(response);
   }
 
   private async createMicroAppAsset(
@@ -906,7 +917,7 @@ export class DailyBuildService {
     buildSettings: UploadBuildSettings,
     cookieHeader: string,
     signal: AbortSignal,
-  ): Promise<any> {
+  ): Promise<OceanApiResponse> {
     const response = await fetch(
       `https://ad.oceanengine.com/event_manager/api/assets/create?aadvid=${accountId}`,
       {
@@ -930,7 +941,7 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<OceanApiResponse>(response);
     if (result?.code !== 0) {
       throw new Error(result?.msg || "创建小程序资产失败");
     }
@@ -955,10 +966,12 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<
+      OceanApiResponse<{ track_status?: Array<{ event_name?: string }> }>
+    >(response);
     const hasPaymentEvent = Array.isArray(result?.data?.track_status)
       ? result.data.track_status.some(
-          (event: any) => event.event_name === "付费",
+          (event) => event.event_name === "付费",
         )
       : false;
     return { hasPaymentEvent };
@@ -998,7 +1011,7 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<OceanApiResponse>(response);
     if (result?.code !== 0) {
       throw new Error(result?.msg || "添加付费事件失败");
     }
@@ -1031,7 +1044,9 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<
+      OceanApiResponse<{ image_info?: { web_uri?: string } }>
+    >(response);
     if (result?.code !== 200) {
       throw new Error(result?.message || "上传头像图片失败");
     }
@@ -1069,7 +1084,7 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<OceanApiResponse>(response);
     if (result?.code !== 200 && result?.code !== 410001) {
       throw new Error(result?.message || "保存头像失败");
     }
@@ -1100,7 +1115,9 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<
+      OceanApiResponse<{ width?: number; height?: number; web_uri?: string }>
+    >(response);
     if (result?.code !== 0) {
       throw new Error(result?.msg || "上传主图失败");
     }
@@ -1186,7 +1203,9 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<
+      OceanApiResponse<{ id?: string | number }>
+    >(response);
     if (result?.code !== 0) {
       throw new Error(result?.msg || "创建项目失败");
     }
@@ -1225,7 +1244,9 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<
+      OceanApiResponse<Array<{ ies_core_id?: string | number }>>
+    >(response);
     if (result?.code !== 0) {
       throw new Error(result?.msg || "获取抖音号信息失败");
     }
@@ -1272,13 +1293,15 @@ export class DailyBuildService {
       },
     );
 
-    const result = await parseJsonResponse<any>(response);
+    const result = await parseJsonResponse<
+      OceanApiResponse<{ videos?: RawGiantMaterial[] }>
+    >(response);
     if (result?.code !== 0) {
       throw new Error(result?.msg || "获取素材列表失败");
     }
 
     return Array.isArray(result?.data?.videos)
-      ? result.data.videos.map((video: any) => ({
+      ? result.data.videos.map((video) => ({
           ...video,
           filename: String(video.video_name || video.filename || "").trim(),
         }))
@@ -1442,7 +1465,7 @@ export class DailyBuildService {
           },
         );
 
-        const result = await parseJsonResponse<any>(response);
+        const result = await parseJsonResponse<OceanApiResponse>(response);
         if (result?.code !== 0) {
           throw new Error(result?.msg || "创建广告失败");
         }

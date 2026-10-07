@@ -26,7 +26,6 @@ const darenStore = useDarenStore();
 // 状态
 const isInitializing = ref(false);
 const isReady = ref(false);
-const isUploading = ref(false);
 const needLogin = ref(false);
 const isExportingLoginState = ref(false);
 const isImportingLoginState = ref(false);

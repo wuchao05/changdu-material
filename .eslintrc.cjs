@@ -20,13 +20,10 @@ module.exports = {
     'no-empty': ['error', { allowEmptyCatch: true }],
     // 允许带说明的 @ts-ignore（electron-vite 模板 preload 中的用法）
     '@typescript-eslint/ban-ts-comment': ['error', { 'ts-ignore': 'allow-with-description' }],
-    // 以下为存量问题，先降级为 warn 让 lint 可用，后续逐步清理后再改回 error
-    '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/no-unused-vars': [
-      'warn',
-      { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
-    ],
-    'no-useless-escape': 'warn'
+      'error',
+      { argsIgnorePattern: '^_', varsIgnorePattern: '^_', ignoreRestSiblings: true }
+    ]
   },
   overrides: [
     {

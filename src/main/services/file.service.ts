@@ -54,7 +54,7 @@ export class FileService {
       error?: string;
       extractedPath: string;
     }) => void;
-    reject: (reason?: any) => void;
+    reject: (reason?: unknown) => void;
   }> = [];
   private activeExtractCount = 0;
   private readonly maxConcurrentExtracts = 2;
@@ -1090,7 +1090,8 @@ export class FileService {
           fs.closeSync(fd);
           fd = null;
           break;
-        } catch (openError: any) {
+        } catch (error: unknown) {
+          const openError = error as NodeJS.ErrnoException;
           if (fd !== null) {
             try {
               fs.closeSync(fd);

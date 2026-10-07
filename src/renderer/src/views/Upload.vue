@@ -1,13 +1,12 @@
 <script setup lang="ts">
 defineOptions({ name: "Upload" });
-import { ref, computed, onMounted, onUnmounted, h, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import {
   NCard,
   NButton,
   NSpace,
   NDatePicker,
   NProgress,
-  NDataTable,
   NTag,
   NSwitch,
   NAlert,
@@ -25,11 +24,9 @@ import {
   NModal,
   useMessage,
 } from "naive-ui";
-import type { DataTableColumns } from "naive-ui";
 import { HelpCircleOutline } from "@vicons/ionicons5";
 import dayjs from "dayjs";
 import { useDarenStore } from "../stores/daren";
-import { useAuthStore } from "../stores/auth";
 import { useApiConfigStore } from "../stores/apiConfig";
 
 // 视频状态类型
@@ -88,7 +85,6 @@ interface DramaGroup {
 
 const message = useMessage();
 const darenStore = useDarenStore();
-const authStore = useAuthStore();
 const apiConfigStore = useApiConfigStore();
 
 // State
@@ -605,55 +601,6 @@ function cancelUpload() {
   message.info("上传已取消");
 }
 
-// 提交到素材库
-async function submitToMaterialLibrary() {
-  const successVideos = videoMaterials.value.filter(
-    (v) => v.status === "success" && v.url && !v.isSubmitted,
-  );
-
-  if (successVideos.length === 0) {
-    message.info("没有需要提交的素材");
-    return;
-  }
-
-  try {
-    // 获取视频信息并准备素材数据
-    const materials = await Promise.all(
-      successVideos.map(async (v) => {
-        // 获取视频详细信息
-        let videoInfo = { width: 1280, height: 720, duration: 60 };
-        try {
-          videoInfo = await window.api.getVideoInfo(v.filePath);
-        } catch (e) {
-          console.warn("获取视频信息失败，使用默认值");
-        }
-
-        return {
-          name: v.fileName,
-          url: v.url!,
-          type: 0,
-          width: videoInfo.width,
-          height: videoInfo.height,
-          duration: Math.round(videoInfo.duration),
-          size: Math.ceil((v.size / 1024 / 1024) * 1000), // MB * 1000
-        };
-      }),
-    );
-
-    await window.api.submitMaterial(materials);
-
-    // 标记为已提交
-    successVideos.forEach((v) => {
-      v.isSubmitted = true;
-    });
-
-    message.success(`成功提交 ${materials.length} 个素材到素材库`);
-  } catch (error) {
-    message.error("素材库提交失败");
-    console.error(error);
-  }
-}
-
 // 选择相关方法
 function toggleVideoSelection(fileName: string) {
   if (selectedVideos.value.has(fileName)) {
@@ -1164,7 +1111,7 @@ onMounted(() => {
 
             // 1. 只获取成功上传的视频信息（跳过失败的视频）
             // 使用 for...of 循环而不是 Promise.all，避免单个失败导致整体失败
-            const materials: any[] = [];
+            const materials: Parameters<typeof window.api.submitMaterial>[0] = [];
             for (const v of successVideos) {
               try {
                 const videoInfo = await window.api.getVideoInfo(v.filePath);
@@ -1379,7 +1326,6 @@ onMounted(() => {
         }
 
         // 注意：每部剧上传完成后已自动提交到素材库并删除目录
-        // 这里不需要再次调用 submitToMaterialLibrary()
 
         // 如果自动上传已开启，上传完成后立即查询新任务
         if (autoUploadEnabled.value) {

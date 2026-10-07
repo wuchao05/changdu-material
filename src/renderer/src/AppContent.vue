@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, h, KeepAlive } from "vue";
+import { ref, computed, onMounted, watch, h } from "vue";
 import type { Component } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -392,9 +392,9 @@ onMounted(async () => {
           </div>
         </NLayoutSider>
         <NLayoutContent class="main-content">
-          <router-view v-slot="{ Component }">
+          <router-view v-slot="{ Component: routeComponent }">
             <KeepAlive include="Upload,Download,JuliangUpload,MaterialClip">
-              <component :is="Component" />
+              <component :is="routeComponent" />
             </KeepAlive>
           </router-view>
         </NLayoutContent>
